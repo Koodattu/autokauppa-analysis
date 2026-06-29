@@ -29,6 +29,7 @@ is no implementation scaffold yet.
 - [Product Analytics Ideas](docs/product-analytics.md)
 - [Operations and Security](docs/operations-and-security.md)
 - [Testing and Quality](docs/testing-and-quality.md)
+- [Far Future Ideas](docs/far-future-ideas.md)
 - [Open Questions](docs/open-questions.md)
 
 ## Core Direction
