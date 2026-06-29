@@ -214,3 +214,109 @@ Important cautions:
 This is a far-future feature because it depends on the core dataset first:
 reliable Listing parsing, normalized fields, price history, market comparison,
 coverage metadata, and enough detail-page enrichment to make the analysis useful.
+
+## 3. Market Intelligence and Deal Radar
+
+Use the Market Dataset to surface interesting changes automatically instead of
+requiring users to manually inspect every chart. This would turn the product from
+a passive analytics dashboard into a market intelligence system.
+
+The core idea:
+
+```text
+Continuously analyze current and historical Listings.
+Detect unusual prices, price drops, relists, stale inventory, fast-moving
+segments, and market shifts.
+Show the most interesting signals to users.
+```
+
+Possible features:
+
+- Deal radar for Listings that look unusually cheap for their segment.
+- Overpriced Listing detection.
+- Large price-drop feed.
+- New Listing feed for rare or high-interest segments.
+- Relist detection using Source Listing ID history, Registration Number, VIN
+  when admin-only, and fuzzy vehicle attributes.
+- "Stale but negotiable" detection for Listings sitting active for a long time.
+- Market heat score by make/model/year/fuel/transmission segment.
+- Fastest-moving and slowest-moving vehicle segments.
+- Inventory shocks, such as sudden rise in Tesla Model Y Listings.
+- Seasonal price and inventory movement.
+- Dealer/private seller pricing behavior.
+- Region-based price anomalies, if location data is reliable.
+- Suspicious data signals, such as implausible mileage, price, year, or repeated
+  listing patterns.
+
+The most useful first version would probably be a public "Market Signals" page:
+
+```text
+Today's notable price drops
+Unusually cheap Listings
+Segments with rising inventory
+Segments with falling median Asking Price
+Listings active unusually long
+Recently sold high-interest Listings
+```
+
+Later, this could become personalized:
+
+- URL Filter based alerts.
+- Email or RSS alerts.
+- "Watch this segment" pages.
+- Discord/Telegram notifications.
+- Saved Views once user accounts exist.
+
+Signal generation should be mostly deterministic at first. Use SQL and simple
+statistics before adding machine learning:
+
+- Segment percentiles.
+- Z-scores or robust outlier detection.
+- Rolling medians.
+- Price-per-kilometer or mileage-adjusted comparisons.
+- Days-on-market proxy.
+- Price-drop thresholds.
+- Inventory change over time.
+
+Machine learning can come later for stronger anomaly detection, but the first
+useful version is likely just well-designed rules over clean historical data.
+
+Possible architecture:
+
+```text
+Normalized Listing Data
+  -> scheduled signal generation job
+  -> market_signals table
+  -> public Market Signals UI
+  -> optional alert delivery later
+```
+
+Example signal:
+
+```json
+{
+  "type": "underpriced_listing",
+  "segment": "Toyota Corolla 2017-2019 automatic",
+  "listing_id": "...",
+  "reason": "Asking Price is 18% below segment median for similar mileage",
+  "confidence": "medium",
+  "sample_size": 84,
+  "coverage_window": "last 90 days"
+}
+```
+
+Important cautions:
+
+- Signals should always show Sample Size and Coverage Metadata.
+- "Cheap" should mean "cheap relative to observed data", not guaranteed good.
+- Public signals should not expose admin-only data such as VIN or Raw Listing
+  Data.
+- Seller/dealer analytics should be handled carefully to avoid making unfair
+  claims from incomplete data.
+- Alerts should not be added until the signal quality is good enough to avoid
+  noise.
+
+This idea fits naturally after the first product works because it uses the same
+ingredients: normalized Listings, price history, availability history, Listing
+Sightings, and public URL Filters. It does not require a neural network to be
+valuable; the hard part is clean data and honest signal design.
