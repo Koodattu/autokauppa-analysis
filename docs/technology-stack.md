@@ -58,8 +58,8 @@ Decision: use Next.js for the web frontend and run it on Node.js.
 
 Why:
 
+- Supports public analytics and Listing pages.
 - Keeps the path open for SSR and SEO.
-- Supports public pages if the app expands beyond private use.
 - Gives React routing, server rendering, metadata, and app-level conventions.
 - Works well behind a reverse proxy in a self-hosted deployment.
 
@@ -318,14 +318,27 @@ Add Redis/BullMQ later only if:
 
 ## Auth
 
-Decision: do not build custom auth.
+Decision: use a deliberately minimal Admin Password Gate for the first version.
 
-Candidate options:
+The analytics and Listing UI are public. Crawler state, admin actions, and
+admin-only API routes are private.
+
+First-version rules:
+
+- One admin password.
+- HTTPS only.
+- HTTP-only secure session cookie.
+- No public registration.
+- No user accounts.
+- No roles.
+- No unauthenticated admin access.
+
+Candidate future replacements:
 
 - Better Auth for a modern TypeScript auth stack that can work with Hono and
   Next.js.
 - Auth.js if Next integration and established ecosystem matter more.
 - Managed auth if security ownership should be minimized.
 
-Auth should be chosen before implementation because it affects sessions,
-cookies, schema, API authorization, Server Actions, and admin access.
+Full auth should be introduced before public user accounts, multi-user access,
+or roles.

@@ -27,7 +27,7 @@ dependency surface, but also more custom reliability code.
 - Schedule crawl jobs.
 - Enforce per-source rate limits.
 - Fetch source pages or source API responses.
-- Parse raw source data.
+- Parse Raw Listing Data.
 - Validate parsed data.
 - Write raw crawl artifacts or selected raw fields.
 - Normalize listings into application tables.
@@ -35,6 +35,11 @@ dependency surface, but also more custom reliability code.
 - Mark job success, failure, retry, or dead-letter states.
 - Emit structured job logs.
 - Expose enough state for admin/debug visibility.
+
+Both Current Listings Crawl and Sold Listings Crawl are in the first
+implementation scope. Current Listings Crawl has higher freshness priority; Sold
+Listings Crawl may run on a slower cadence while still supporting observed sold
+price trends.
 
 ## Worker Non-Responsibilities
 
@@ -90,9 +95,25 @@ The worker should support:
 - Dead-letter handling for repeated failures.
 - Separate behavior for transient network errors vs parse/schema errors.
 
+The initial Crawl Politeness posture should be conservative rather than
+aggressive. Exact concurrency, delay, retry, and cadence values should be worked
+out during implementation against real source behavior, but the starting point
+should favor slow sustainable collection over immediate completeness.
+
 ## Raw vs Normalized Data
 
-Keep a separation between raw source data and normalized application data.
+Keep a separation between Raw Listing Data and Normalized Listing Data.
+
+Raw Listing Data should be retained in PostgreSQL for every Listing observation
+where the Source provides useful listing-level data. This is a deliberate
+product choice: the project values the ability to reprocess source data, improve
+parsers, audit historical observations, and recover missed fields later.
+
+The production data model should not blindly store complete fetched HTML pages.
+Store the relevant listing-level payload, structured metadata, JSON-LD object,
+or HTML fragment that represents the Listing. During development, a local fetch
+cache may be used to avoid repeatedly hitting Nettiauto, but that cache is
+separate from product storage.
 
 Recommended initial model:
 
@@ -103,8 +124,8 @@ crawl_runs
 source_fetches
   metadata for each fetched page/response
 
-raw_listings
-  source-specific captured listing payload or selected raw fields
+raw_listing_records
+  Raw Listing Data captured from the Source
 
 listings
   stable normalized listing identity
@@ -117,7 +138,17 @@ listing_events
 ```
 
 The exact schema can change during implementation, but the separation matters.
-It protects against parser mistakes and lets old raw data be reprocessed.
+Raw Listing Data protects against parser mistakes and lets old data be
+reprocessed. Normalized Listing Data should be extracted into explicit typed
+columns for analytics and application queries. Flexible JSON is acceptable for
+Raw Listing Data, but normalized analytics fields should not stay trapped in
+JSON just because it is convenient. Frontend Data should be curated API output,
+not a direct dump of raw or database rows.
+
+For important fields, preserve a Source Label alongside the normalized value
+when it helps parser quality and auditability. For example, normalize fuel type
+to a stable enum while retaining the source text such as `Bensiini`, or store a
+null numeric price while retaining a source label such as `Kysy hintaa`.
 
 ## Validation
 
@@ -128,6 +159,15 @@ Use Zod at these worker boundaries:
 - Environment/config.
 
 Do not trust external source markup or payloads.
+
+## Parser Versioning and Reprocessing
+
+Parsing should be versioned. Normalized outputs should retain enough Parser
+Version information to explain which logic produced them.
+
+Reprocessing Runs should be supported so stored Raw Listing Data can be used to
+regenerate Normalized Listing Data when parser logic improves. The system should
+not silently mix materially different parser interpretations without visibility.
 
 ## Browser Automation
 
@@ -189,10 +229,13 @@ Before implementation, confirm:
 - robots.txt expectations.
 - Reasonable crawl frequency.
 - Whether login/session-based scraping is allowed.
-- Whether storing raw source data is acceptable.
+- Whether storing Raw Listing Data is acceptable.
 
 Robots.txt is not a security boundary, but it is still operationally and
 ethically relevant.
+
+The crawler should not bypass access controls or rely on aggressive anti-bot
+evasion by default.
 
 ## Failure Modes to Design For
 

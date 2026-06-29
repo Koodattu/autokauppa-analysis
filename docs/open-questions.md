@@ -5,10 +5,10 @@ scaffolding.
 
 ## Blocking Before Implementation
 
-1. Auth choice.
+1. Admin Password Gate details.
 
-   Choose Better Auth, Auth.js, or managed auth before implementing user/session
-   behavior.
+   Decide the exact session cookie behavior, password secret shape, and admin
+   route protection mechanism.
 
 2. Domain name and TLS setup.
 
@@ -55,7 +55,7 @@ scaffolding.
 - Redis/BullMQ.
 - OpenTelemetry.
 - Full admin console.
-- Complex role-based access control, if the app remains single-user/private.
+- Complex role-based access control.
 - Advanced CDN/caching.
 - Multi-server deployment.
 
@@ -63,7 +63,7 @@ scaffolding.
 
 Revisit the architecture if:
 
-- The app becomes public.
+- Public traffic grows beyond light use.
 - Multiple users or organizations are introduced.
 - The crawler needs high throughput.
 - PostgreSQL query performance becomes a measured problem.
@@ -75,7 +75,8 @@ Revisit the architecture if:
 ## Known Risks
 
 - The worker/crawler is the highest-risk subsystem.
-- A private app can still leak data if auth and network exposure are casual.
+- Admin-only data can still leak if route protection and network exposure are
+  casual.
 - Migrations can break both API and worker at the same time.
 - Untested backups are not backups.
 - Same-origin proxying avoids CORS complexity, but proxy routing must be correct.

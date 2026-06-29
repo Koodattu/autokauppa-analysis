@@ -1,7 +1,7 @@
 # nettiauto-analytics
 
-Private analytics application for collecting, storing, and analyzing Nettiauto
-listing data.
+Public analytics application for collecting, storing, and analyzing Nettiauto
+listing data, with private admin-only crawler operations.
 
 This repository is intentionally in the architecture/documentation phase. There
 is no implementation scaffold yet.
@@ -26,6 +26,7 @@ is no implementation scaffold yet.
 - [Architecture](docs/architecture.md)
 - [Technology Stack Decisions](docs/technology-stack.md)
 - [Worker and Data Pipeline](docs/worker-and-data-pipeline.md)
+- [Product Analytics Ideas](docs/product-analytics.md)
 - [Operations and Security](docs/operations-and-security.md)
 - [Testing and Quality](docs/testing-and-quality.md)
 - [Open Questions](docs/open-questions.md)
@@ -37,6 +38,29 @@ processes, not as unrelated applications. The API, worker, database schema,
 validation schemas, config, and logging conventions should be shared where that
 reduces duplication.
 
-The initial deployment target is one private server with Docker Compose. The
-architecture should still leave room for future public pages, SSR, SEO, and a
-larger analytics surface without forcing an early rewrite.
+The initial deployment target is one server with Docker Compose. Analytics,
+listing data, and public pages are intended to be public, while crawler state and
+administration stay behind the Admin Password Gate.
+
+## First Implementation Target
+
+- Public analytics page with URL filters.
+- Passenger car current and sold Listing ingestion.
+- Search Result Data ingestion first.
+- Raw Listing Data retained in PostgreSQL.
+- Explicit normalized columns for core analytics fields.
+- Public Listing Pages with Source Attribution.
+- Admin-password protected Crawler Status.
+- Public pages marked `noindex` initially.
+
+Deferred:
+
+- Image downloads.
+- Saved Views/watchlists.
+- General open data API.
+- ClickHouse or TimescaleDB.
+- Redis/BullMQ.
+- Browser automation unless required.
+- Full user auth/accounts.
+- Precomputed Aggregate Views.
+- Motorcycles.

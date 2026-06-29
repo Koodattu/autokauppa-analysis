@@ -218,30 +218,46 @@ Rules if CORS is needed:
 
 ## Authentication and Authorization
 
-Do not build custom auth.
+The analytics and Listing UI are public. Admin and crawler operations are
+private.
 
-Private first does not mean auth can be ignored. Pick an auth solution before
-implementation because it affects:
+The first implementation will use a deliberately minimal Admin Password Gate for
+admin access. It should use HTTPS, an HTTP-only secure session cookie, a secret
+from environment/secrets, and no public registration, roles, or user accounts.
 
-- Session storage.
-- Cookies.
-- CSRF posture.
-- API authorization.
-- Admin roles.
-- Database schema.
-- SSR behavior.
+The Admin Password Gate protects:
+
+- Admin Panel routes.
+- Crawler Status.
+- Crawl controls, if any.
+- Parser/reprocessing controls, if any.
+- Admin-only API routes.
+- Raw Listing Data.
+- Parser errors.
 
 Every sensitive API endpoint must enforce authorization in the API layer.
 
+Full auth must replace the Admin Password Gate before public user accounts,
+multi-user access, or roles.
+
+Public analytics and Listing endpoints may expose curated Public Listing Data.
+Registration Number is public by default when visible in the Source. VIN, Raw
+Listing Data, crawler internals, parser errors, and admin operations remain
+admin-only.
+
+The public Product API is not a general open data API. Bulk export, unbounded
+listing dumps, Raw Listing Data access, and crawler/admin operations are out of
+scope for unauthenticated public access.
+
 ## Rate Limiting
 
-Internal private use may not need aggressive rate limiting at launch, but the
-architecture should leave room for:
+Public analytics endpoints should have conservative request controls if traffic
+or abuse becomes a concern. The architecture should leave room for:
 
 - Login rate limits.
 - API mutation rate limits.
 - Worker source rate limits.
-- Caddy-level request controls if public exposure grows.
+- Caddy-level request controls.
 
 ## Rollback
 

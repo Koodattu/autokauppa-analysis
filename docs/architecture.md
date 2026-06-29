@@ -5,8 +5,9 @@ Status: planned architecture only. No implementation exists yet.
 ## Goals
 
 - Run the complete application on a single server with Docker Compose.
-- Keep the system private at first.
-- Preserve a clean path to future public pages, SSR, and SEO.
+- Make analytics and Listing views public from the first version.
+- Keep crawler state and administration private.
+- Preserve a clean path to SSR and SEO.
 - Keep the crawler reliable and observable from the beginning.
 - Use PostgreSQL as the initial source of truth.
 - Avoid Redis, ClickHouse, TimescaleDB, Kubernetes, and multi-server operations
@@ -16,7 +17,7 @@ Status: planned architecture only. No implementation exists yet.
 ## Non-Goals
 
 - No Kubernetes.
-- No public API unless product requirements change.
+- No third-party public API unless product requirements change.
 - No separate cache, search, analytics, or queue database at launch.
 - No custom authentication framework.
 - No nginx plus certbot lifecycle unless Caddy proves insufficient.
@@ -58,7 +59,7 @@ postgres
 | --- | --- | --- | --- |
 | `caddy` | Caddy | Yes, ports 80/443 | TLS, redirects, reverse proxy, public edge |
 | `web` | Node.js | No direct public port | Next.js app, React UI, SSR, SEO-ready pages |
-| `api` | Bun | No direct public port | Hono API, data endpoints, validation, auth checks |
+| `api` | Bun | No direct public port | Hono API, public analytics endpoints, admin-only endpoints |
 | `worker` | Node.js | No | Graphile Worker task execution and crawling |
 | `migrate` | Node.js or Bun | No | Apply Drizzle migrations explicitly |
 | `postgres` | PostgreSQL | No | Primary database and job queue storage |
@@ -125,7 +126,8 @@ Rules:
 - `packages/domain` must stay server-only.
 - `packages/schemas` can be shared by web, API, and worker when schemas are safe
   to ship to the browser.
-- `apps/web` should not import database internals for ordinary analytics data.
+- `apps/web` should not import database internals for public analytics or
+  Listing data.
 - `apps/api` owns HTTP data endpoints.
 - `apps/worker` owns crawling and background execution.
 
@@ -135,7 +137,8 @@ Use Hono as the canonical backend API from the start.
 
 Why:
 
-- The user explicitly wants a backend API service.
+- The web app needs Product API endpoints for analytics/listing views and
+  private admin-only endpoints.
 - It keeps a clean separation between web rendering and backend data behavior.
 - It keeps the future open for mobile clients or a public API.
 - It avoids tying all server behavior to Next.js conventions.
@@ -152,10 +155,15 @@ Mitigation:
 - Use one logging convention everywhere.
 - Use same-origin `/api/*` routing through Caddy.
 
+The public API boundary is product-facing only. It should support analytics
+charts, listing search/table data, individual Public Listing Pages, and filter
+metadata. It should not become a general open data API, bulk export API, raw data
+API, or high-volume machine API in the first version.
+
 ## SSR and Future SEO
 
-Even though the first version is private, use Next.js now so future public pages
-and SSR/SEO do not require a framework migration.
+Use Next.js now because analytics and Listing views are public and should have a
+clean path to SSR and SEO.
 
 Rules:
 
@@ -164,6 +172,9 @@ Rules:
 - Keep route handlers/server actions thin if used at all.
 - Do not duplicate Hono API behavior inside Next route handlers.
 - Do not put crawler or ingestion logic into Next.
+- Keep admin routes behind the Admin Password Gate.
+- Fetch public SSR data through the internal Hono Product API rather than
+  importing Drizzle/database access into Next.
 
 ## Database Boundary
 
@@ -177,7 +188,7 @@ Initial data classes:
 - Listing snapshots/history.
 - Derived aggregates.
 - Worker job data.
-- User/auth/session data, if local auth is used.
+- Admin session data, if needed for the Admin Password Gate.
 
 Do not add ClickHouse or TimescaleDB at launch. Reconsider when query volume,
 history size, retention policy, or analytical latency proves PostgreSQL is the
