@@ -190,6 +190,18 @@ Initial data classes:
 - Worker job data.
 - Admin session data, if needed for the Admin Password Gate.
 
+The planned first database shape is documented in
+[Database Structure](database-structure.md). The important initial separation is:
+
+- `source_search_queries`, `crawl_runs`, and `source_fetches` describe source
+  coverage and operational state.
+- `raw_listing_records` stores relevant Source-provided Listing fragments and
+  payloads for reprocessing.
+- `listings`, `listing_sightings`, and `listing_snapshots` support identity,
+  crawl coverage, and change-based history.
+- curated Product API responses are derived from normalized tables, not from raw
+  source payloads.
+
 Do not add ClickHouse or TimescaleDB at launch. Reconsider when query volume,
 history size, retention policy, or analytical latency proves PostgreSQL is the
 wrong storage engine.

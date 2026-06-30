@@ -20,10 +20,12 @@ scaffolding.
    Confirm terms, robots.txt expectations, acceptable rate, and whether raw data
    storage is acceptable.
 
-4. Initial data model.
+4. Initial data model implementation details.
 
-   Decide the first version of source, listing, snapshot, crawl run, and job
-   tables.
+   A proposed structure now exists in
+   [Database Structure](database-structure.md). Before writing migrations,
+   decide exact column names, enum implementation, indexes, and whether UUIDs or
+   generated identity columns are preferred.
 
 5. Worker runtime confirmation.
 
@@ -46,6 +48,9 @@ scaffolding.
 - No Redis at launch.
 - No ClickHouse or TimescaleDB at launch.
 - No browser automation unless required.
+- Nettiauto Search Result Data should start with AJAX-style HTTP fetches using
+  `X-Requested-With: XMLHttpRequest`; see
+  [Crawler Implementation Notes](crawler-implementation.md).
 
 ## Safe to Defer
 
@@ -75,6 +80,11 @@ Revisit the architecture if:
 ## Known Risks
 
 - The worker/crawler is the highest-risk subsystem.
+- The current/sold default Nettiauto `haku` values may change or become invalid;
+  they must be treated as Source Search Query seeds, not permanent API
+  contracts.
+- Nettiauto may change the AJAX response shape or listing-card `data-datalayer`
+  fields without notice.
 - Admin-only data can still leak if route protection and network exposure are
   casual.
 - Migrations can break both API and worker at the same time.

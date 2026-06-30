@@ -3,6 +3,10 @@
 Status: early source research only. No crawler implementation exists here.
 Last checked: 2026-06-30.
 
+For planned implementation details, see
+[Crawler Implementation Notes](crawler-implementation.md) and
+[Database Structure](database-structure.md).
+
 ## Project constraints
 
 The existing architecture docs point to an HTTP-first crawler:

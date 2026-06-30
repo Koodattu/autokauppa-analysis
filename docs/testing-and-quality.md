@@ -153,6 +153,21 @@ Fixtures should be:
 
 Do not let live network behavior be the only parser test.
 
+Initial Nettiauto parser fixtures should include:
+
+- current-listing AJAX JSON for page 1.
+- sold-listing AJAX JSON for page 1.
+- first-load HTML document with JSON-LD.
+- standalone `application/ld+json` script fragment.
+- malformed or unexpected body-shape fixture for parser failure behavior.
+
+The expected parsed output should include Source Listing ID, source URL,
+availability label, normalized availability, price, mileage, make, model, year,
+seller label, page number, list position, and image URL metadata.
+
+Live probes may be used during research, but they should not be part of normal
+unit tests or CI. CI should run against fixtures only.
+
 ## Performance Checks
 
 Initial performance work should be pragmatic:

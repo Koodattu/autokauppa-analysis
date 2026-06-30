@@ -7,6 +7,11 @@ Status: planned design only. No implementation exists yet.
 The worker is the hardest part of the system. Treat crawling as a durable data
 pipeline, not as an infinite loop that sleeps and scrapes.
 
+Concrete first-version crawler notes are documented in
+[Crawler Implementation Notes](crawler-implementation.md). Current source
+behavior research is documented in
+[Nettiauto Crawler Research](crawler-research.md).
+
 ## Runtime Choice
 
 Decision: use Graphile Worker on Node.js for job execution.
@@ -26,7 +31,7 @@ dependency surface, but also more custom reliability code.
 
 - Schedule crawl jobs.
 - Enforce per-source rate limits.
-- Fetch source pages or source API responses.
+- Fetch source pages or AJAX-style source responses.
 - Parse Raw Listing Data.
 - Validate parsed data.
 - Write raw crawl artifacts or selected raw fields.
@@ -40,6 +45,18 @@ Both Current Listings Crawl and Sold Listings Crawl are in the first
 implementation scope. Current Listings Crawl has higher freshness priority; Sold
 Listings Crawl may run on a slower cadence while still supporting observed sold
 price trends.
+
+For Nettiauto, the first implementation should fetch Search Result Pages with
+normal HTTP plus the Source's AJAX pagination header:
+
+```text
+Accept: */*
+X-Requested-With: XMLHttpRequest
+```
+
+This returns JSON for current and sold search result pages, including page 1.
+The primary payload is `ad_listing_data`, which contains listing-card HTML with
+card-level `data-datalayer` JSON.
 
 ## Worker Non-Responsibilities
 
@@ -118,6 +135,9 @@ separate from product storage.
 Recommended initial model:
 
 ```text
+source_search_queries
+  one row per Source Search Query, including current and sold default hashes
+
 crawl_runs
   one row per crawl execution or batch
 
@@ -135,15 +155,19 @@ listing_snapshots
 
 listing_events
   optional derived events such as first_seen, price_changed, removed
+
+listing_images
+  image URL metadata only, not downloaded image binaries
 ```
 
-The exact schema can change during implementation, but the separation matters.
-Raw Listing Data protects against parser mistakes and lets old data be
-reprocessed. Normalized Listing Data should be extracted into explicit typed
-columns for analytics and application queries. Flexible JSON is acceptable for
-Raw Listing Data, but normalized analytics fields should not stay trapped in
-JSON just because it is convenient. Frontend Data should be curated API output,
-not a direct dump of raw or database rows.
+The planned table-level structure is documented in
+[Database Structure](database-structure.md). The exact schema can change during
+implementation, but the separation matters. Raw Listing Data protects against
+parser mistakes and lets old data be reprocessed. Normalized Listing Data should
+be extracted into explicit typed columns for analytics and application queries.
+Flexible JSON is acceptable for Raw Listing Data, but normalized analytics fields
+should not stay trapped in JSON just because it is convenient. Frontend Data
+should be curated API output, not a direct dump of raw or database rows.
 
 For important fields, preserve a Source Label alongside the normalized value
 when it helps parser quality and auditability. For example, normalize fuel type
@@ -175,12 +199,15 @@ Do not start with browser automation unless required.
 
 Preferred order:
 
-1. HTTP fetch static source pages or APIs.
+1. HTTP fetch source pages or AJAX-style source responses.
 2. Parse HTML/JSON without a browser.
 3. Use Crawlee if crawling complexity grows.
 4. Use Playwright only when JavaScript rendering or browser behavior is required.
 
 Browser automation is operationally heavier and easier to block.
+
+Current Nettiauto research shows browser automation is not required for Search
+Result Data because AJAX-style HTTP requests return the needed page JSON.
 
 ## Observability
 
