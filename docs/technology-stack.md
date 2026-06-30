@@ -326,8 +326,13 @@ admin-only API routes are private.
 First-version rules:
 
 - One admin password.
+- `ADMIN_PASSWORD` is a plain environment secret for the first version.
 - HTTPS only.
-- HTTP-only secure session cookie.
+- HTTP-only secure stateless session cookie signed with `SESSION_SECRET`.
+- Simple signed JSON cookie payload: version, issued-at, expiry, and admin
+  scope only.
+- `SESSION_SECRET` is separate from `ADMIN_PASSWORD`.
+- No database-backed admin sessions at first.
 - No public registration.
 - No user accounts.
 - No roles.

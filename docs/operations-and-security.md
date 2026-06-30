@@ -16,6 +16,11 @@ Caddy data volume
 backup destination outside the app volume
 ```
 
+Local implementation does not require the production domain or public TLS. The
+base Compose setup may be used with `SITE_ADDRESS=:80` or direct service ports.
+Production deployment must supply the real subdomain through environment values
+or a small Compose override if Caddy settings diverge from local development.
+
 ## Public Edge
 
 Use Caddy as the only public edge.
@@ -46,6 +51,11 @@ Requirements:
 - The Caddyfile is versioned.
 
 Avoid certbot unless Caddy is rejected for a concrete reason.
+
+Domain and TLS setup are deployment prerequisites, not blockers for local
+implementation or tests. Before production deployment, DNS must point the chosen
+subdomain to the server and ports 80 and 443 must be reachable so Caddy can
+complete automatic HTTPS.
 
 ## Compose Startup
 
@@ -222,8 +232,16 @@ The analytics and Listing UI are public. Admin and crawler operations are
 private.
 
 The first implementation will use a deliberately minimal Admin Password Gate for
-admin access. It should use HTTPS, an HTTP-only secure session cookie, a secret
-from environment/secrets, and no public registration, roles, or user accounts.
+admin access. It should use HTTPS, one admin password from the `ADMIN_PASSWORD`
+environment secret, an HTTP-only secure stateless session cookie signed with
+`SESSION_SECRET`, and no public registration, roles, user accounts, or
+database-backed admin session table.
+
+The cookie format should stay simple: a base64url-encoded JSON payload plus an
+HMAC-SHA256 signature, with no sensitive values in the payload. The payload
+should contain only a version, issued-at timestamp, expiry timestamp, and fixed
+admin scope. Cookie attributes should be `HttpOnly`, `SameSite=Lax`, `Path=/`,
+`Secure` in production, and a first-version lifetime of about seven days.
 
 The Admin Password Gate protects:
 
@@ -239,6 +257,15 @@ Every sensitive API endpoint must enforce authorization in the API layer.
 
 Full auth must replace the Admin Password Gate before public user accounts,
 multi-user access, or roles.
+
+Database-backed admin sessions may be introduced later if logout revocation,
+session audit, multiple admins, or stronger operational controls become
+necessary.
+
+A hashed admin password secret may be introduced later if operational handling
+of plain environment secrets becomes uncomfortable. For the first version,
+`ADMIN_PASSWORD` and `SESSION_SECRET` must remain separate high-entropy secrets
+and must not be logged.
 
 Public analytics and Listing endpoints may expose curated Public Listing Data.
 Registration Number is public by default when visible in the Source. VIN, Raw

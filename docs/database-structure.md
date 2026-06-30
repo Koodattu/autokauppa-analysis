@@ -3,16 +3,20 @@
 Status: planned database structure only. No migrations or Drizzle schema have
 been implemented yet.
 
-This document turns the architecture decisions into an initial relational model
-for Nettiauto Search Result Data ingestion. The exact column names can change
-during implementation, but the boundaries, identities, and uniqueness rules
-should stay stable unless an ADR changes them.
+This document turns the architecture decisions into the first relational model
+for Nettiauto Search Result Data ingestion. The table names, column names,
+constraints, and indexes below are the first migration contract. Minor
+Drizzle-specific naming adjustments are acceptable during implementation, but
+the boundaries, identities, and uniqueness rules should stay stable unless an
+ADR changes them.
 
 ## Design Principles
 
 - PostgreSQL is the only application database at launch.
 - Source Listing identity is `(source, source_listing_id)`.
-- Search Result Data is collected before Detail Page Data.
+- App-owned tables use UUID primary keys.
+- The first implementation collects current and sold Search Result Data only.
+- Detail Page Data is deferred until the Search Result Data pipeline is stable.
 - Raw Listing Data is retained for parser reprocessing and auditability.
 - Normalized analytics fields use explicit typed columns.
 - Listing Sightings record crawl coverage; Listing Snapshots record changed
@@ -23,8 +27,9 @@ should stay stable unless an ADR changes them.
 
 ## Initial Enums
 
-Prefer PostgreSQL enums or constrained text values for stable domain state. Keep
-source labels separately when they come from Nettiauto.
+Use PostgreSQL enums for stable app-owned domain state. Keep source labels,
+failure classes, and other externally shaped or open-ended values as text so
+source drift does not require enum migrations.
 
 ```text
 source_code

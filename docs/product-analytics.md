@@ -65,7 +65,7 @@ Admin-only fields stay hidden:
 
 ## Detail-Page Enrichment Views
 
-These depend on Detail Page Data and should not block the first version:
+These depend on Detail Page Data and are out of scope for the first version:
 
 - Transmission trends, such as automatic versus manual pricing.
 - Registration identifier recurrence across multiple Listings.

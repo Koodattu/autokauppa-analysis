@@ -25,6 +25,7 @@ product UI are intentionally not implemented yet.
 ## Architecture Docs
 
 - [Architecture](docs/architecture.md)
+- [First Implementation Plan](docs/first-implementation-plan.md)
 - [Technology Stack Decisions](docs/technology-stack.md)
 - [Worker and Data Pipeline](docs/worker-and-data-pipeline.md)
 - [Database Structure](docs/database-structure.md)
@@ -51,7 +52,7 @@ administration stay behind the Admin Password Gate.
 
 - Public analytics page with URL filters.
 - Passenger car current and sold Listing ingestion.
-- Search Result Data ingestion first.
+- Current and sold Search Result Data ingestion first.
 - Raw Listing Data retained in PostgreSQL.
 - Explicit normalized columns for core analytics fields.
 - Public Listing Pages with Source Attribution.
@@ -69,6 +70,7 @@ Deferred:
 - Full user auth/accounts.
 - Precomputed Aggregate Views.
 - Motorcycles.
+- Detail Page Data enrichment.
 
 ## Scaffold Layout
 
@@ -120,3 +122,7 @@ bun run dev:worker
 The scaffold includes services for Caddy, web, API, worker, migrate, and
 PostgreSQL. Copy `.env.example` to `.env` before running Compose and replace the
 placeholder secrets before using anything beyond local development.
+
+Local development can use `SITE_ADDRESS=:80` or direct service ports. Production
+should set `SITE_ADDRESS` to the real subdomain so Caddy can manage HTTPS; use a
+small Compose override if local and production Caddy settings need to diverge.

@@ -194,6 +194,7 @@ must not double-count sightings or create duplicate snapshots.
 
 Start conservatively:
 
+- require an explicit crawler enable switch before making live Source requests;
 - one Nettiauto fetch at a time;
 - delay between page fetches;
 - no browser automation;
@@ -203,8 +204,12 @@ Start conservatively:
   body shapes;
 - keep Current Listings Crawl fresher than Sold Listings Crawl.
 
-Exact delay and cadence values should be tuned only after terms, robots.txt, and
-observed source behavior are reviewed.
+The worker should expose a fast operator-controlled pause path for live crawling.
+The first implementation should not continue crawling blindly after repeated
+source-facing failures.
+
+Exact delay and cadence values should be tuned only after terms, robots.txt,
+observed source behavior, and the proof-of-concept risk posture are reviewed.
 
 ## Failure Handling
 
@@ -229,9 +234,12 @@ the source query.
 
 ## Detail Page Enrichment
 
-Detail Page Data is deferred until broad Search Result Data works.
+Detail Page Data is out of scope for the first implementation. The first
+crawler implementation covers current and sold Search Result Data only, so the
+pipeline can prove fetching, parsing, persistence, API queries, and UI behavior
+without multiplying request volume.
 
-When added, detail enrichment should be a separate lower-priority job that:
+When added later, detail enrichment should be a separate lower-priority job that:
 
 - starts from known `listings`;
 - fetches individual listing pages politely;
@@ -251,7 +259,8 @@ When added, detail enrichment should be a separate lower-priority job that:
 6. Implement a single-page crawl job.
 7. Expand to page-range or full Search Query Crawl Runs.
 8. Add admin-only crawler status endpoints.
-9. Tune cadence and backoff after legal/source constraints are confirmed.
+9. Tune cadence and backoff after source constraints are reviewed and the
+   proof-of-concept risk posture is explicitly accepted.
 
 ## Verification Targets
 
@@ -262,5 +271,7 @@ The first crawler implementation is acceptable when:
 - retrying the same page does not duplicate Listings, Sightings, or Snapshots;
 - sold Listings are marked sold only from explicit sold source data;
 - a partial crawl is visible as partial, not complete;
+- live crawling can be paused or disabled without stopping the web app;
+- first-version live crawling is limited to current and sold Search Result Data;
 - worker logs identify crawl run, source query, page, parser version, and
   failure class.

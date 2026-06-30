@@ -6,4 +6,5 @@ Raw Listing Data retained in PostgreSQL, explicit normalized analytics columns,
 Public Listing Pages with Source Attribution, admin-password protected Crawler
 Status, and `noindex` public pages. Saved Views, image downloads, a general open
 data API, extra databases, Redis/BullMQ, browser automation, full user auth,
-precomputed Aggregate Views, and motorcycles are deferred.
+precomputed Aggregate Views, Detail Page Data enrichment, and motorcycles are
+deferred.

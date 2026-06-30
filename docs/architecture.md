@@ -188,7 +188,6 @@ Initial data classes:
 - Listing snapshots/history.
 - Derived aggregates.
 - Worker job data.
-- Admin session data, if needed for the Admin Password Gate.
 
 The planned first database shape is documented in
 [Database Structure](database-structure.md). The important initial separation is:
