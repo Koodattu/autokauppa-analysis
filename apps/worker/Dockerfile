@@ -24,4 +24,4 @@ ENV NODE_ENV=production
 COPY --from=deps /app ./
 
 WORKDIR /app/apps/worker
-CMD ["../../node_modules/.bin/graphile-worker", "--task-directory", "./dist/tasks"]
+CMD ["node", "node_modules/graphile-worker/dist/cli.js", "--task-directory", "./dist/tasks"]
