@@ -143,6 +143,48 @@ app.get("/admin/crawler/status", adminOnly, async (c) => {
   );
 });
 
+app.post("/admin/crawler/run", adminOnly, async (c) => {
+  if (!config.CRAWLER_ENABLED) {
+    return c.json({ error: "crawler_disabled" }, 409);
+  }
+
+  if (config.CRAWLER_PAUSED) {
+    return c.json({ error: "crawler_paused" }, 409);
+  }
+
+  const [existsRow] = await sql<{ relationName: string | null }[]>`
+    select to_regclass('graphile_worker.jobs')::text as "relationName"
+  `;
+  if (!existsRow?.relationName) {
+    return c.json({ error: "worker_not_ready" }, 503);
+  }
+
+  const [job] = await sql<{ jobId: string; runAt: string }[]>`
+    select
+      id::text as "jobId",
+      run_at::text as "runAt"
+    from graphile_worker.add_job(
+      identifier => 'schedule_nettiauto_crawl',
+      payload => '{}'::json,
+      queue_name => 'nettiauto',
+      run_at => null::timestamptz,
+      max_attempts => 1,
+      job_key => 'nettiauto:schedule:manual',
+      priority => 0,
+      flags => null::text[],
+      job_key_mode => 'preserve_run_at'
+    )
+  `;
+
+  logger.info({ jobId: job?.jobId }, "Manual Nettiauto crawl scheduled");
+  return c.json({
+    ok: true,
+    task: "schedule_nettiauto_crawl",
+    jobId: job?.jobId ?? null,
+    runAt: job?.runAt ?? null,
+  });
+});
+
 function wantsJson(acceptHeader: string | undefined) {
   return acceptHeader?.includes("application/json") ?? false;
 }

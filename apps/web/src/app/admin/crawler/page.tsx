@@ -1,15 +1,31 @@
 import { headers } from "next/headers";
 import Link from "next/link";
-import { ApiError, apiGet, type AdminCrawlerStatusResponse } from "@/lib/api";
+import { redirect } from "next/navigation";
+import {
+  ApiError,
+  apiGet,
+  apiPath,
+  type AdminCrawlerRunResponse,
+  type AdminCrawlerStatusResponse,
+} from "@/lib/api";
 
-export default async function AdminCrawlerPage() {
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AdminCrawlerPage({ searchParams }: PageProps) {
   const requestHeaders = await headers();
   const cookie = requestHeaders.get("cookie") ?? "";
+  const params = await searchParams;
 
   try {
     const status = await apiGet<AdminCrawlerStatusResponse>("/admin/crawler/status", {
       headers: { cookie },
     });
+    const runStatus = single(params.runStatus);
+    const runError = single(params.runError);
+    const queuedJobId = single(params.jobId);
+    const canRunCrawler = status.crawlerState.enabled && !status.crawlerState.paused;
 
     return (
       <main className="shell">
@@ -18,10 +34,29 @@ export default async function AdminCrawlerPage() {
             <p className="eyebrow">Admin</p>
             <h1>Crawler status</h1>
           </div>
-          <form action="/api/admin/logout" method="post">
-            <button type="submit">Sign out</button>
-          </form>
+          <div className="topbar-actions">
+            <form action={runCrawlerNow}>
+              <button type="submit" disabled={!canRunCrawler}>
+                Run crawl now
+              </button>
+            </form>
+            <form action="/api/admin/logout" method="post">
+              <button type="submit" className="secondary-button">
+                Sign out
+              </button>
+            </form>
+          </div>
         </header>
+
+        {runStatus === "queued" ? (
+          <p className="notice">Crawl queued{queuedJobId ? ` as job ${queuedJobId}` : ""}.</p>
+        ) : null}
+        {runError ? <p className="notice error-state">{formatRunError(runError)}</p> : null}
+        {!status.crawlerState.enabled ? (
+          <p className="notice error-state">Crawler is disabled by environment.</p>
+        ) : status.crawlerState.paused ? (
+          <p className="notice error-state">Crawler is paused by environment.</p>
+        ) : null}
 
         <section className="metrics">
           <Metric label="Enabled" value={status.crawlerState.enabled ? "Yes" : "No"} />
@@ -124,6 +159,42 @@ export default async function AdminCrawlerPage() {
   }
 }
 
+async function runCrawlerNow() {
+  "use server";
+
+  const requestHeaders = await headers();
+  const response = await fetch(apiPath("/admin/crawler/run"), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      cookie: requestHeaders.get("cookie") ?? "",
+    },
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    redirect("/admin/login");
+  }
+
+  if (!response.ok) {
+    redirect(`/admin/crawler?runError=${encodeURIComponent(await readRunError(response))}`);
+  }
+
+  const body = (await response.json()) as AdminCrawlerRunResponse;
+  redirect(
+    `/admin/crawler?runStatus=queued${body.jobId ? `&jobId=${encodeURIComponent(body.jobId)}` : ""}`,
+  );
+}
+
+async function readRunError(response: Response) {
+  try {
+    const body = (await response.json()) as { error?: string };
+    return body.error ?? "request_failed";
+  } catch {
+    return "request_failed";
+  }
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
@@ -142,4 +213,21 @@ function formatDate(value: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatRunError(error: string) {
+  switch (error) {
+    case "crawler_disabled":
+      return "Crawler is disabled by environment.";
+    case "crawler_paused":
+      return "Crawler is paused by environment.";
+    case "worker_not_ready":
+      return "Worker queue is not ready yet.";
+    default:
+      return "Crawler run could not be queued.";
+  }
+}
+
+function single(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }

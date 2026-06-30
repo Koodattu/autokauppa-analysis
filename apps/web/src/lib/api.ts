@@ -135,6 +135,13 @@ export interface AdminCrawlerStatusResponse {
   }>;
 }
 
+export interface AdminCrawlerRunResponse {
+  ok: boolean;
+  task: "schedule_nettiauto_crawl";
+  jobId: string | null;
+  runAt: string | null;
+}
+
 export function apiPath(path: string) {
   return `${process.env.INTERNAL_API_BASE_URL ?? "http://localhost:3001"}${path}`;
 }
