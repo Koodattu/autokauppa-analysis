@@ -49,6 +49,10 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      CRAWLER_ENABLED: ${CRAWLER_ENABLED:-false}
+      CRAWLER_PAUSED: ${CRAWLER_PAUSED:-false}
+      CRAWLER_DELAY_MS: ${CRAWLER_DELAY_MS:-2500}
+      CRAWLER_MAX_PAGES_PER_RUN: ${CRAWLER_MAX_PAGES_PER_RUN:-2}
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +74,10 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      CRAWLER_ENABLED: ${CRAWLER_ENABLED:-false}
+      CRAWLER_PAUSED: ${CRAWLER_PAUSED:-false}
+      CRAWLER_DELAY_MS: ${CRAWLER_DELAY_MS:-2500}
+      CRAWLER_MAX_PAGES_PER_RUN: ${CRAWLER_MAX_PAGES_PER_RUN:-2}
     depends_on:
       postgres:
         condition: service_healthy

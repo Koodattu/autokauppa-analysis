@@ -1,0 +1,99 @@
+{
+  "title": "First Version End To End",
+  "slug": "first-version-end-to-end",
+  "created_at": "2026-06-30T17:03:39.5421892+03:00",
+  "updated_at": "2026-06-30T17:31:00.0000000+03:00",
+  "status": "complete",
+  "mode": "delegated",
+  "baseline_ref": "aa88e7a9601ef4a0ddcfdc0673765c7e9cce7015",
+  "risk_level": "high",
+  "eval_contract": {
+    "level": "full",
+    "path": "eval-contract.md",
+    "status": "ready"
+  },
+  "approval": {
+    "required": false,
+    "granted": null,
+    "notes": "No destructive operations, production changes, deployment, or secret changes are approved."
+  },
+  "delegation": {
+    "native_agent_available": true,
+    "native_agent_planned": true,
+    "native_agent_used": true,
+    "agent_count": 3,
+    "wave_count": 1,
+    "no_delegation_reason": "",
+    "notes": "Use read-only explorer agents after workflow artifacts exist."
+  },
+  "packets": [
+    {
+      "id": "01-docs-risk-review",
+      "status": "complete",
+      "owner": "read-only-agent",
+      "write_scope": [],
+      "result_path": "results/01-docs-risk-review.md"
+    },
+    {
+      "id": "02-codebase-discovery",
+      "status": "complete",
+      "owner": "read-only-agent",
+      "write_scope": [],
+      "result_path": "results/02-codebase-discovery.md"
+    },
+    {
+      "id": "03-ui-api-contract-review",
+      "status": "complete",
+      "owner": "read-only-agent",
+      "write_scope": [],
+      "result_path": "results/03-ui-api-contract-review.md"
+    }
+  ],
+  "verification": {
+    "status": "complete",
+    "checks": [
+      {
+        "name": "tests",
+        "command": "bun test",
+        "required": true,
+        "status": "pass",
+        "evidence": "Vitest passed 5 tests in 1 file."
+      },
+      {
+        "name": "packages typecheck",
+        "command": "bun run typecheck:packages",
+        "required": true,
+        "status": "pass",
+        "evidence": "All shared package typechecks passed."
+      },
+      {
+        "name": "api typecheck",
+        "command": "bun run typecheck:api",
+        "required": true,
+        "status": "pass",
+        "evidence": "API typecheck passed."
+      },
+      {
+        "name": "worker typecheck",
+        "command": "bun run typecheck:worker",
+        "required": true,
+        "status": "pass",
+        "evidence": "Worker typecheck passed."
+      },
+      {
+        "name": "web typecheck",
+        "command": "bun run typecheck:web",
+        "required": true,
+        "status": "pass",
+        "evidence": "Web typecheck passed."
+      },
+      {
+        "name": "builds",
+        "command": "bun run build:api && bun run build:worker && bun run build:web",
+        "required": true,
+        "status": "pass",
+        "evidence": "API, worker, and web builds passed; API build required escalation after sandbox EPERM."
+      }
+    ]
+  }
+}

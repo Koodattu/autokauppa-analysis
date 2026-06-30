@@ -3,9 +3,11 @@
 Public analytics application for collecting, storing, and analyzing Nettiauto
 listing data, with private admin-only crawler operations.
 
-This repository is intentionally in the architecture/documentation phase. There
-is now scaffolded, but business logic, data models, crawler behavior, and
-product UI are intentionally not implemented yet.
+This repository now contains the first proof-of-concept implementation slice:
+fixture-tested Nettiauto Search Result parsing, the initial PostgreSQL schema,
+idempotent page persistence helpers, public analytics/listing API routes,
+admin-protected crawler status, Graphile Worker task entry points, and a
+noindex Next.js web UI.
 
 ## Planned Stack
 
@@ -50,14 +52,17 @@ administration stay behind the Admin Password Gate.
 
 ## First Implementation Target
 
-- Public analytics page with URL filters.
-- Passenger car current and sold Listing ingestion.
-- Current and sold Search Result Data ingestion first.
-- Raw Listing Data retained in PostgreSQL.
+Implemented first slice:
+
+- Public analytics page with URL filters and coverage metadata.
+- Passenger car current and sold Search Result Data parser fixtures.
+- Raw listing-card data retained through PostgreSQL persistence helpers.
 - Explicit normalized columns for core analytics fields.
 - Public Listing Pages with Source Attribution.
 - Admin-password protected Crawler Status.
 - Public pages marked `noindex` initially.
+- Graphile Worker task entry points that stay idle unless live crawling is
+  explicitly enabled.
 
 Deferred:
 
@@ -107,6 +112,12 @@ bun run typecheck:worker
 bun run build:web
 bun run build:api
 bun run build:worker
+```
+
+Tests:
+
+```bash
+bun run test
 ```
 
 Service-specific development commands:

@@ -1,0 +1,9 @@
+{
+  "total_ads": 2,
+  "current_page": 1,
+  "total_page": 1,
+  "pagination_small_view": "",
+  "pagination_large_view": "",
+  "quick_filter_option": "",
+  "ad_listing_data": "<div id=\"listingData\"><article class=\"listing-card\" data-datalayer='{\"item_id\":\"1001\",\"item_name\":\"Corolla 1.8 Hybrid\",\"item_brand\":\"Toyota\",\"item_variant\":\"Corolla\",\"item_seller\":\"Autoliike Malli\",\"item_year_model\":2019,\"item_vehicle_price\":\"18900\",\"item_mileage\":\"82000\",\"item_power_type\":\"Hybridi\",\"item_ad_status\":\"Myynnissä\",\"item_list_id\":\"Listaussivu\",\"item_list_name\":\"Listaussivu\",\"item_list_location\":\"Helsinki\",\"position\":1,\"page_number\":1}'><a href=\"/toyota/corolla/1001\">Toyota Corolla</a><picture><source srcset=\"https://images.example.test/1001.webp 1x\"><img src=\"https://images.example.test/1001.jpg\" alt=\"Toyota Corolla\"></picture></article><article class=\"listing-card\" data-datalayer='{\"item_id\":\"1002\",\"item_name\":\"Golf Variant\",\"item_brand\":\"Volkswagen\",\"item_variant\":\"Golf\",\"item_seller\":\"Private seller\",\"item_year_model\":\"2017\",\"item_vehicle_price\":\"12950 €\",\"item_mileage\":\"134 000 km\",\"item_power_type\":\"Bensiini\",\"item_ad_status\":\"Myynnissä\",\"item_list_id\":\"Ohituskaista\",\"item_list_name\":\"Ohituskaista\",\"item_list_location\":\"Espoo\",\"position\":\"2\",\"page_number\":\"1\"}'><a href=\"https://www.nettiauto.com/volkswagen/golf/1002\">Volkswagen Golf</a><img src=\"/images/1002.jpg\" alt=\"Volkswagen Golf\"></article></div>"
+}

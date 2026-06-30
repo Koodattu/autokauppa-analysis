@@ -1,0 +1,9 @@
+{
+  "total_ads": 1,
+  "current_page": 1,
+  "total_page": 1,
+  "pagination_small_view": "",
+  "pagination_large_view": "",
+  "quick_filter_option": "",
+  "ad_listing_data": "<div id=\"listingData\"><article class=\"listing-card\" data-datalayer='{\"item_id\":\"2001\",\"item_name\":\"Focus 1.0 EcoBoost\",\"item_brand\":\"Ford\",\"item_variant\":\"Focus\",\"item_seller\":\"Autoliike Esimerkki\",\"item_year_model\":2018,\"item_vehicle_price\":\"11900\",\"item_mileage\":\"99000\",\"item_power_type\":\"Bensiini\",\"item_ad_status\":\"Myyty\",\"item_list_id\":\"Listaussivu\",\"item_list_name\":\"Listaussivu\",\"item_list_location\":\"Tampere\",\"position\":1,\"page_number\":1}'><a href=\"/ford/focus/2001\">Ford Focus</a><img src=\"https://images.example.test/2001.jpg\" alt=\"Ford Focus\"></article></div>"
+}
