@@ -16,7 +16,7 @@ RUN bun install --frozen-lockfile
 COPY . .
 RUN bun --cwd apps/worker build
 
-FROM node:24.4.1-slim AS runner
+FROM oven/bun:1.3.9 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -24,4 +24,4 @@ ENV NODE_ENV=production
 COPY --from=deps /app ./
 
 WORKDIR /app/apps/worker
-CMD ["node", "node_modules/graphile-worker/dist/cli.js", "--task-directory", "./dist/tasks"]
+CMD ["bun", "node_modules/graphile-worker/dist/cli.js", "-C", "graphile.config.mjs"]
