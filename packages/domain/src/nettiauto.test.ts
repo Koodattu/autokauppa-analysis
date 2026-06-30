@@ -7,9 +7,56 @@ import {
   verifyAdminPassword,
   verifyAdminSessionCookieValue,
 } from "./auth";
-import { parseNettiautoAjaxSearchResult } from "./nettiauto";
+import {
+  buildNettiautoSearchUrl,
+  classifyNettiautoResponseBody,
+  nettiautoAjaxRequestHeaders,
+  parseNettiautoAjaxSearchResult,
+} from "./nettiauto";
 
 describe("Nettiauto Search Result parser", () => {
+  it("builds newest-first AJAX search URLs from stored query params", () => {
+    const url = new URL(
+      buildNettiautoSearchUrl("/vaihtoautot", "P2236304442", 3, {
+        haku: "P2236304442",
+        sortCol: "dateCreated",
+        ord: "desc",
+      }),
+    );
+
+    expect(url.pathname).toBe("/vaihtoautot");
+    expect(url.searchParams.get("haku")).toBe("P2236304442");
+    expect(url.searchParams.get("sortCol")).toBe("dateCreated");
+    expect(url.searchParams.get("ord")).toBe("desc");
+    expect(url.searchParams.get("page")).toBe("3");
+  });
+
+  it("uses browser-like AJAX headers without cookies", () => {
+    const headers = nettiautoAjaxRequestHeaders("/vaihtoautot", "P2236304442", {
+      haku: "P2236304442",
+      sortCol: "dateCreated",
+      ord: "desc",
+    });
+
+    expect(headers.accept).toBe("*/*");
+    expect(headers["x-requested-with"]).toBe("XMLHttpRequest");
+    expect(headers["user-agent"]).toContain("Chrome/");
+    expect(headers).not.toHaveProperty("cookie");
+    expect(new URL(headers.referer).searchParams.get("sortCol")).toBe("dateCreated");
+  });
+
+  it("classifies non-JSON response bodies before parser use", () => {
+    expect(classifyNettiautoResponseBody('{"ad_listing_data":""}', "application/json")).toBe(
+      "ajax_json",
+    );
+    expect(classifyNettiautoResponseBody("<!doctype html><html></html>", "text/html")).toBe(
+      "html_document",
+    );
+    expect(classifyNettiautoResponseBody("<div>blocked</div>", "text/html")).toBe(
+      "html_fragment",
+    );
+  });
+
   it("parses current AJAX fixture into active normalized listings", () => {
     const page = parseNettiautoAjaxSearchResult(currentFixture, {
       crawlKind: "current",

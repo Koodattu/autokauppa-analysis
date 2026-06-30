@@ -4,7 +4,9 @@ import { parseWorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import {
   buildNettiautoSearchUrl,
+  classifyNettiautoResponseBody,
   createCrawlRunForSourceQuery,
+  emptyNettiautoSearchResultPage,
   markCrawlRunFinished,
   nettiautoAjaxRequestHeaders,
   parseNettiautoAjaxSearchResult,
@@ -49,6 +51,7 @@ const task: Task = async (payload, helpers) => {
         vehicleCategory: "passenger_car";
         entryPath: string;
         sourceSearchHash: string;
+        queryParams: Record<string, unknown>;
       }[]
     >`
       select
@@ -56,7 +59,8 @@ const task: Task = async (payload, helpers) => {
         crawl_kind as "crawlKind",
         vehicle_category as "vehicleCategory",
         entry_path as "entryPath",
-        source_search_hash as "sourceSearchHash"
+        source_search_hash as "sourceSearchHash",
+        query_params as "queryParams"
       from source_search_queries
       where id = ${payloadResult.data.sourceQueryId}
         and source = 'nettiauto'
@@ -80,18 +84,116 @@ const task: Task = async (payload, helpers) => {
         sourceQuery.entryPath,
         sourceQuery.sourceSearchHash,
         pageNumber,
+        sourceQuery.queryParams,
+      );
+      const requestHeaders = nettiautoAjaxRequestHeaders(
+        sourceQuery.entryPath,
+        sourceQuery.sourceSearchHash,
+        sourceQuery.queryParams,
       );
       const startedAt = Date.now();
       const response = await fetch(pageUrl, {
-        headers: nettiautoAjaxRequestHeaders(sourceQuery.entryPath, sourceQuery.sourceSearchHash),
+        headers: requestHeaders,
+        redirect: "manual",
         signal: helpers.abortSignal,
       });
       const responseBody = await response.text();
       const durationMs = Date.now() - startedAt;
+      const responseContentType = response.headers.get("content-type");
+      const responseBodyShape = classifyNettiautoResponseBody(responseBody, responseContentType);
+      const responseBytes = new TextEncoder().encode(responseBody).byteLength;
+      const responseBodySha256 = sha256(responseBody);
 
-      if ([403, 429].includes(response.status) || response.redirected) {
+      if (!response.ok || response.redirected) {
         status = "partial";
-        failureReason = response.status === 429 ? "rate_limited" : "blocked_or_redirected";
+        failureReason = classifyFetchFailure(response.status, response.redirected, responseBodyShape);
+        await persistSearchResultPage(sql, {
+          crawlRunId,
+          searchQueryId: sourceQuery.id,
+          crawlKind: sourceQuery.crawlKind,
+          vehicleCategory: sourceQuery.vehicleCategory,
+          sourceUrl: pageUrl,
+          pageNumber,
+          responseStatus: response.status,
+          responseContentType,
+          responseBodyShape,
+          responseBodySha256,
+          responseBytes,
+          durationMs,
+          requestHeaders,
+          errorType: failureReason,
+          errorMessage: response.redirected
+            ? "Nettiauto request redirected before AJAX JSON was returned."
+            : `Nettiauto returned HTTP ${response.status} instead of AJAX JSON.`,
+          parsedPage: emptyNettiautoSearchResultPage({
+            crawlKind: sourceQuery.crawlKind,
+            pageNumber,
+          }),
+        });
+        logger.warn(
+          {
+            jobId: helpers.job.id,
+            task: "crawl_nettiauto_search_query",
+            crawlRunId,
+            sourceQueryId: sourceQuery.id,
+            page: pageNumber,
+            statusCode: response.status,
+            responseBodyShape,
+            responseContentType,
+            responseBytes,
+            responseBodySha256,
+            durationMs,
+            failureReason,
+          },
+          "Nettiauto search result fetch stopped crawl",
+        );
+        break;
+      }
+
+      if (responseBodyShape !== "ajax_json") {
+        status = "partial";
+        failureReason =
+          responseBodyShape === "html_document"
+            ? "unexpected_html_response"
+            : "unexpected_response_body_shape";
+        await persistSearchResultPage(sql, {
+          crawlRunId,
+          searchQueryId: sourceQuery.id,
+          crawlKind: sourceQuery.crawlKind,
+          vehicleCategory: sourceQuery.vehicleCategory,
+          sourceUrl: pageUrl,
+          pageNumber,
+          responseStatus: response.status,
+          responseContentType,
+          responseBodyShape,
+          responseBodySha256,
+          responseBytes,
+          durationMs,
+          requestHeaders,
+          errorType: failureReason,
+          errorMessage: `Nettiauto returned ${responseBodyShape} instead of AJAX JSON.`,
+          parsedPage: emptyNettiautoSearchResultPage({
+            crawlKind: sourceQuery.crawlKind,
+            pageNumber,
+          }),
+        });
+        logger.warn(
+          {
+            jobId: helpers.job.id,
+            task: "crawl_nettiauto_search_query",
+            crawlRunId,
+            sourceQueryId: sourceQuery.id,
+            page: pageNumber,
+            statusCode: response.status,
+            responseBodyShape,
+            responseContentType,
+            responseBytes,
+            responseBodySha256,
+            durationMs,
+            failureReason,
+          },
+          "Nettiauto search result response shape stopped crawl",
+        );
         break;
       }
 
@@ -109,10 +211,12 @@ const task: Task = async (payload, helpers) => {
         sourceUrl: pageUrl,
         pageNumber,
         responseStatus: response.status,
-        responseContentType: response.headers.get("content-type"),
-        responseBodySha256: sha256(responseBody),
-        responseBytes: new TextEncoder().encode(responseBody).byteLength,
+        responseContentType,
+        responseBodyShape,
+        responseBodySha256,
+        responseBytes,
         durationMs,
+        requestHeaders,
         parsedPage,
       });
 
@@ -189,6 +293,30 @@ function sleep(ms: number, signal: AbortSignal) {
       { once: true },
     );
   });
+}
+
+function classifyFetchFailure(statusCode: number, redirected: boolean, bodyShape: string) {
+  if (redirected || [301, 302, 303, 307, 308].includes(statusCode)) {
+    return "redirected";
+  }
+
+  if (statusCode === 429) {
+    return "rate_limited";
+  }
+
+  if (statusCode === 403) {
+    return "blocked";
+  }
+
+  if (statusCode >= 400) {
+    return `http_${statusCode}`;
+  }
+
+  if (bodyShape !== "ajax_json") {
+    return "unexpected_response_body_shape";
+  }
+
+  return "fetch_failed";
 }
 
 export default task;

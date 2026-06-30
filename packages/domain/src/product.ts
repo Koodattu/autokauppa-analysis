@@ -132,6 +132,7 @@ export interface AdminCrawlerStatusResponse {
 
 type Sql = postgres.Sql<Record<string, unknown>>;
 type SqlParameter = string | number | boolean | Date | null;
+const ANALYTICS_MAX_MILEAGE_KM = 2_000_000;
 
 export async function getFilterMetadata(sql: Sql): Promise<FilterMetadata> {
   const [facets, coverage] = await Promise.all([queryFacets(sql), getCoverage(sql, {})]);
@@ -449,6 +450,7 @@ async function queryFacets(sql: Sql) {
 
 async function getSummary(sql: Sql, filters: ListingFiltersQuery): Promise<AnalyticsTrendResponse["summary"]> {
   const { whereSql, params } = buildFilterWhere(filters);
+  const analyticsMileageSql = validAnalyticsMileageSql("s");
   const [row] = await sql.unsafe<
     {
       listingCount: number;
@@ -469,8 +471,8 @@ async function getSummary(sql: Sql, filters: ListingFiltersQuery): Promise<Analy
           filter (where s.asking_price_eur is not null))::int as "medianAskingPriceEur",
         (percentile_cont(0.5) within group (order by s.observed_sold_price_eur)
           filter (where s.observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
-        (percentile_cont(0.5) within group (order by s.mileage_km)
-          filter (where s.mileage_km is not null))::int as "medianMileageKm"
+        (percentile_cont(0.5) within group (order by ${analyticsMileageSql})
+          filter (where ${analyticsMileageSql} is not null))::int as "medianMileageKm"
       from latest_snapshots s
       join listings l on l.id = s.listing_id
       ${whereSql}
@@ -650,6 +652,10 @@ function sortToOrderBy(sort: string) {
     default:
       return "l.last_seen_at desc";
   }
+}
+
+function validAnalyticsMileageSql(alias: string) {
+  return `case when ${alias}.mileage_km between 0 and ${ANALYTICS_MAX_MILEAGE_KM} then ${alias}.mileage_km end`;
 }
 
 function nullableNumber(value: string | number | null) {

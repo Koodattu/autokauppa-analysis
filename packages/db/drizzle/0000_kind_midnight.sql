@@ -245,12 +245,12 @@ INSERT INTO "source_search_queries" (
 		'current',
 		'/vaihtoautot',
 		'P2236304442',
-		'{"haku":"P2236304442"}'::jsonb,
+		'{"haku":"P2236304442","sortCol":"dateCreated","ord":"desc"}'::jsonb,
 		true,
 		10,
 		now(),
 		now(),
-		'Default current passenger-car Nettiauto search query.'
+		'Default current passenger-car Nettiauto search query, newest first.'
 	),
 	(
 		'nettiauto',
@@ -258,12 +258,12 @@ INSERT INTO "source_search_queries" (
 		'sold',
 		'/hakutulokset',
 		'P82984997',
-		'{"haku":"P82984997"}'::jsonb,
+		'{"haku":"P82984997","sortCol":"dateCreated","ord":"desc"}'::jsonb,
 		true,
 		50,
 		now(),
 		now(),
-		'Default sold passenger-car Nettiauto search query.'
+		'Default sold passenger-car Nettiauto search query, newest first.'
 	)
 ON CONFLICT ("source", "vehicle_category", "crawl_kind", "source_search_hash")
 DO NOTHING;

@@ -1,5 +1,10 @@
 import type postgres from "postgres";
-import type { ParsedListingCard, ParsedSearchResultPage } from "./nettiauto";
+import type {
+  NettiautoQueryParams,
+  NettiautoResponseBodyShape,
+  ParsedListingCard,
+  ParsedSearchResultPage,
+} from "./nettiauto";
 
 export interface SourceSearchQuerySeed {
   source: "nettiauto";
@@ -19,9 +24,9 @@ export const DEFAULT_NETTIAUTO_SOURCE_QUERIES: SourceSearchQuerySeed[] = [
     crawlKind: "current",
     entryPath: "/vaihtoautot",
     sourceSearchHash: "P2236304442",
-    queryParams: { haku: "P2236304442" },
+    queryParams: { haku: "P2236304442", sortCol: "dateCreated", ord: "desc" },
     priority: 10,
-    notes: "Default current passenger-car Nettiauto search query.",
+    notes: "Default current passenger-car Nettiauto search query, newest first.",
   },
   {
     source: "nettiauto",
@@ -29,9 +34,9 @@ export const DEFAULT_NETTIAUTO_SOURCE_QUERIES: SourceSearchQuerySeed[] = [
     crawlKind: "sold",
     entryPath: "/hakutulokset",
     sourceSearchHash: "P82984997",
-    queryParams: { haku: "P82984997" },
+    queryParams: { haku: "P82984997", sortCol: "dateCreated", ord: "desc" },
     priority: 50,
-    notes: "Default sold passenger-car Nettiauto search query.",
+    notes: "Default sold passenger-car Nettiauto search query, newest first.",
   },
 ];
 
@@ -44,9 +49,13 @@ export interface PersistSearchResultPageInput {
   pageNumber: number;
   responseStatus: number | null;
   responseContentType: string | null;
+  responseBodyShape: NettiautoResponseBodyShape;
   responseBodySha256: string | null;
   responseBytes: number | null;
   durationMs: number | null;
+  requestHeaders: Record<string, string>;
+  errorType?: string | null;
+  errorMessage?: string | null;
   fetchedAt?: Date;
   parsedPage: ParsedSearchResultPage;
 }
@@ -62,6 +71,10 @@ type TransactionSqlClient = postgres.TransactionSql<Record<string, unknown>>;
 
 function jsonValue(value: unknown): postgres.JSONValue {
   return value as postgres.JSONValue;
+}
+
+function firstParseIssue(page: ParsedSearchResultPage) {
+  return page.issues[0] ?? null;
 }
 
 export async function seedDefaultSourceSearchQueries(sql: SqlClient) {
@@ -146,6 +159,7 @@ export async function getEnabledSourceSearchQueries(sql: SqlClient) {
       crawlKind: "current" | "sold";
       entryPath: string;
       sourceSearchHash: string;
+      queryParams: NettiautoQueryParams;
       priority: number;
     }[]
   >`
@@ -156,6 +170,7 @@ export async function getEnabledSourceSearchQueries(sql: SqlClient) {
       crawl_kind as "crawlKind",
       entry_path as "entryPath",
       source_search_hash as "sourceSearchHash",
+      query_params as "queryParams",
       priority
     from source_search_queries
     where enabled = true
@@ -244,16 +259,16 @@ export async function persistSearchResultPage(
         'search_result_page',
         ${input.pageNumber},
         ${input.sourceUrl},
-        ${tx.json(jsonValue({ accept: "*/*", "x-requested-with": "XMLHttpRequest" }))},
+        ${tx.json(jsonValue(input.requestHeaders))},
         ${input.responseStatus},
         ${input.responseContentType},
-        'ajax_json',
+        ${input.responseBodyShape},
         ${input.responseBodySha256},
         ${input.responseBytes},
         ${fetchedAt},
         ${input.durationMs},
-        ${input.parsedPage.issues.length > 0 ? (input.parsedPage.issues[0]?.code ?? null) : null},
-      ${input.parsedPage.issues.length > 0 ? (input.parsedPage.issues[0]?.message ?? null) : null}
+        ${input.errorType ?? firstParseIssue(input.parsedPage)?.code ?? null},
+        ${input.errorMessage ?? firstParseIssue(input.parsedPage)?.message ?? null}
       )
       on conflict (crawl_run_id, fetch_kind, page_number)
       do update set

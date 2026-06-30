@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun run build && graphile-worker -C graphile.config.mjs",
     "start": "graphile-worker -C graphile.config.mjs",
-    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').mkdirSync('dist/tasks', { recursive: true })\"",
+    "build": "tsc -p tsconfig.json --tsBuildInfoFile dist/tsconfig.tsbuildinfo && node -e \"require('node:fs').mkdirSync('dist/tasks', { recursive: true })\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

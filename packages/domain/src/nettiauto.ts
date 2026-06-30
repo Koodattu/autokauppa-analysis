@@ -9,9 +9,19 @@ import {
 export const NETTIAUTO_SOURCE = "nettiauto" as const;
 export const NETTIAUTO_PARSER_VERSION = "nettiauto-search-result-v1";
 export const NETTIAUTO_BASE_URL = "https://www.nettiauto.com";
+export const NETTIAUTO_BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
 export type CrawlKind = "current" | "sold";
 export type ListingAvailability = "active" | "sold" | "unknown";
+export type NettiautoQueryParams = Record<string, unknown>;
+export type NettiautoResponseBodyShape =
+  | "ajax_json"
+  | "html_document"
+  | "html_fragment"
+  | "redirect"
+  | "blocked"
+  | "unknown";
 
 export interface ParsedImageMetadata {
   imageUrl: string;
@@ -75,22 +85,90 @@ export interface ParsedSearchResultPage {
   issues: ParseIssue[];
 }
 
-export function buildNettiautoSearchUrl(entryPath: string, sourceSearchHash: string, pageNumber: number) {
+export function buildNettiautoSearchUrl(
+  entryPath: string,
+  sourceSearchHash: string,
+  pageNumber: number,
+  queryParams: NettiautoQueryParams = {},
+) {
   const url = new URL(entryPath, NETTIAUTO_BASE_URL);
-  url.searchParams.set("haku", sourceSearchHash);
+  applyNettiautoQueryParams(url, sourceSearchHash, queryParams);
   url.searchParams.set("page", String(pageNumber));
   return url.toString();
 }
 
-export function nettiautoAjaxRequestHeaders(entryPath: string, sourceSearchHash: string) {
+export function nettiautoAjaxRequestHeaders(
+  entryPath: string,
+  sourceSearchHash: string,
+  queryParams: NettiautoQueryParams = {},
+) {
   const referer = new URL(entryPath, NETTIAUTO_BASE_URL);
-  referer.searchParams.set("haku", sourceSearchHash);
+  applyNettiautoQueryParams(referer, sourceSearchHash, queryParams);
 
   return {
     accept: "*/*",
+    "accept-language": "en-US,en;q=0.9,fi;q=0.8,fi-FI;q=0.7",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+    "user-agent": NETTIAUTO_BROWSER_USER_AGENT,
     "x-requested-with": "XMLHttpRequest",
     referer: referer.toString(),
   };
+}
+
+export function emptyNettiautoSearchResultPage(
+  options: { crawlKind: CrawlKind; pageNumber?: number },
+): ParsedSearchResultPage {
+  return {
+    source: NETTIAUTO_SOURCE,
+    crawlKind: options.crawlKind,
+    parserVersion: NETTIAUTO_PARSER_VERSION,
+    currentPage: options.pageNumber ?? null,
+    totalPages: null,
+    totalAds: null,
+    listings: [],
+    issues: [],
+  };
+}
+
+export function classifyNettiautoResponseBody(
+  body: string,
+  contentType: string | null,
+): NettiautoResponseBodyShape {
+  const normalizedContentType = contentType ?? "";
+  const trimmed = body.trimStart();
+
+  if (normalizedContentType.includes("application/json") || trimmed.startsWith("{")) {
+    return "ajax_json";
+  }
+
+  if (/^<!doctype html\b|^<html\b/i.test(trimmed)) {
+    return "html_document";
+  }
+
+  if (trimmed.startsWith("<")) {
+    return "html_fragment";
+  }
+
+  return "unknown";
+}
+
+function applyNettiautoQueryParams(
+  url: URL,
+  sourceSearchHash: string,
+  queryParams: NettiautoQueryParams,
+) {
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (key === "page" || value === null || value === undefined || value === "") {
+      continue;
+    }
+
+    url.searchParams.set(key, String(value));
+  }
+
+  if (!url.searchParams.has("haku")) {
+    url.searchParams.set("haku", sourceSearchHash);
+  }
 }
 
 export function parseNettiautoAjaxSearchResult(
