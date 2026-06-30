@@ -4,7 +4,8 @@ Public analytics application for collecting, storing, and analyzing Nettiauto
 listing data, with private admin-only crawler operations.
 
 This repository is intentionally in the architecture/documentation phase. There
-is no implementation scaffold yet.
+is now scaffolded, but business logic, data models, crawler behavior, and
+product UI are intentionally not implemented yet.
 
 ## Planned Stack
 
@@ -65,3 +66,54 @@ Deferred:
 - Full user auth/accounts.
 - Precomputed Aggregate Views.
 - Motorcycles.
+
+## Scaffold Layout
+
+```text
+apps/
+  web/       Next.js + React app, configured for standalone output
+  api/       Bun + Hono API service
+  worker/    Graphile Worker task shell
+
+packages/
+  config/    shared environment/config package shell
+  db/        Drizzle schema and migration package shell
+  domain/    server-only domain package shell
+  logging/   shared logging package shell
+  schemas/   shared Zod schema package shell
+  ui/        shared React UI package shell
+
+docker/
+  migrate.Dockerfile
+
+Caddyfile
+docker-compose.yml
+.env.example
+```
+
+## Local Commands
+
+```bash
+bun install
+bun run typecheck:packages
+bun run typecheck:web
+bun run typecheck:api
+bun run typecheck:worker
+bun run build:web
+bun run build:api
+bun run build:worker
+```
+
+Service-specific development commands:
+
+```bash
+bun run dev:web
+bun run dev:api
+bun run dev:worker
+```
+
+## Docker Compose
+
+The scaffold includes services for Caddy, web, API, worker, migrate, and
+PostgreSQL. Copy `.env.example` to `.env` before running Compose and replace the
+placeholder secrets before using anything beyond local development.

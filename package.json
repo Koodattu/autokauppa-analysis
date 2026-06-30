@@ -1,0 +1,29 @@
+{
+  "name": "nettiauto-analytics",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.9",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "bun --cwd apps/web dev",
+    "dev:api": "bun --cwd apps/api dev",
+    "dev:worker": "bun --cwd apps/worker dev",
+    "build:web": "bun --cwd apps/web build",
+    "build:api": "bun --cwd apps/api build",
+    "build:worker": "bun --cwd apps/worker build",
+    "typecheck:web": "bun --cwd apps/web typecheck",
+    "typecheck:api": "bun --cwd apps/api typecheck",
+    "typecheck:worker": "bun --cwd apps/worker typecheck",
+    "typecheck:packages": "bun --cwd packages/config typecheck && bun --cwd packages/db typecheck && bun --cwd packages/domain typecheck && bun --cwd packages/logging typecheck && bun --cwd packages/schemas typecheck && bun --cwd packages/ui typecheck",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.0.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

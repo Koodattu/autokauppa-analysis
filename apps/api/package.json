@@ -1,0 +1,26 @@
+{
+  "name": "@nettiauto/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --target bun --outdir dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.8.0",
+    "@nettiauto/config": "workspace:*",
+    "@nettiauto/db": "workspace:*",
+    "@nettiauto/domain": "workspace:*",
+    "@nettiauto/logging": "workspace:*",
+    "@nettiauto/schemas": "workspace:*",
+    "@sentry/bun": "^10.62.0",
+    "hono": "^4.12.27",
+    "pino": "^10.3.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
