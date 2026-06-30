@@ -1,4 +1,4 @@
-FROM oven/bun:1
+FROM oven/bun:1.3.9
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -16,4 +16,4 @@ RUN bun install --frozen-lockfile
 COPY packages/db packages/db
 
 WORKDIR /app/packages/db
-CMD ["sh", "-c", "if [ -d drizzle/meta ]; then bun run migrate; else echo 'No Drizzle migrations generated yet'; fi"]
+CMD ["sh", "-c", "if [ -d drizzle/meta ]; then bun run migrate; elif [ \"$ALLOW_EMPTY_MIGRATIONS\" = \"true\" ]; then echo 'No Drizzle migrations generated yet; ALLOW_EMPTY_MIGRATIONS=true permits this scaffold-only no-op'; else echo 'No Drizzle migrations generated; set ALLOW_EMPTY_MIGRATIONS=true only for the empty scaffold' >&2; exit 1; fi"]

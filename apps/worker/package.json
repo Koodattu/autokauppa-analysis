@@ -3,9 +3,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "graphile-worker --task-directory ./src/tasks --watch",
-    "start": "graphile-worker --task-directory ./src/tasks",
-    "build": "tsc --noEmit -p tsconfig.json",
+    "dev": "bun run build && graphile-worker --task-directory ./dist/tasks --watch",
+    "start": "graphile-worker --task-directory ./dist/tasks",
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').mkdirSync('dist/tasks', { recursive: true })\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

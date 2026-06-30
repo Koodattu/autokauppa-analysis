@@ -1,0 +1,106 @@
+{
+  "title": "Scaffold findings fix",
+  "slug": "scaffold-findings-fix-2026-06-30",
+  "created_at": "2026-06-30T15:59:22.1948957+03:00",
+  "updated_at": "2026-06-30T16:18:00+03:00",
+  "status": "complete",
+  "mode": "workflow",
+  "baseline_ref": "881af10e403055dfd1effaa66a156bfaa108ffde",
+  "risk_level": "medium",
+  "eval_contract": {
+    "level": "inline",
+    "path": null,
+    "status": "ready"
+  },
+  "approval": {
+    "required": false,
+    "granted": null,
+    "notes": "Local scaffold edits and non-destructive verification only."
+  },
+  "delegation": {
+    "native_agent_available": true,
+    "native_agent_planned": false,
+    "native_agent_used": false,
+    "agent_count": 0,
+    "wave_count": 0,
+    "no_delegation_reason": "Host delegation policy requires explicit subagent/delegation wording; this Ultracode invocation is executed in workflow mode.",
+    "notes": "All packets executed by parent session."
+  },
+  "packets": [
+    {
+      "id": "01-worker-runtime",
+      "status": "complete",
+      "owner": "parent",
+      "write_scope": [
+        "apps/worker/package.json",
+        "apps/worker/tsconfig.json",
+        "apps/worker/Dockerfile",
+        "apps/worker/src/tasks/.gitkeep"
+      ],
+      "result_path": "results/01-worker-runtime.md"
+    },
+    {
+      "id": "02-compose-ops",
+      "status": "complete",
+      "owner": "parent",
+      "write_scope": [
+        "docker-compose.yml",
+        "docker/migrate.Dockerfile",
+        ".env.example",
+        "apps/api/Dockerfile",
+        "apps/web/Dockerfile",
+        "apps/worker/Dockerfile"
+      ],
+      "result_path": "results/02-compose-ops.md"
+    },
+    {
+      "id": "03-verification",
+      "status": "complete",
+      "owner": "parent",
+      "write_scope": [
+        ".workflow/ultracode/scaffold-findings-fix-2026-06-30"
+      ],
+      "result_path": "results/03-verification.md"
+    }
+  ],
+  "verification": {
+    "status": "complete",
+    "checks": [
+      {
+        "name": "frozen install",
+        "command": "bun install --frozen-lockfile",
+        "required": true,
+        "status": "pass",
+        "evidence": "Checked 590 installs across 778 packages with no changes."
+      },
+      {
+        "name": "typechecks",
+        "command": "bun run typecheck:packages; bun run typecheck:web; bun run typecheck:api; bun run typecheck:worker",
+        "required": true,
+        "status": "pass",
+        "evidence": "Package, web, API, and worker typechecks passed."
+      },
+      {
+        "name": "builds",
+        "command": "bun run build:api; bun run build:worker; bun run build:web",
+        "required": true,
+        "status": "pass",
+        "evidence": "API, worker, and web builds passed."
+      },
+      {
+        "name": "web lint",
+        "command": "bun --cwd apps/web lint",
+        "required": true,
+        "status": "pass",
+        "evidence": "ESLint passed for the web app."
+      },
+      {
+        "name": "compose config",
+        "command": "docker compose --env-file .env.example config --quiet",
+        "required": true,
+        "status": "pass",
+        "evidence": "Compose config rendered with .env.example; Docker emitted sandbox config warnings but exited zero. Plain compose config now fails without required env vars."
+      }
+    ]
+  }
+}

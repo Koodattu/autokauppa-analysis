@@ -1,4 +1,4 @@
-FROM oven/bun:1 AS deps
+FROM oven/bun:1.3.9 AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -14,8 +14,9 @@ COPY packages/ui/package.json packages/ui/package.json
 RUN bun install --frozen-lockfile
 
 COPY . .
+RUN bun --cwd apps/worker build
 
-FROM node:24-slim AS runner
+FROM node:24.4.1-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -23,4 +24,4 @@ ENV NODE_ENV=production
 COPY --from=deps /app ./
 
 WORKDIR /app/apps/worker
-CMD ["../../node_modules/.bin/graphile-worker", "--task-directory", "./src/tasks"]
+CMD ["../../node_modules/.bin/graphile-worker", "--task-directory", "./dist/tasks"]

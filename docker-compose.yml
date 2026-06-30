@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.10.2-alpine
     restart: unless-stopped
     ports:
       - "80:80"
@@ -45,9 +45,9 @@ services:
       APP_ENV: ${APP_ENV:-production}
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: ${DATABASE_URL:-postgres://nettiauto:change-me@postgres:5432/nettiauto_analytics}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
-      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:
       postgres:
@@ -68,13 +68,18 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-production}
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL:-postgres://nettiauto:change-me@postgres:5432/nettiauto_analytics}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       SENTRY_DSN: ${SENTRY_DSN:-}
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const { Client } = require('pg'); const client = new Client({ connectionString: process.env.DATABASE_URL }); client.connect().then(() => client.query('select 1')).then(() => client.end()).then(() => process.exit(0)).catch(() => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   migrate:
     build:
@@ -82,7 +87,8 @@ services:
       dockerfile: docker/migrate.Dockerfile
     restart: "no"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://nettiauto:change-me@postgres:5432/nettiauto_analytics}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      ALLOW_EMPTY_MIGRATIONS: ${ALLOW_EMPTY_MIGRATIONS:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,7 +99,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nettiauto_analytics}
       POSTGRES_USER: ${POSTGRES_USER:-nettiauto}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
