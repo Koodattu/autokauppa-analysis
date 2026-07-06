@@ -1,0 +1,2 @@
+# UTC. The scheduler task applies per-query target_cadence_interval values.
+0 3 * * * schedule_nettiauto_crawl

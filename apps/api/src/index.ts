@@ -165,7 +165,7 @@ app.post("/admin/crawler/run", adminOnly, async (c) => {
       run_at::text as "runAt"
     from graphile_worker.add_job(
       identifier => 'schedule_nettiauto_crawl',
-      payload => '{}'::json,
+      payload => '{"force":true}'::json,
       queue_name => 'nettiauto',
       run_at => null::timestamptz,
       max_attempts => 1,

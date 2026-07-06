@@ -13,6 +13,7 @@ export interface SourceSearchQuerySeed {
   entryPath: string;
   sourceSearchHash: string;
   queryParams: Record<string, unknown>;
+  targetCadenceInterval: string;
   priority: number;
   notes: string;
 }
@@ -25,8 +26,9 @@ export const DEFAULT_NETTIAUTO_SOURCE_QUERIES: SourceSearchQuerySeed[] = [
     entryPath: "/vaihtoautot",
     sourceSearchHash: "P2236304442",
     queryParams: { haku: "P2236304442", sortCol: "dateCreated", ord: "desc" },
+    targetCadenceInterval: "7 days",
     priority: 10,
-    notes: "Default current passenger-car Nettiauto search query, newest first.",
+    notes: "Default current passenger-car Nettiauto search query, newest first, weekly cadence.",
   },
   {
     source: "nettiauto",
@@ -35,10 +37,18 @@ export const DEFAULT_NETTIAUTO_SOURCE_QUERIES: SourceSearchQuerySeed[] = [
     entryPath: "/hakutulokset",
     sourceSearchHash: "P82984997",
     queryParams: { haku: "P82984997", sortCol: "dateCreated", ord: "desc" },
+    targetCadenceInterval: "30 days",
     priority: 50,
-    notes: "Default sold passenger-car Nettiauto search query, newest first.",
+    notes: "Default sold passenger-car Nettiauto search query, newest first, monthly cadence.",
   },
 ];
+
+export interface SourceSearchQueryScheduleState {
+  force?: boolean;
+  hasActiveCrawlRun: boolean;
+  lastAttemptAt: Date | string | null;
+  targetCadenceSeconds: number | null;
+}
 
 export interface PersistSearchResultPageInput {
   crawlRunId: string;
@@ -89,6 +99,7 @@ export async function seedDefaultSourceSearchQueries(sql: SqlClient) {
         query_params,
         enabled,
         priority,
+        target_cadence_interval,
         created_at,
         updated_at,
         notes
@@ -102,6 +113,7 @@ export async function seedDefaultSourceSearchQueries(sql: SqlClient) {
         ${sql.json(jsonValue(seed.queryParams))},
         true,
         ${seed.priority},
+        ${seed.targetCadenceInterval}::interval,
         now(),
         now(),
         ${seed.notes}
@@ -111,6 +123,10 @@ export async function seedDefaultSourceSearchQueries(sql: SqlClient) {
         entry_path = excluded.entry_path,
         query_params = excluded.query_params,
         priority = excluded.priority,
+        target_cadence_interval = coalesce(
+          source_search_queries.target_cadence_interval,
+          excluded.target_cadence_interval
+        ),
         updated_at = now(),
         notes = excluded.notes
     `;
@@ -176,6 +192,96 @@ export async function getEnabledSourceSearchQueries(sql: SqlClient) {
     where enabled = true
     order by priority asc, created_at asc
   `;
+}
+
+export async function getSchedulableSourceSearchQueries(
+  sql: SqlClient,
+  options: { force?: boolean; now?: Date } = {},
+) {
+  const rows = await sql<
+    Array<{
+      id: string;
+      source: "nettiauto";
+      vehicleCategory: "passenger_car";
+      crawlKind: "current" | "sold";
+      entryPath: string;
+      sourceSearchHash: string;
+      queryParams: NettiautoQueryParams;
+      priority: number;
+      targetCadenceSeconds: number | null;
+      lastAttemptAt: Date | null;
+      hasActiveCrawlRun: boolean;
+    }>
+  >`
+    select
+      query.id,
+      query.source,
+      query.vehicle_category as "vehicleCategory",
+      query.crawl_kind as "crawlKind",
+      query.entry_path as "entryPath",
+      query.source_search_hash as "sourceSearchHash",
+      query.query_params as "queryParams",
+      query.priority,
+      extract(epoch from query.target_cadence_interval)::int as "targetCadenceSeconds",
+      case
+        when query.last_success_at is null then query.last_failure_at
+        when query.last_failure_at is null then query.last_success_at
+        else greatest(query.last_success_at, query.last_failure_at)
+      end as "lastAttemptAt",
+      exists (
+        select 1
+        from crawl_runs run
+        where run.search_query_id = query.id
+          and run.status in ('planned', 'running')
+      ) as "hasActiveCrawlRun"
+    from source_search_queries query
+    where query.enabled = true
+    order by query.priority asc, query.created_at asc
+  `;
+
+  return rows
+    .filter((row) =>
+      shouldScheduleSourceSearchQuery(
+        {
+          force: options.force,
+          hasActiveCrawlRun: row.hasActiveCrawlRun,
+          lastAttemptAt: row.lastAttemptAt,
+          targetCadenceSeconds: row.targetCadenceSeconds,
+        },
+        options.now,
+      ),
+    )
+    .map(({ targetCadenceSeconds, lastAttemptAt, hasActiveCrawlRun, ...query }) => query);
+}
+
+export function shouldScheduleSourceSearchQuery(
+  query: SourceSearchQueryScheduleState,
+  now = new Date(),
+) {
+  if (query.hasActiveCrawlRun) {
+    return false;
+  }
+
+  if (query.force) {
+    return true;
+  }
+
+  if (query.targetCadenceSeconds === null) {
+    return true;
+  }
+
+  if (!query.lastAttemptAt) {
+    return true;
+  }
+
+  const lastAttemptAt =
+    query.lastAttemptAt instanceof Date ? query.lastAttemptAt : new Date(query.lastAttemptAt);
+  const lastAttemptMs = lastAttemptAt.getTime();
+  if (!Number.isFinite(lastAttemptMs)) {
+    return true;
+  }
+
+  return lastAttemptMs + query.targetCadenceSeconds * 1000 <= now.getTime();
 }
 
 export async function markCrawlRunFinished(

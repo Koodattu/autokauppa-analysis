@@ -8,6 +8,13 @@
       "when": 1782829433117,
       "tag": "0000_kind_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783254751896,
+      "tag": "0001_source_query_cadence",
+      "breakpoints": true
     }
   ]
 }

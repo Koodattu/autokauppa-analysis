@@ -6,5 +6,6 @@ const currentDirectory = dirname(fileURLToPath(import.meta.url));
 export default {
   worker: {
     taskDirectory: join(currentDirectory, "dist", "tasks"),
+    crontabFile: join(currentDirectory, "crontab"),
   },
 };

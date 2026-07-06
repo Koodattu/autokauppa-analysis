@@ -13,6 +13,7 @@ import {
   nettiautoAjaxRequestHeaders,
   parseNettiautoAjaxSearchResult,
 } from "./nettiauto";
+import { shouldScheduleSourceSearchQuery } from "./persistence";
 
 describe("Nettiauto Search Result parser", () => {
   it("builds newest-first AJAX search URLs from stored query params", () => {
@@ -121,5 +122,98 @@ describe("Admin Password Gate", () => {
   it("compares admin passwords without plain equality", () => {
     expect(verifyAdminPassword("correct", "correct")).toBe(true);
     expect(verifyAdminPassword("wrong", "correct")).toBe(false);
+  });
+});
+
+describe("Source Search Query scheduling", () => {
+  const now = new Date("2026-07-05T12:00:00.000Z");
+  const weekSeconds = 7 * 24 * 60 * 60;
+  const monthSeconds = 30 * 24 * 60 * 60;
+
+  it("schedules a query that has never been attempted", () => {
+    expect(
+      shouldScheduleSourceSearchQuery(
+        {
+          hasActiveCrawlRun: false,
+          lastAttemptAt: null,
+          targetCadenceSeconds: weekSeconds,
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps weekly current listings idle until the attempt cadence has elapsed", () => {
+    expect(
+      shouldScheduleSourceSearchQuery(
+        {
+          hasActiveCrawlRun: false,
+          lastAttemptAt: "2026-06-30T12:00:00.000Z",
+          targetCadenceSeconds: weekSeconds,
+        },
+        now,
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldScheduleSourceSearchQuery(
+        {
+          hasActiveCrawlRun: false,
+          lastAttemptAt: "2026-06-28T12:00:00.000Z",
+          targetCadenceSeconds: weekSeconds,
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps monthly sold listings idle until the attempt cadence has elapsed", () => {
+    expect(
+      shouldScheduleSourceSearchQuery(
+        {
+          hasActiveCrawlRun: false,
+          lastAttemptAt: "2026-06-15T12:00:00.000Z",
+          targetCadenceSeconds: monthSeconds,
+        },
+        now,
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldScheduleSourceSearchQuery(
+        {
+          hasActiveCrawlRun: false,
+          lastAttemptAt: "2026-06-05T12:00:00.000Z",
+          targetCadenceSeconds: monthSeconds,
+        },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("allows manual force to bypass cadence but not an active crawl run", () => {
+    expect(
+      shouldScheduleSourceSearchQuery(
+        {
+          force: true,
+          hasActiveCrawlRun: false,
+          lastAttemptAt: "2026-07-05T11:00:00.000Z",
+          targetCadenceSeconds: weekSeconds,
+        },
+        now,
+      ),
+    ).toBe(true);
+
+    expect(
+      shouldScheduleSourceSearchQuery(
+        {
+          force: true,
+          hasActiveCrawlRun: true,
+          lastAttemptAt: "2026-06-01T12:00:00.000Z",
+          targetCadenceSeconds: weekSeconds,
+        },
+        now,
+      ),
+    ).toBe(false);
   });
 });
