@@ -231,7 +231,7 @@ export function parseNettiautoAjaxSearchResult(
     const sourceHtmlFragment = $.html(element);
     const normalized = normalizeNettiautoListing(payload, {
       crawlKind: options.crawlKind,
-      sourceUrl: firstListingUrl($, element),
+      sourceUrl: listingUrlForSourceId($, element, payload.item_id),
       fallbackPageNumber: options.pageNumber ?? null,
     });
     const sourcePayloadSha256 = sha256(stableStringify(payload));
@@ -324,20 +324,44 @@ function normalizeAvailability(statusLabel: string | null, crawlKind: CrawlKind)
   return "unknown";
 }
 
-function firstListingUrl($: ReturnType<typeof load>, element: unknown) {
-  const href = $(element as Parameters<typeof $>[0])
-    .find("a[href]")
-    .first()
-    .attr("href");
-  if (!href) {
+function listingUrlForSourceId(
+  $: ReturnType<typeof load>,
+  element: unknown,
+  sourceListingId: string,
+) {
+  const expectedLastPathSegment = sourceListingId.trim();
+  if (!expectedLastPathSegment) {
     return null;
   }
 
-  try {
-    return new URL(href, NETTIAUTO_BASE_URL).toString();
-  } catch {
-    return null;
-  }
+  const baseOrigin = new URL(NETTIAUTO_BASE_URL).origin;
+  let sourceUrl: string | null = null;
+  $(element as Parameters<typeof $>[0])
+    .find("a[href]")
+    .each((_, link) => {
+      if (sourceUrl) {
+        return;
+      }
+
+      const href = $(link).attr("href");
+      if (!href) {
+        return;
+      }
+
+      try {
+        const url = new URL(href, NETTIAUTO_BASE_URL);
+        const lastPathSegment = url.pathname.split("/").filter(Boolean).at(-1);
+        if (url.origin === baseOrigin && lastPathSegment === expectedLastPathSegment) {
+          url.search = "";
+          url.hash = "";
+          sourceUrl = url.toString();
+        }
+      } catch {
+        // Ignore malformed ancillary links inside listing cards.
+      }
+    });
+
+  return sourceUrl;
 }
 
 function extractImages($: ReturnType<typeof load>, element: unknown): ParsedImageMetadata[] {

@@ -74,6 +74,30 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.listings[1]?.images[0]?.imageUrl).toBe("https://www.nettiauto.com/images/1002.jpg");
   });
 
+  it("extracts the listing URL by source listing id instead of first card link", () => {
+    const page = parseNettiautoAjaxSearchResult(
+      {
+        total_ads: 1,
+        current_page: 1,
+        total_page: 1,
+        ad_listing_data:
+          "<article class=\"listing-card\" data-datalayer='{\"item_id\":\"3001\",\"item_name\":\"Corolla\",\"item_brand\":\"Toyota\",\"item_variant\":\"Corolla\",\"item_vehicle_price\":\"18900\",\"item_ad_status\":\"Myynnissä\"}'>" +
+          '<a href="https://www.almamedia.fi/markkinapaikkaehdot/#listajarjestys-ja-lisanakyvyys">Terms</a>' +
+          '<a href="/toyota/corolla/3001?utm_source=list#details">Toyota Corolla</a>' +
+          "</article>",
+      },
+      {
+        crawlKind: "current",
+        pageNumber: 1,
+      },
+    );
+
+    expect(page.issues).toEqual([]);
+    expect(page.listings[0]?.normalized.sourceUrl).toBe(
+      "https://www.nettiauto.com/toyota/corolla/3001",
+    );
+  });
+
   it("parses sold AJAX fixture only when sold crawl and sold source label agree", () => {
     const soldPage = parseNettiautoAjaxSearchResult(soldFixture, {
       crawlKind: "sold",
