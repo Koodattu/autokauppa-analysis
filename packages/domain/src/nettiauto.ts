@@ -75,6 +75,69 @@ export interface ParseIssue {
   message: string;
 }
 
+export type NettiautoDetailUpdatedDateSource = "detail_header" | "detail_field" | "detail_body";
+
+export interface ParsedNettiautoDetailField {
+  label: string;
+  value: string;
+}
+
+export interface ParsedNettiautoDetailMeta {
+  key: string;
+  value: string;
+}
+
+export interface NettiautoDetailNormalizedData {
+  detailParserVersion: typeof NETTIAUTO_DETAIL_PARSER_VERSION;
+  sourceUpdatedDate: string | null;
+  sourceUpdatedDateLabel: string | null;
+  sourceUpdatedDateSource: NettiautoDetailUpdatedDateSource | null;
+  sourceLocationLabel: string | null;
+  registrationNumber: string | null;
+  vin: string | null;
+  mileageKm: number | null;
+  engineSourceLabel: string | null;
+  fuelTypeSourceLabel: string | null;
+  yearModel: number | null;
+  firstRegistrationDate: string | null;
+  transmissionSourceLabel: string | null;
+  drivetrainSourceLabel: string | null;
+  inspectionDateLabel: string | null;
+  bodyTypeSourceLabel: string | null;
+  vehicleTypeSourceLabel: string | null;
+  colorSourceLabel: string | null;
+  powerKw: number | null;
+  powerHp: number | null;
+  topSpeedKmh: number | null;
+  acceleration0To100S: number | null;
+  seatCount: number | null;
+  doorCount: number | null;
+  steeringSideSourceLabel: string | null;
+  curbWeightKg: number | null;
+  grossWeightKg: number | null;
+  towingWeightBrakedKg: number | null;
+  towingWeightUnbrakedKg: number | null;
+  co2GKm: number | null;
+  fuelConsumptionSourceLabel: string | null;
+  sellerNotes: string | null;
+  jsonLdAvailability: string | null;
+  jsonLdPriceEur: number | null;
+  jsonLdSellerName: string | null;
+}
+
+export interface ParsedNettiautoDetailSourcePayload {
+  title: string | null;
+  sourceUpdatedDate: string | null;
+  sourceUpdatedDateLabel: string | null;
+  sourceUpdatedDateSource: NettiautoDetailUpdatedDateSource | null;
+  sourceLocationLabel: string | null;
+  meta: ParsedNettiautoDetailMeta[];
+  jsonLd: Record<string, unknown>[];
+  fields: ParsedNettiautoDetailField[];
+  images: ParsedImageMetadata[];
+  normalizedData: NettiautoDetailNormalizedData;
+}
+
 export interface ParsedSearchResultPage {
   source: typeof NETTIAUTO_SOURCE;
   crawlKind: CrawlKind;
@@ -92,8 +155,11 @@ export interface ParsedNettiautoDetailPage {
   parserVersion: typeof NETTIAUTO_DETAIL_PARSER_VERSION;
   sourceUpdatedDate: string | null;
   sourceUpdatedDateLabel: string | null;
-  sourceUpdatedDateSource: "detail_header" | null;
+  sourceUpdatedDateSource: NettiautoDetailUpdatedDateSource | null;
   sourceHtmlFragment: string | null;
+  sourcePayload: ParsedNettiautoDetailSourcePayload;
+  normalizedData: NettiautoDetailNormalizedData;
+  images: ParsedImageMetadata[];
 }
 
 export function buildNettiautoSearchUrl(
@@ -301,22 +367,311 @@ export function parseNettiautoDetailPage(
   options: { sourceListingId: string },
 ): ParsedNettiautoDetailPage {
   const $ = load(body);
+  const fields = extractDetailFields($);
+  const jsonLd = extractJsonLdRecords($);
+  const carJsonLd = findCarJsonLdRecord(jsonLd);
+  const meta = extractDetailMeta($);
+  const images = extractDetailPageImages(carJsonLd);
+  const updatedDate = extractSourceUpdatedDate($, fields);
   const headerDateElement = $(".page-header__item_date-location").first();
-  const headerDateText = headerDateElement.text().replace(/\s+/g, " ").trim();
-  const dateMatch = headerDateText.match(/\bPäivitetty\s+(\d{1,2})\.(\d{1,2})\.(\d{4})\b/i);
-  const sourceUpdatedDate = dateMatch
-    ? datePartsToIsoDate(dateMatch[1], dateMatch[2], dateMatch[3])
-    : null;
+  const normalizedData = normalizeNettiautoDetailData(fields, carJsonLd, updatedDate);
+  const title = squash($("title").first().text()) || null;
+  const sourcePayload: ParsedNettiautoDetailSourcePayload = {
+    title,
+    sourceUpdatedDate: normalizedData.sourceUpdatedDate,
+    sourceUpdatedDateLabel: normalizedData.sourceUpdatedDateLabel,
+    sourceUpdatedDateSource: normalizedData.sourceUpdatedDateSource,
+    sourceLocationLabel: normalizedData.sourceLocationLabel,
+    meta,
+    jsonLd,
+    fields,
+    images,
+    normalizedData,
+  };
 
   return {
     source: NETTIAUTO_SOURCE,
     sourceListingId: options.sourceListingId,
     parserVersion: NETTIAUTO_DETAIL_PARSER_VERSION,
-    sourceUpdatedDate,
-    sourceUpdatedDateLabel: sourceUpdatedDate ? (dateMatch?.[0] ?? null) : null,
-    sourceUpdatedDateSource: sourceUpdatedDate ? "detail_header" : null,
+    sourceUpdatedDate: normalizedData.sourceUpdatedDate,
+    sourceUpdatedDateLabel: normalizedData.sourceUpdatedDateLabel,
+    sourceUpdatedDateSource: normalizedData.sourceUpdatedDateSource,
     sourceHtmlFragment: headerDateElement.length > 0 ? $.html(headerDateElement) : null,
+    sourcePayload,
+    normalizedData,
+    images,
   };
+}
+
+function extractDetailFields($: ReturnType<typeof load>): ParsedNettiautoDetailField[] {
+  const fields: ParsedNettiautoDetailField[] = [];
+  const pushField = (label: string, value: string) => {
+    const normalizedLabel = squash(label);
+    const normalizedValue = squash(value);
+    if (
+      !normalizedLabel ||
+      !normalizedValue ||
+      normalizedLabel === normalizedValue ||
+      normalizedLabel.length > 100 ||
+      normalizedValue.length > 3_000
+    ) {
+      return;
+    }
+    fields.push({ label: normalizedLabel, value: normalizedValue });
+  };
+
+  $(".vehicle-info-box").each((_, element) => {
+    pushField(
+      $(element).find(".vehicle-info-box__vehicle-det").first().text(),
+      $(element).find(".vehicle-info-box__vehicle-info").first().text(),
+    );
+  });
+
+  $("dt").each((_, element) => {
+    pushField($(element).text(), $(element).next("dd").text());
+  });
+
+  return uniqueDetailFields(fields);
+}
+
+function extractJsonLdRecords($: ReturnType<typeof load>) {
+  return $("script[type='application/ld+json']")
+    .toArray()
+    .flatMap((element) => collectJsonLdRecords(safeJsonParse($(element).text())));
+}
+
+function collectJsonLdRecords(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectJsonLdRecords(item));
+  }
+
+  if (!isRecord(value)) {
+    return [];
+  }
+  if (Object.keys(value).length === 0) {
+    return [];
+  }
+
+  const graph = value["@graph"];
+  if (Array.isArray(graph)) {
+    return [
+      value,
+      ...graph.flatMap((item) => collectJsonLdRecords(item)),
+    ];
+  }
+
+  return [value];
+}
+
+function findCarJsonLdRecord(records: Record<string, unknown>[]) {
+  return records.find((record) => jsonLdTypeIncludes(record, "Car")) ?? records[0] ?? null;
+}
+
+function jsonLdTypeIncludes(record: Record<string, unknown>, expectedType: string) {
+  const type = record["@type"];
+  if (Array.isArray(type)) {
+    return type.some((item) => String(item).toLowerCase() === expectedType.toLowerCase());
+  }
+
+  return String(type).toLowerCase() === expectedType.toLowerCase();
+}
+
+function extractDetailMeta($: ReturnType<typeof load>): ParsedNettiautoDetailMeta[] {
+  return $("meta")
+    .toArray()
+    .flatMap((element) => {
+      const key = $(element).attr("property") ?? $(element).attr("name");
+      const value = $(element).attr("content");
+      return key && value && /(title|description|image|price|vehicle|product|og:|twitter:)/i.test(key)
+        ? [{ key, value }]
+        : [];
+    });
+}
+
+function extractDetailPageImages(carJsonLd: Record<string, unknown> | null): ParsedImageMetadata[] {
+  const imageValue = carJsonLd?.image;
+  const imageValues = Array.isArray(imageValue) ? imageValue : [imageValue];
+  return imageValues.flatMap((value, index) => {
+    const imageUrl = typeof value === "string" ? normalizeImageUrl(value) : null;
+    return imageUrl
+      ? [
+          {
+            imageUrl,
+            imageRole: "detail",
+            position: index + 1,
+            width: null,
+            height: null,
+          },
+        ]
+      : [];
+  });
+}
+
+function extractSourceUpdatedDate(
+  $: ReturnType<typeof load>,
+  fields: ParsedNettiautoDetailField[],
+): {
+  date: string | null;
+  label: string | null;
+  source: NettiautoDetailUpdatedDateSource | null;
+  locationLabel: string | null;
+} {
+  const headerText = squash($(".page-header__item_date-location").first().text());
+  const headerDate = parseUpdatedDateLabel(headerText);
+  if (headerDate.date) {
+    return { ...headerDate, source: "detail_header", locationLabel: null };
+  }
+
+  for (const field of fields) {
+    const fieldDate = parseUpdatedDateLabel(field.label);
+    if (fieldDate.date) {
+      return {
+        ...fieldDate,
+        source: "detail_field",
+        locationLabel: field.value,
+      };
+    }
+  }
+
+  const bodyDate = parseUpdatedDateLabel(squash($("body").text()));
+  return bodyDate.date
+    ? { ...bodyDate, source: "detail_body", locationLabel: null }
+    : { date: null, label: null, source: null, locationLabel: null };
+}
+
+function parseUpdatedDateLabel(text: string) {
+  const dateMatch = text.match(/\bPäivitetty\s+(\d{1,2})\.(\d{1,2})\.(\d{4})\b/i);
+  const date = dateMatch ? datePartsToIsoDate(dateMatch[1], dateMatch[2], dateMatch[3]) : null;
+  return {
+    date,
+    label: date ? (dateMatch?.[0] ?? null) : null,
+  };
+}
+
+function normalizeNettiautoDetailData(
+  fields: ParsedNettiautoDetailField[],
+  carJsonLd: Record<string, unknown> | null,
+  updatedDate: {
+    date: string | null;
+    label: string | null;
+    source: NettiautoDetailUpdatedDateSource | null;
+    locationLabel: string | null;
+  },
+): NettiautoDetailNormalizedData {
+  const engineSourceLabel = detailFieldValue(fields, "Moottori");
+  const powerLabel = detailFieldValue(fields, "Teho");
+
+  return {
+    detailParserVersion: NETTIAUTO_DETAIL_PARSER_VERSION,
+    sourceUpdatedDate: updatedDate.date,
+    sourceUpdatedDateLabel: updatedDate.label,
+    sourceUpdatedDateSource: updatedDate.source,
+    sourceLocationLabel: updatedDate.locationLabel,
+    registrationNumber: detailFieldValue(fields, "Rekisterinumero"),
+    vin: jsonLdString(carJsonLd, "vehicleIdentificationNumber"),
+    mileageKm:
+      parseInteger(jsonLdValue(carJsonLd, "mileageFromOdometer.value")) ??
+      parseInteger(detailFieldValue(fields, "Mittarilukema")),
+    engineSourceLabel,
+    fuelTypeSourceLabel: extractFuelTypeSourceLabel(engineSourceLabel),
+    yearModel:
+      parseInteger(jsonLdValue(carJsonLd, "vehicleModelDate")) ??
+      parseYearModel(detailFieldValue(fields, "Vuosimalli")),
+    firstRegistrationDate: parseFinnishDate(detailFieldValue(fields, "Käyttöönottopäivä")),
+    transmissionSourceLabel: detailFieldValue(fields, "Vaihteisto"),
+    drivetrainSourceLabel: detailFieldValue(fields, "Vetotapa"),
+    inspectionDateLabel: detailFieldValue(fields, "Katsastettu"),
+    bodyTypeSourceLabel: detailFieldValue(fields, "Korimalli"),
+    vehicleTypeSourceLabel: detailFieldValue(fields, "Auton tyyppi"),
+    colorSourceLabel: detailFieldValue(fields, "Väri") ?? jsonLdString(carJsonLd, "color"),
+    powerKw: parseIntegerFromMatch(powerLabel, /(\d+)\s*kW/i),
+    powerHp: parseIntegerFromMatch(powerLabel, /(\d+)\s*Hv/i),
+    topSpeedKmh: parseInteger(detailFieldValue(fields, "Huippunopeus")),
+    acceleration0To100S: parseDecimal(detailFieldValue(fields, "Kiihtyvyys (0-100)")),
+    seatCount: parseInteger(detailFieldValue(fields, "Henkilömäärä")),
+    doorCount: parseInteger(detailFieldValue(fields, "Ovien lkm")),
+    steeringSideSourceLabel: detailFieldValue(fields, "Ohjauslaite"),
+    curbWeightKg: parseInteger(detailFieldValue(fields, "Omamassa")),
+    grossWeightKg: parseInteger(detailFieldValue(fields, "Kokonaismassa")),
+    towingWeightBrakedKg: parseInteger(detailFieldValue(fields, "Vetomassa (jarrullinen)")),
+    towingWeightUnbrakedKg: parseInteger(detailFieldValue(fields, "Vetomassa (ei jarruja)")),
+    co2GKm: parseInteger(detailFieldValue(fields, "CO2 -päästöt")),
+    fuelConsumptionSourceLabel: detailFieldValue(fields, "Polttoaineen kulutus"),
+    sellerNotes: detailFieldValue(fields, "Lisätiedot"),
+    jsonLdAvailability: jsonLdString(carJsonLd, "offers.availability"),
+    jsonLdPriceEur: parseInteger(jsonLdValue(carJsonLd, "offers.price")),
+    jsonLdSellerName: jsonLdString(carJsonLd, "offers.seller.name"),
+  };
+}
+
+function detailFieldValue(fields: ParsedNettiautoDetailField[], label: string) {
+  return fields.find((field) => normalizeLabel(field.label) === normalizeLabel(label))?.value ?? null;
+}
+
+function jsonLdValue(record: Record<string, unknown> | null, path: string): unknown {
+  if (!record) {
+    return null;
+  }
+
+  return path.split(".").reduce<unknown>((value, key) => {
+    if (!isRecord(value)) {
+      return null;
+    }
+    return value[key] ?? null;
+  }, record);
+}
+
+function jsonLdString(record: Record<string, unknown> | null, path: string) {
+  const value = jsonLdValue(record, path);
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function extractFuelTypeSourceLabel(engineSourceLabel: string | null) {
+  if (!engineSourceLabel) {
+    return null;
+  }
+
+  const [, fuelType] = engineSourceLabel.split(/,\s+/, 2);
+  return fuelType?.trim() || engineSourceLabel.trim() || null;
+}
+
+function parseYearModel(value: string | null) {
+  const match = value?.match(/\b(19|20)\d{2}\b/);
+  return match?.[0] ? Number(match[0]) : null;
+}
+
+function parseFinnishDate(value: string | null) {
+  const match = value?.match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/);
+  return match ? datePartsToIsoDate(match[1], match[2], match[3]) : null;
+}
+
+function parseDecimal(value: string | null) {
+  const match = value?.match(/-?\d+(?:[,.]\d+)?/);
+  if (!match?.[0]) {
+    return null;
+  }
+
+  const parsed = Number(match[0].replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseIntegerFromMatch(value: string | null, pattern: RegExp) {
+  const match = value?.match(pattern);
+  return parseInteger(match?.[1]);
+}
+
+function uniqueDetailFields(fields: ParsedNettiautoDetailField[]) {
+  const seen = new Set<string>();
+  const result: ParsedNettiautoDetailField[] = [];
+  for (const field of fields) {
+    const key = `${field.label}\u0000${field.value}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(field);
+  }
+  return result;
 }
 
 function normalizeNettiautoListing(
@@ -452,6 +807,10 @@ function normalizeImageUrl(value: string | undefined) {
   }
 }
 
+function squash(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function normalizeLabel(value: string | null | undefined) {
   return (value ?? "")
     .normalize("NFD")
@@ -535,6 +894,10 @@ function inferSellerType(value: string | undefined) {
   }
 
   return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function safeJsonParse(value: string): unknown {

@@ -3,6 +3,7 @@ import type { Task } from "graphile-worker";
 import { parseWorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import {
+  NETTIAUTO_DETAIL_PARSER_VERSION,
   classifyNettiautoResponseBody,
   nettiautoDetailRequestHeaders,
   parseNettiautoDetailPage,
@@ -45,11 +46,14 @@ const task: Task = async (payload, helpers) => {
   const sql = createSqlClient(config.DATABASE_URL, 1);
   try {
     if (!taskPayload.force) {
-      const [existing] = await sql<{ sourceUpdatedDate: string | null }[]>`
+      const [existing] = await sql<
+        { sourceUpdatedDate: string | null; detailParserVersion: string | null }[]
+      >`
         select latest_snapshot.source_updated_date::text as "sourceUpdatedDate"
+             , latest_snapshot.normalized_data->>'detailParserVersion' as "detailParserVersion"
         from listings
         left join lateral (
-          select source_updated_date
+          select source_updated_date, normalized_data
           from listing_snapshots
           where listing_id = listings.id
           order by observed_at desc, created_at desc
@@ -59,15 +63,16 @@ const task: Task = async (payload, helpers) => {
           and listings.source_listing_id = ${taskPayload.sourceListingId}
         limit 1
       `;
-      if (existing?.sourceUpdatedDate) {
+      if (existing?.detailParserVersion === NETTIAUTO_DETAIL_PARSER_VERSION) {
         logger.info(
           {
             jobId: helpers.job.id,
             task: "crawl_nettiauto_detail_page",
             sourceListingId: taskPayload.sourceListingId,
             sourceUpdatedDate: existing.sourceUpdatedDate,
+            detailParserVersion: existing.detailParserVersion,
           },
-          "Nettiauto detail crawl skipped because latest snapshot already has a source updated date",
+          "Nettiauto detail crawl skipped because latest snapshot already has parsed detail data",
         );
         return;
       }

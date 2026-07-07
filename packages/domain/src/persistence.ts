@@ -193,6 +193,25 @@ export async function createCrawlRunForSourceQuery(sql: SqlClient, searchQueryId
   return row.id;
 }
 
+export async function markStaleCrawlRunsPartial(
+  sql: SqlClient,
+  options: { staleAfterInterval?: string } = {},
+) {
+  const staleAfterInterval = options.staleAfterInterval ?? "2 hours";
+  return sql<{ id: string }[]>`
+    update crawl_runs
+    set
+      status = 'partial',
+      finished_at = now(),
+      is_complete = false,
+      failure_reason = 'stale_running_crawl_recovered',
+      updated_at = now()
+    where status in ('planned', 'running')
+      and updated_at < now() - ${staleAfterInterval}::interval
+    returning id
+  `;
+}
+
 export async function getEnabledSourceSearchQueries(sql: SqlClient) {
   return sql<
     {
@@ -522,11 +541,7 @@ export async function persistNettiautoDetailPage(
       };
     }
 
-    const sourcePayload = {
-      sourceUpdatedDate: input.parsedDetail.sourceUpdatedDate,
-      sourceUpdatedDateLabel: input.parsedDetail.sourceUpdatedDateLabel,
-      sourceUpdatedDateSource: input.parsedDetail.sourceUpdatedDateSource,
-    };
+    const sourcePayload = input.parsedDetail.sourcePayload;
     const rawRecordRows = (await tx`
       insert into raw_listing_records (
         source,
@@ -568,11 +583,20 @@ export async function persistNettiautoDetailPage(
       throw new Error("Failed to insert detail raw listing record.");
     }
 
-    const listingId = await updateListingSourceUpdatedDate(tx, {
+    const listingId = await updateListingFromDetailPage(tx, {
       rawListingRecordId: rawRecord.id,
       sourceListingId: input.sourceListingId,
-      sourceUpdatedDate: input.parsedDetail.sourceUpdatedDate,
+      parsedDetail: input.parsedDetail,
     });
+
+    if (listingId) {
+      await persistDetailImages(tx, {
+        listingId,
+        rawListingRecordId: rawRecord.id,
+        fetchedAt,
+        images: input.parsedDetail.images,
+      });
+    }
 
     return {
       sourceFetchId: fetchRow.id,
@@ -814,30 +838,38 @@ async function persistListingCard(
   }
 }
 
-async function updateListingSourceUpdatedDate(
+async function updateListingFromDetailPage(
   tx: TransactionSqlClient,
   input: {
     rawListingRecordId: string;
     sourceListingId: string;
-    sourceUpdatedDate: string | null;
+    parsedDetail: ParsedNettiautoDetailPage;
   },
 ) {
-  if (!input.sourceUpdatedDate) {
-    return null;
-  }
+  const sourceUpdatedDate = input.parsedDetail.sourceUpdatedDate;
+  const detailData = input.parsedDetail.normalizedData;
+  const detailPayload = jsonValue(detailData);
 
-  const listingRows = (await tx`
-    update listings
-    set
-      source_updated_date = greatest(
-        coalesce(source_updated_date, ${input.sourceUpdatedDate}::date),
-        ${input.sourceUpdatedDate}::date
-      ),
-      updated_at = now()
-    where source = 'nettiauto'
-      and source_listing_id = ${input.sourceListingId}
-    returning id
-  `) as unknown as Array<{ id: string }>;
+  const listingRows = sourceUpdatedDate
+    ? ((await tx`
+        update listings
+        set
+          source_updated_date = greatest(
+            coalesce(source_updated_date, ${sourceUpdatedDate}::date),
+            ${sourceUpdatedDate}::date
+          ),
+          updated_at = now()
+        where source = 'nettiauto'
+          and source_listing_id = ${input.sourceListingId}
+        returning id
+      `) as unknown as Array<{ id: string }>)
+    : ((await tx`
+        select id
+        from listings
+        where source = 'nettiauto'
+          and source_listing_id = ${input.sourceListingId}
+        limit 1
+      `) as unknown as Array<{ id: string }>);
   const [listing] = listingRows;
 
   if (!listing) {
@@ -847,13 +879,14 @@ async function updateListingSourceUpdatedDate(
   await tx`
     update listing_snapshots
     set
-      source_updated_date = ${input.sourceUpdatedDate}::date,
-      normalized_data = jsonb_set(
-        normalized_data,
-        '{sourceUpdatedDate}',
-        to_jsonb(${input.sourceUpdatedDate}::text),
-        true
-      )
+      source_updated_date = coalesce(${sourceUpdatedDate}::date, source_updated_date),
+      mileage_km = coalesce(${detailData.mileageKm}, mileage_km),
+      year_model = coalesce(${detailData.yearModel}, year_model),
+      fuel_type_source_label = coalesce(${detailData.fuelTypeSourceLabel}, fuel_type_source_label),
+      transmission_source_label = coalesce(${detailData.transmissionSourceLabel}, transmission_source_label),
+      body_type_source_label = coalesce(${detailData.bodyTypeSourceLabel}, body_type_source_label),
+      color_source_label = coalesce(${detailData.colorSourceLabel}, color_source_label),
+      normalized_data = normalized_data || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb)
     where id = (
       select id
       from listing_snapshots
@@ -861,14 +894,54 @@ async function updateListingSourceUpdatedDate(
       order by observed_at desc, created_at desc
       limit 1
     )
-      and source_updated_date is distinct from ${input.sourceUpdatedDate}::date
-  `;
-
-  await tx`
-    update raw_listing_records
-    set source_updated_date = ${input.sourceUpdatedDate}::date
-    where id = ${input.rawListingRecordId}
   `;
 
   return listing.id;
+}
+
+async function persistDetailImages(
+  tx: TransactionSqlClient,
+  input: {
+    listingId: string;
+    rawListingRecordId: string;
+    fetchedAt: Date;
+    images: ParsedNettiautoDetailPage["images"];
+  },
+) {
+  for (const image of input.images) {
+    await tx`
+      insert into listing_images (
+        listing_id,
+        source,
+        image_url,
+        image_role,
+        position,
+        width,
+        height,
+        first_seen_at,
+        last_seen_at,
+        last_raw_listing_record_id
+      )
+      values (
+        ${input.listingId},
+        'nettiauto',
+        ${image.imageUrl},
+        ${image.imageRole},
+        ${image.position},
+        ${image.width},
+        ${image.height},
+        ${input.fetchedAt},
+        ${input.fetchedAt},
+        ${input.rawListingRecordId}
+      )
+      on conflict (listing_id, image_url)
+      do update set
+        image_role = excluded.image_role,
+        position = excluded.position,
+        width = excluded.width,
+        height = excluded.height,
+        last_seen_at = excluded.last_seen_at,
+        last_raw_listing_record_id = excluded.last_raw_listing_record_id
+    `;
+  }
 }

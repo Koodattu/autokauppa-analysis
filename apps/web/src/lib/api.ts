@@ -74,6 +74,35 @@ export interface ListingSearchResponse {
   coverage: CoverageMetadata;
 }
 
+export interface PublicVehicleDetails {
+  sourceUpdatedDate: string | null;
+  sourceLocationLabel: string | null;
+  registrationNumber: string | null;
+  engineSourceLabel: string | null;
+  fuelTypeSourceLabel: string | null;
+  transmissionSourceLabel: string | null;
+  drivetrainSourceLabel: string | null;
+  firstRegistrationDate: string | null;
+  inspectionDateLabel: string | null;
+  bodyTypeSourceLabel: string | null;
+  vehicleTypeSourceLabel: string | null;
+  colorSourceLabel: string | null;
+  powerKw: number | null;
+  powerHp: number | null;
+  topSpeedKmh: number | null;
+  acceleration0To100S: number | null;
+  seatCount: number | null;
+  doorCount: number | null;
+  steeringSideSourceLabel: string | null;
+  curbWeightKg: number | null;
+  grossWeightKg: number | null;
+  towingWeightBrakedKg: number | null;
+  towingWeightUnbrakedKg: number | null;
+  co2GKm: number | null;
+  fuelConsumptionSourceLabel: string | null;
+  sellerNotes: string | null;
+}
+
 export interface PublicListingDetailResponse {
   listing: ListingTableItem & {
     firstSeenAt: string;
@@ -92,6 +121,7 @@ export interface PublicListingDetailResponse {
   mileageHistory: Array<{ observedAt: string; mileageKm: number | null }>;
   availabilityHistory: Array<{ observedAt: string; availability: string }>;
   imageMetadata: Array<{ imageUrl: string; role: string | null; position: number | null }>;
+  vehicleDetails: PublicVehicleDetails | null;
   coverage: CoverageMetadata;
 }
 
@@ -125,13 +155,34 @@ export interface AdminCrawlerStatusResponse {
   }>;
   queueBacklog: {
     pendingJobs: number;
+    lockedJobs: number;
     failedJobs: number;
   };
   failureCounts: Array<{ failureReason: string; count: number }>;
+  latestSourceFetchFailures: Array<{
+    fetchedAt: string;
+    fetchKind: string;
+    pageNumber: number | null;
+    sourceUrl: string;
+    responseStatus: number | null;
+    responseBodyShape: string;
+    errorType: string;
+    errorMessage: string | null;
+  }>;
   latestParserErrorSummaries: Array<{
     capturedAt: string;
     parserVersion: string;
     parseError: string;
+  }>;
+  latestFailedJobs: Array<{
+    id: string;
+    taskIdentifier: string;
+    attempts: number;
+    maxAttempts: number;
+    runAt: string | null;
+    lastError: string | null;
+    createdAt: string;
+    updatedAt: string | null;
   }>;
 }
 

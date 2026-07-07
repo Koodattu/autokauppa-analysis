@@ -3,7 +3,10 @@ import { z } from "zod";
 import { parseWorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import {
+  createCrawlRunForSourceQuery,
   getSchedulableSourceSearchQueries,
+  markCrawlRunFinished,
+  markStaleCrawlRunsPartial,
   seedDefaultSourceSearchQueries,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
@@ -37,21 +40,34 @@ const task: Task = async (payload, helpers) => {
   const sql = createSqlClient(config.DATABASE_URL, 1);
   try {
     await seedDefaultSourceSearchQueries(sql);
+    const recoveredRuns = await markStaleCrawlRunsPartial(sql);
     const queries = await getSchedulableSourceSearchQueries(sql, {
       force: payloadResult.data.force,
     });
     for (const query of queries) {
-      await helpers.addJob(
-        "crawl_nettiauto_search_query",
-        { sourceQueryId: query.id },
-        {
-          queueName: "nettiauto",
-          maxAttempts: 3,
-          jobKey: `nettiauto:${query.id}`,
-          jobKeyMode: "preserve_run_at",
-          priority: query.priority,
-        },
-      );
+      const crawlRunId = await createCrawlRunForSourceQuery(sql, query.id);
+      try {
+        await helpers.addJob(
+          "crawl_nettiauto_search_page",
+          { crawlRunId, sourceQueryId: query.id, pageNumber: 1 },
+          {
+            queueName: "nettiauto",
+            maxAttempts: 3,
+            jobKey: `nettiauto:search-page:${crawlRunId}:1`,
+            jobKeyMode: "preserve_run_at",
+            priority: query.priority,
+          },
+        );
+      } catch (error) {
+        await markCrawlRunFinished(sql, {
+          crawlRunId,
+          status: "failed",
+          expectedPageCount: null,
+          sourceTotalAds: null,
+          failureReason: error instanceof Error ? error.message : "failed_to_schedule_first_page",
+        });
+        throw error;
+      }
     }
 
     logger.info(
@@ -60,6 +76,7 @@ const task: Task = async (payload, helpers) => {
         task: "schedule_nettiauto_crawl",
         force: payloadResult.data.force,
         scheduledQueryCount: queries.length,
+        recoveredStaleRunCount: recoveredRuns.length,
       },
       "Nettiauto crawl jobs scheduled",
     );

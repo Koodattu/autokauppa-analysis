@@ -69,6 +69,35 @@ export interface ListingTableItem {
   sourceUrl: string | null;
 }
 
+export interface PublicVehicleDetails {
+  sourceUpdatedDate: string | null;
+  sourceLocationLabel: string | null;
+  registrationNumber: string | null;
+  engineSourceLabel: string | null;
+  fuelTypeSourceLabel: string | null;
+  transmissionSourceLabel: string | null;
+  drivetrainSourceLabel: string | null;
+  firstRegistrationDate: string | null;
+  inspectionDateLabel: string | null;
+  bodyTypeSourceLabel: string | null;
+  vehicleTypeSourceLabel: string | null;
+  colorSourceLabel: string | null;
+  powerKw: number | null;
+  powerHp: number | null;
+  topSpeedKmh: number | null;
+  acceleration0To100S: number | null;
+  seatCount: number | null;
+  doorCount: number | null;
+  steeringSideSourceLabel: string | null;
+  curbWeightKg: number | null;
+  grossWeightKg: number | null;
+  towingWeightBrakedKg: number | null;
+  towingWeightUnbrakedKg: number | null;
+  co2GKm: number | null;
+  fuelConsumptionSourceLabel: string | null;
+  sellerNotes: string | null;
+}
+
 export interface PublicListingDetailResponse {
   listing: ListingTableItem & {
     firstSeenAt: string;
@@ -87,6 +116,7 @@ export interface PublicListingDetailResponse {
   mileageHistory: Array<{ observedAt: string; mileageKm: number | null }>;
   availabilityHistory: Array<{ observedAt: string; availability: string }>;
   imageMetadata: Array<{ imageUrl: string; role: string | null; position: number | null }>;
+  vehicleDetails: PublicVehicleDetails | null;
   coverage: CoverageMetadata;
 }
 
@@ -120,13 +150,34 @@ export interface AdminCrawlerStatusResponse {
   }>;
   queueBacklog: {
     pendingJobs: number;
+    lockedJobs: number;
     failedJobs: number;
   };
   failureCounts: Array<{ failureReason: string; count: number }>;
+  latestSourceFetchFailures: Array<{
+    fetchedAt: string;
+    fetchKind: string;
+    pageNumber: number | null;
+    sourceUrl: string;
+    responseStatus: number | null;
+    responseBodyShape: string;
+    errorType: string;
+    errorMessage: string | null;
+  }>;
   latestParserErrorSummaries: Array<{
     capturedAt: string;
     parserVersion: string;
     parseError: string;
+  }>;
+  latestFailedJobs: Array<{
+    id: string;
+    taskIdentifier: string;
+    attempts: number;
+    maxAttempts: number;
+    runAt: string | null;
+    lastError: string | null;
+    createdAt: string;
+    updatedAt: string | null;
   }>;
 }
 
@@ -255,7 +306,17 @@ export async function getPublicListingDetail(
   sql: Sql,
   listingId: string,
 ): Promise<PublicListingDetailResponse | null> {
-  const [listing] = await sql.unsafe<ListingTableItem[]>(
+  const [detailRow] = await sql.unsafe<
+    Array<
+      ListingTableItem & {
+        sourceUpdatedDate: string | null;
+        transmissionSourceLabel: string | null;
+        bodyTypeSourceLabel: string | null;
+        colorSourceLabel: string | null;
+        normalizedData: unknown;
+      }
+    >
+  >(
     `
       with latest_snapshots as (${latestSnapshotSql()})
       select
@@ -270,6 +331,11 @@ export async function getPublicListingDetail(
         s.mileage_km as "mileageKm",
         s.seller_source_label as "seller",
         s.seller_type_source_label as "sellerType",
+        s.source_updated_date::text as "sourceUpdatedDate",
+        s.transmission_source_label as "transmissionSourceLabel",
+        s.body_type_source_label as "bodyTypeSourceLabel",
+        s.color_source_label as "colorSourceLabel",
+        s.normalized_data as "normalizedData",
         l.last_seen_at::text as "lastSeenAt",
         l.canonical_source_url as "sourceUrl"
       from latest_snapshots s
@@ -280,9 +346,25 @@ export async function getPublicListingDetail(
     [listingId],
   );
 
-  if (!listing) {
+  if (!detailRow) {
     return null;
   }
+
+  const {
+    sourceUpdatedDate,
+    transmissionSourceLabel,
+    bodyTypeSourceLabel,
+    colorSourceLabel,
+    normalizedData,
+    ...listing
+  } = detailRow;
+  const vehicleDetails = buildPublicVehicleDetails({
+    sourceUpdatedDate,
+    transmissionSourceLabel,
+    bodyTypeSourceLabel,
+    colorSourceLabel,
+    normalizedData,
+  });
 
   const [baseRow] = await sql<{ firstSeenAt: string }[]>`
     select first_seen_at::text as "firstSeenAt"
@@ -343,16 +425,65 @@ export async function getPublicListingDetail(
       availability: row.availability,
     })),
     imageMetadata: images,
+    vehicleDetails,
     coverage,
   };
+}
+
+function buildPublicVehicleDetails(input: {
+  sourceUpdatedDate: string | null;
+  transmissionSourceLabel: string | null;
+  bodyTypeSourceLabel: string | null;
+  colorSourceLabel: string | null;
+  normalizedData: unknown;
+}): PublicVehicleDetails | null {
+  const data = isRecord(input.normalizedData) ? input.normalizedData : {};
+  const details: PublicVehicleDetails = {
+    sourceUpdatedDate: stringValue(data.sourceUpdatedDate) ?? input.sourceUpdatedDate,
+    sourceLocationLabel: stringValue(data.sourceLocationLabel),
+    registrationNumber: stringValue(data.registrationNumber),
+    engineSourceLabel: stringValue(data.engineSourceLabel),
+    fuelTypeSourceLabel: stringValue(data.fuelTypeSourceLabel),
+    transmissionSourceLabel: stringValue(data.transmissionSourceLabel) ?? input.transmissionSourceLabel,
+    drivetrainSourceLabel: stringValue(data.drivetrainSourceLabel),
+    firstRegistrationDate: stringValue(data.firstRegistrationDate),
+    inspectionDateLabel: stringValue(data.inspectionDateLabel),
+    bodyTypeSourceLabel: stringValue(data.bodyTypeSourceLabel) ?? input.bodyTypeSourceLabel,
+    vehicleTypeSourceLabel: stringValue(data.vehicleTypeSourceLabel),
+    colorSourceLabel: stringValue(data.colorSourceLabel) ?? input.colorSourceLabel,
+    powerKw: numberValue(data.powerKw),
+    powerHp: numberValue(data.powerHp),
+    topSpeedKmh: numberValue(data.topSpeedKmh),
+    acceleration0To100S: numberValue(data.acceleration0To100S),
+    seatCount: numberValue(data.seatCount),
+    doorCount: numberValue(data.doorCount),
+    steeringSideSourceLabel: stringValue(data.steeringSideSourceLabel),
+    curbWeightKg: numberValue(data.curbWeightKg),
+    grossWeightKg: numberValue(data.grossWeightKg),
+    towingWeightBrakedKg: numberValue(data.towingWeightBrakedKg),
+    towingWeightUnbrakedKg: numberValue(data.towingWeightUnbrakedKg),
+    co2GKm: numberValue(data.co2GKm),
+    fuelConsumptionSourceLabel: stringValue(data.fuelConsumptionSourceLabel),
+    sellerNotes: stringValue(data.sellerNotes),
+  };
+
+  return Object.values(details).some((value) => value !== null) ? details : null;
 }
 
 export async function getAdminCrawlerStatus(
   sql: Sql,
   state: { enabled: boolean; paused: boolean; delayMs: number; maxPagesPerRun: number },
 ): Promise<AdminCrawlerStatusResponse> {
-  const [lastSuccessfulCrawls, recentRuns, freshnessBySegment, failureCounts, parserErrors, queueBacklog] =
-    await Promise.all([
+  const [
+    lastSuccessfulCrawls,
+    recentRuns,
+    freshnessBySegment,
+    failureCounts,
+    sourceFetchFailures,
+    parserErrors,
+    queueBacklog,
+    failedJobs,
+  ] = await Promise.all([
       sql<AdminCrawlerStatusResponse["lastSuccessfulCrawls"]>`
         select distinct on (crawl_kind)
           crawl_kind as "crawlKind",
@@ -393,6 +524,21 @@ export async function getAdminCrawlerStatus(
         order by count desc
         limit 10
       `,
+      sql<AdminCrawlerStatusResponse["latestSourceFetchFailures"]>`
+        select
+          fetched_at::text as "fetchedAt",
+          fetch_kind as "fetchKind",
+          page_number as "pageNumber",
+          source_url as "sourceUrl",
+          response_status as "responseStatus",
+          response_body_shape as "responseBodyShape",
+          error_type as "errorType",
+          left(error_message, 500) as "errorMessage"
+        from source_fetches
+        where error_type is not null
+        order by fetched_at desc
+        limit 10
+      `,
       sql<AdminCrawlerStatusResponse["latestParserErrorSummaries"]>`
         select
           captured_at::text as "capturedAt",
@@ -404,6 +550,7 @@ export async function getAdminCrawlerStatus(
         limit 10
       `,
       getQueueBacklog(sql),
+      getLatestFailedJobs(sql),
     ]);
 
   return {
@@ -413,7 +560,9 @@ export async function getAdminCrawlerStatus(
     freshnessBySegment,
     queueBacklog,
     failureCounts,
+    latestSourceFetchFailures: sourceFetchFailures,
     latestParserErrorSummaries: parserErrors,
+    latestFailedJobs: failedJobs,
   };
 }
 
@@ -557,20 +706,79 @@ async function getQueueBacklog(sql: Sql) {
     select to_regclass('graphile_worker.jobs')::text as "relationName"
   `;
   if (!existsRow?.relationName) {
-    return { pendingJobs: 0, failedJobs: 0 };
+    return { pendingJobs: 0, lockedJobs: 0, failedJobs: 0 };
   }
 
-  const [row] = await sql<{ pendingJobs: number; failedJobs: number }[]>`
+  const [row] = await sql<{ pendingJobs: number; lockedJobs: number; failedJobs: number }[]>`
     select
       count(*) filter (where locked_at is null and attempts < max_attempts)::int as "pendingJobs",
+      count(*) filter (where locked_at is not null and attempts < max_attempts)::int as "lockedJobs",
       count(*) filter (where attempts >= max_attempts)::int as "failedJobs"
     from graphile_worker.jobs
   `;
 
   return {
     pendingJobs: row?.pendingJobs ?? 0,
+    lockedJobs: row?.lockedJobs ?? 0,
     failedJobs: row?.failedJobs ?? 0,
   };
+}
+
+async function getLatestFailedJobs(sql: Sql): Promise<AdminCrawlerStatusResponse["latestFailedJobs"]> {
+  const [existsRow] = await sql<{ relationName: string | null }[]>`
+    select to_regclass('graphile_worker.jobs')::text as "relationName"
+  `;
+  if (!existsRow?.relationName) {
+    return [];
+  }
+
+  const columns = await sql<{ columnName: string }[]>`
+    select column_name as "columnName"
+    from information_schema.columns
+    where table_schema = 'graphile_worker'
+      and table_name = 'jobs'
+      and column_name in (
+        'id',
+        'task_identifier',
+        'attempts',
+        'max_attempts',
+        'run_at',
+        'last_error',
+        'created_at',
+        'updated_at'
+      )
+  `;
+  const columnNames = new Set(columns.map((column) => column.columnName));
+  for (const requiredColumn of [
+    "id",
+    "task_identifier",
+    "attempts",
+    "max_attempts",
+    "run_at",
+    "last_error",
+    "created_at",
+    "updated_at",
+  ]) {
+    if (!columnNames.has(requiredColumn)) {
+      return [];
+    }
+  }
+
+  return sql<AdminCrawlerStatusResponse["latestFailedJobs"]>`
+    select
+      id::text,
+      task_identifier as "taskIdentifier",
+      attempts,
+      max_attempts as "maxAttempts",
+      run_at::text as "runAt",
+      left(last_error, 500) as "lastError",
+      created_at::text as "createdAt",
+      updated_at::text as "updatedAt"
+    from graphile_worker.jobs
+    where attempts >= max_attempts
+    order by updated_at desc
+    limit 10
+  `;
 }
 
 function latestSnapshotSql() {
@@ -660,4 +868,16 @@ function validAnalyticsMileageSql(alias: string) {
 
 function nullableNumber(value: string | number | null) {
   return value === null ? null : Number(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

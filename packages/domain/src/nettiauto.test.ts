@@ -135,6 +135,97 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.sourceUpdatedDateLabel).toBe("Päivitetty 07.07.2026");
     expect(page.sourceUpdatedDateSource).toBe("detail_header");
     expect(page.sourceHtmlFragment).toContain("page-header__item_date-location");
+    expect(page.normalizedData.sourceUpdatedDate).toBe("2026-07-07");
+  });
+
+  it("parses detail page vehicle fields, JSON-LD, and detail images", () => {
+    const box = (label: string, value: string) =>
+      `<div class="vehicle-info-box"><span class="vehicle-info-box__vehicle-det">${label}</span><span class="vehicle-info-box__vehicle-info">${value}</span></div>`;
+    const page = parseNettiautoDetailPage(
+      `<html><head>
+        <title>Volkswagen Transporter 2016 - Vaihtoauto - Nettiauto</title>
+        <meta name="description" content="Nyt myynnissä Volkswagen Transporter, 120 000 km, 2016 - Kuopio">
+        <script type="application/ld+json">${JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": ["Product", "Car"],
+          name: "Volkswagen Transporter 2016",
+          brand: { "@type": "Brand", name: "Volkswagen" },
+          model: "Transporter",
+          color: "Valkoinen",
+          vehicleIdentificationNumber: "WV1ZZZ7HZGH061848",
+          vehicleModelDate: 2016,
+          mileageFromOdometer: { "@type": "QuantitativeValue", value: 120000, unitText: "KM" },
+          image: [
+            "https://images.nettiauto.com/live/15848827/front-large.jpg",
+            "https://images.nettiauto.com/live/15848827/side-large.jpg",
+          ],
+          offers: {
+            "@type": "Offer",
+            price: 17099,
+            priceCurrency: "EUR",
+            availability: "https://schema.org/InStock",
+            seller: { "@type": "Organization", name: "Autoliike Malli" },
+          },
+        })}</script>
+      </head><body>
+        ${box("Päivitetty 07.07.2026", "Kuopio, Pohjois-Savo")}
+        ${box("Rekisterinumero", "GLU-494")}
+        ${box("Mittarilukema", "120 000 km")}
+        ${box("Moottori", "2,0 l, Diesel")}
+        ${box("Vuosimalli", "2016 (ensirek. 12-2015)")}
+        ${box("Käyttöönottopäivä", "16.12.2015")}
+        ${box("Vaihteisto", "Manuaali")}
+        ${box("Vetotapa", "Etuveto")}
+        ${box("Katsastettu", "9/2025")}
+        ${box("Korimalli", "Muu")}
+        ${box("Auton tyyppi", "Pakettiauto")}
+        ${box("Väri", "Valkoinen")}
+        ${box("Teho", "75 kW / 102 Hv")}
+        ${box("Huippunopeus", "165 km/h")}
+        ${box("Kiihtyvyys (0-100)", "14,9 s")}
+        ${box("Henkilömäärä", "3")}
+        ${box("Ovien lkm", "6")}
+        ${box("Ohjauslaite", "Vasemmalla")}
+        ${box("Omamassa", "2 031 kg")}
+        ${box("Kokonaismassa", "3 000 kg")}
+        ${box("Vetomassa (jarrullinen)", "2 200 kg")}
+        ${box("Vetomassa (ei jarruja)", "750 kg")}
+        ${box("CO2 -päästöt", "157 g/km")}
+        ${box("Polttoaineen kulutus", "Yhdistetty: 6 l/100 km")}
+        ${box("Lisätiedot", "Siisti paku kahdella rengassarjalla.")}
+      </body></html>`,
+      { sourceListingId: "15848827" },
+    );
+
+    expect(page.sourceUpdatedDate).toBe("2026-07-07");
+    expect(page.sourceUpdatedDateSource).toBe("detail_field");
+    expect(page.normalizedData.sourceLocationLabel).toBe("Kuopio, Pohjois-Savo");
+    expect(page.normalizedData.registrationNumber).toBe("GLU-494");
+    expect(page.normalizedData.vin).toBe("WV1ZZZ7HZGH061848");
+    expect(page.normalizedData.mileageKm).toBe(120000);
+    expect(page.normalizedData.engineSourceLabel).toBe("2,0 l, Diesel");
+    expect(page.normalizedData.fuelTypeSourceLabel).toBe("Diesel");
+    expect(page.normalizedData.firstRegistrationDate).toBe("2015-12-16");
+    expect(page.normalizedData.transmissionSourceLabel).toBe("Manuaali");
+    expect(page.normalizedData.bodyTypeSourceLabel).toBe("Muu");
+    expect(page.normalizedData.colorSourceLabel).toBe("Valkoinen");
+    expect(page.normalizedData.powerKw).toBe(75);
+    expect(page.normalizedData.powerHp).toBe(102);
+    expect(page.normalizedData.acceleration0To100S).toBe(14.9);
+    expect(page.normalizedData.co2GKm).toBe(157);
+    expect(page.normalizedData.jsonLdPriceEur).toBe(17099);
+    expect(page.images.map((image) => image.imageUrl)).toEqual([
+      "https://images.nettiauto.com/live/15848827/front-large.jpg",
+      "https://images.nettiauto.com/live/15848827/side-large.jpg",
+    ]);
+    expect(page.sourcePayload.fields).toContainEqual({
+      label: "Rekisterinumero",
+      value: "GLU-494",
+    });
+    expect(page.sourcePayload.meta[0]).toEqual({
+      key: "description",
+      value: "Nyt myynnissä Volkswagen Transporter, 120 000 km, 2016 - Kuopio",
+    });
   });
 
   it("leaves source updated date empty when detail page has no update label", () => {
