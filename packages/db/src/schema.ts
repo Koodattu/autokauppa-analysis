@@ -250,6 +250,7 @@ export const listingSightings = pgTable(
       table.sourceFetchId,
     ),
     index("listing_sightings_listing_seen_idx").on(table.listingId, table.seenAt),
+    index("listing_sightings_seen_listing_idx").on(table.seenAt.desc(), table.listingId),
     index("listing_sightings_search_query_seen_idx").on(table.searchQueryId, table.seenAt),
   ],
 );
@@ -290,6 +291,11 @@ export const listingSnapshots = pgTable(
   (table) => [
     uniqueIndex("listing_snapshots_listing_hash_uq").on(table.listingId, table.changeHash),
     index("listing_snapshots_listing_observed_idx").on(table.listingId, table.observedAt),
+    index("listing_snapshots_listing_latest_idx").on(
+      table.listingId,
+      table.observedAt.desc(),
+      table.createdAt.desc(),
+    ),
     index("listing_snapshots_availability_observed_idx").on(table.availability, table.observedAt),
     index("listing_snapshots_source_updated_date_idx").on(table.sourceUpdatedDate),
     index("listing_snapshots_make_model_idx").on(table.makeSourceLabel, table.modelSourceLabel),

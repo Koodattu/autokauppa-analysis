@@ -239,6 +239,7 @@ type SqlParameter = string | number | boolean | Date | null;
 const ANALYTICS_MAX_MILEAGE_KM = 2_000_000;
 const ANALYTICS_MILEAGE_BUCKET_KM = 25_000;
 const ANALYTICS_SCATTER_POINT_LIMIT = 500;
+const ANALYTICS_DEFAULT_TREND_LOOKBACK_DAYS = 365;
 
 export async function getFilterMetadata(sql: Sql): Promise<FilterMetadata> {
   const [facets, coverage] = await Promise.all([queryFacets(sql), getCoverage(sql, {})]);
@@ -705,7 +706,16 @@ async function getMakeBreakdown(sql: Sql, filters: ListingFiltersQuery) {
 async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promise<MarketOverTimePoint[]> {
   const interval = filters.interval;
   const bucketStep = intervalToSqlInterval(interval);
-  const { whereSql, params } = buildFilterWhere(filters, { timeColumn: "b.seen_at" });
+  const sightingTimeFilter = buildSightingTimeWhere(filters);
+  const { whereSql, params: snapshotParams } = buildFilterWhere(
+    {
+      ...filters,
+      from: undefined,
+      to: undefined,
+    },
+    { startIndex: sightingTimeFilter.params.length },
+  );
+  const params = [...sightingTimeFilter.params, ...snapshotParams];
   const rows = await sql.unsafe<
     {
       bucket: string;
@@ -725,6 +735,7 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
           ls.listing_id,
           ls.seen_at
         from listing_sightings ls
+        ${sightingTimeFilter.whereSql}
         order by date_trunc('${interval}', ls.seen_at), ls.listing_id, ls.seen_at desc
       ),
       bucketed_snapshots as (
@@ -1070,16 +1081,17 @@ function latestSnapshotSql() {
 
 function buildFilterWhere(
   filters: Partial<ListingFiltersQuery>,
-  options: { snapshotAlias?: string; timeColumn?: string } = {},
+  options: { snapshotAlias?: string; timeColumn?: string; startIndex?: number } = {},
 ) {
   const snapshotAlias = options.snapshotAlias ?? "s";
   const timeColumn = options.timeColumn ?? `${snapshotAlias}.observed_at`;
+  const startIndex = options.startIndex ?? 0;
   const column = (name: string) => `${snapshotAlias}.${name}`;
   const conditions: string[] = [];
   const params: SqlParameter[] = [];
   const add = (condition: string, value: SqlParameter) => {
     params.push(value);
-    conditions.push(condition.replace("?", `$${params.length}`));
+    conditions.push(condition.replace("?", `$${startIndex + params.length}`));
   };
 
   if (filters.make) {
@@ -1126,6 +1138,30 @@ function buildFilterWhere(
   }
   if (filters.to) {
     add(`${timeColumn} < (?::date + interval '1 day')`, filters.to);
+  }
+
+  return {
+    whereSql: conditions.length > 0 ? `where ${conditions.join(" and ")}` : "",
+    params,
+  };
+}
+
+function buildSightingTimeWhere(filters: Pick<ListingFiltersQuery, "from" | "to">) {
+  const conditions: string[] = [];
+  const params: SqlParameter[] = [];
+  const add = (condition: string, value: SqlParameter) => {
+    params.push(value);
+    conditions.push(condition.replace("?", `$${params.length}`));
+  };
+
+  if (filters.from) {
+    add("ls.seen_at >= ?::date", filters.from);
+  }
+  if (filters.to) {
+    add("ls.seen_at < (?::date + interval '1 day')", filters.to);
+  }
+  if (!filters.from && !filters.to) {
+    conditions.push(`ls.seen_at >= now() - interval '${ANALYTICS_DEFAULT_TREND_LOOKBACK_DAYS} days'`);
   }
 
   return {
