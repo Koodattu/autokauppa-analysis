@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AnalyticsCharts } from "./analytics-charts";
 import {
   ApiError,
   apiGet,
@@ -15,13 +16,16 @@ type PageProps = {
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
   const queryString = searchParamsToQueryString(params);
+  const selectedMake = single(params.make);
+  const selectedModel = single(params.model);
+  const pageTitle = [selectedMake, selectedModel].filter(Boolean).join(" ") || "Market listings";
+  const result = await loadHomeData(queryString);
 
-  try {
-    const [filters, analytics, listings] = await Promise.all([
-      apiGet<FilterMetadata>("/filters"),
-      apiGet<AnalyticsTrendResponse>(`/analytics/trends${queryString ? `?${queryString}` : ""}`),
-      apiGet<ListingSearchResponse>(`/listings${queryString ? `?${queryString}` : ""}`),
-    ]);
+  if (!result.ok) {
+    const message =
+      result.error instanceof ApiError
+        ? `API request failed with status ${result.error.status}.`
+        : "Unable to load analytics data.";
 
     return (
       <main className="shell">
@@ -30,20 +34,38 @@ export default async function Home({ searchParams }: PageProps) {
             <p className="eyebrow">Nettiauto Analytics</p>
             <h1>Market listings</h1>
           </div>
-          <Link className="text-link" href="/admin/crawler">
-            Admin
-          </Link>
         </header>
+        <section className="panel error-state">
+          <h2>Data unavailable</h2>
+          <p>{message}</p>
+        </section>
+      </main>
+    );
+  }
 
-        <section className="toolbar" aria-label="Filters">
-          <form className="filter-grid" action="/" method="get">
+  const { filters, analytics, listings } = result.data;
+
+  return (
+    <main className="shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Nettiauto Analytics</p>
+          <h1>{pageTitle}</h1>
+        </div>
+        <Link className="text-link" href="/admin/crawler">
+          Admin
+        </Link>
+      </header>
+
+      <section className="toolbar" aria-label="Filters">
+        <form className="filter-grid" action="/" method="get">
             <label>
               Make
-              <input name="make" defaultValue={single(params.make)} list="makes" />
+              <input name="make" defaultValue={selectedMake} list="makes" />
             </label>
             <label>
               Model
-              <input name="model" defaultValue={single(params.model)} list="models" />
+              <input name="model" defaultValue={selectedModel} list="models" />
             </label>
             <label>
               Availability
@@ -64,8 +86,63 @@ export default async function Home({ searchParams }: PageProps) {
               />
             </label>
             <label>
+              Max year
+              <input
+                name="modelYearTo"
+                inputMode="numeric"
+                defaultValue={single(params.modelYearTo)}
+              />
+            </label>
+            <label>
+              Min price
+              <input name="priceMin" inputMode="numeric" defaultValue={single(params.priceMin)} />
+            </label>
+            <label>
               Max price
               <input name="priceMax" inputMode="numeric" defaultValue={single(params.priceMax)} />
+            </label>
+            <label>
+              Min mileage
+              <input
+                name="mileageMin"
+                inputMode="numeric"
+                defaultValue={single(params.mileageMin)}
+              />
+            </label>
+            <label>
+              Max mileage
+              <input
+                name="mileageMax"
+                inputMode="numeric"
+                defaultValue={single(params.mileageMax)}
+              />
+            </label>
+            <label>
+              Seller
+              <select name="sellerType" defaultValue={single(params.sellerType)}>
+                <option value="">Any seller</option>
+                {filters.sellerTypes.map((sellerType) => (
+                  <option key={sellerType} value={sellerType}>
+                    {sellerType}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              From
+              <input name="from" type="date" defaultValue={single(params.from)} />
+            </label>
+            <label>
+              To
+              <input name="to" type="date" defaultValue={single(params.to)} />
+            </label>
+            <label>
+              Interval
+              <select name="interval" defaultValue={single(params.interval) || "week"}>
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+              </select>
             </label>
             <label>
               Sort
@@ -78,7 +155,12 @@ export default async function Home({ searchParams }: PageProps) {
                 <option value="yearDesc">Newest year</option>
               </select>
             </label>
-            <button type="submit">Apply</button>
+            <div className="filter-actions">
+              <button type="submit">Apply</button>
+              <Link className="button-link secondary-button" href="/">
+                Reset
+              </Link>
+            </div>
           </form>
           <datalist id="makes">
             {filters.makes.map((make) => (
@@ -101,46 +183,13 @@ export default async function Home({ searchParams }: PageProps) {
             value={formatCurrency(analytics.summary.medianAskingPriceEur)}
           />
           <Metric
-            label="Median observed sold"
+            label="Median Observed Sold Price"
             value={formatCurrency(analytics.summary.medianObservedSoldPriceEur)}
           />
           <Metric label="Median mileage" value={formatKm(analytics.summary.medianMileageKm)} />
         </section>
 
-        <section className="split">
-          <div className="panel">
-            <h2>Trend</h2>
-            <div className="trend-list">
-              {analytics.timeSeries.length === 0 ? (
-                <p className="muted">No trend data yet.</p>
-              ) : (
-                analytics.timeSeries.map((point) => (
-                  <div key={point.bucket} className="trend-row">
-                    <span>{point.bucket}</span>
-                    <strong>{formatNumber(point.listingCount)}</strong>
-                    <span>{formatCurrency(point.medianAskingPriceEur)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="panel">
-            <h2>Make breakdown</h2>
-            <div className="trend-list">
-              {analytics.breakdowns.byMake.length === 0 ? (
-                <p className="muted">No make data yet.</p>
-              ) : (
-                analytics.breakdowns.byMake.map((row) => (
-                  <div key={row.make} className="trend-row">
-                    <span>{row.make}</span>
-                    <strong>{formatNumber(row.count)}</strong>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </section>
+        <AnalyticsCharts analytics={analytics} />
 
         <section className="coverage">
           <span>Freshness: {formatDate(analytics.coverage.lastRelevantCrawlAt)}</span>
@@ -201,28 +250,34 @@ export default async function Home({ searchParams }: PageProps) {
             </tbody>
           </table>
         </section>
-      </main>
-    );
-  } catch (error) {
-    const message =
-      error instanceof ApiError
-        ? `API request failed with status ${error.status}.`
-        : "Unable to load analytics data.";
+    </main>
+  );
+}
 
-    return (
-      <main className="shell">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Nettiauto Analytics</p>
-            <h1>Market listings</h1>
-          </div>
-        </header>
-        <section className="panel error-state">
-          <h2>Data unavailable</h2>
-          <p>{message}</p>
-        </section>
-      </main>
-    );
+async function loadHomeData(queryString: string): Promise<
+  | {
+      ok: true;
+      data: {
+        filters: FilterMetadata;
+        analytics: AnalyticsTrendResponse;
+        listings: ListingSearchResponse;
+      };
+    }
+  | { ok: false; error: unknown }
+> {
+  try {
+    const [filters, analytics, listings] = await Promise.all([
+      apiGet<FilterMetadata>("/filters"),
+      apiGet<AnalyticsTrendResponse>(`/analytics/trends${queryString ? `?${queryString}` : ""}`),
+      apiGet<ListingSearchResponse>(`/listings${queryString ? `?${queryString}` : ""}`),
+    ]);
+
+    return {
+      ok: true,
+      data: { filters, analytics, listings },
+    };
+  } catch (error) {
+    return { ok: false, error };
   }
 }
 

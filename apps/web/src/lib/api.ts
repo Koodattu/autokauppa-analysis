@@ -44,6 +44,51 @@ export interface AnalyticsTrendResponse {
   breakdowns: {
     byMake: Array<{ make: string; count: number }>;
   };
+  charts: {
+    marketOverTime: Array<{
+      bucket: string;
+      listingCount: number;
+      activeCount: number;
+      soldCount: number;
+      newListingCount: number;
+      medianAskingPriceEur: number | null;
+      medianObservedSoldPriceEur: number | null;
+      sampleSize: number;
+    }>;
+    priceByYear: Array<{
+      yearModel: number;
+      listingCount: number;
+      medianMileageKm: number | null;
+      askingPriceP25Eur: number | null;
+      medianAskingPriceEur: number | null;
+      askingPriceP75Eur: number | null;
+      observedSoldPriceP25Eur: number | null;
+      medianObservedSoldPriceEur: number | null;
+      observedSoldPriceP75Eur: number | null;
+    }>;
+    priceByMileageBucket: Array<{
+      bucketStartKm: number;
+      bucketEndKm: number;
+      listingCount: number;
+      medianYearModel: number | null;
+      askingPriceP25Eur: number | null;
+      medianAskingPriceEur: number | null;
+      askingPriceP75Eur: number | null;
+      observedSoldPriceP25Eur: number | null;
+      medianObservedSoldPriceEur: number | null;
+      observedSoldPriceP75Eur: number | null;
+    }>;
+    priceMileageScatter: Array<{
+      listingId: string;
+      make: string | null;
+      model: string | null;
+      yearModel: number | null;
+      mileageKm: number;
+      availability: string;
+      askingPriceEur: number | null;
+      observedSoldPriceEur: number | null;
+    }>;
+  };
 }
 
 export interface ListingTableItem {
