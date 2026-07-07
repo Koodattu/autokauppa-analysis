@@ -15,6 +15,13 @@
       "when": 1783254751896,
       "tag": "0001_source_query_cadence",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783428000000,
+      "tag": "0002_source_updated_date",
+      "breakpoints": true
     }
   ]
 }

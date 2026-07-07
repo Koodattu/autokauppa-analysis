@@ -11,6 +11,7 @@ import {
   buildNettiautoSearchUrl,
   classifyNettiautoResponseBody,
   nettiautoAjaxRequestHeaders,
+  parseNettiautoDetailPage,
   parseNettiautoAjaxSearchResult,
 } from "./nettiauto";
 import { shouldScheduleSourceSearchQuery } from "./persistence";
@@ -122,6 +123,29 @@ describe("Nettiauto Search Result parser", () => {
 
     expect(page.listings).toEqual([]);
     expect(page.issues[0]?.code).toBe("invalid_datalayer_json");
+  });
+
+  it("parses source updated date from detail page header text", () => {
+    const page = parseNettiautoDetailPage(
+      '<html><body><div class="page-header__item_date-location">Päivitetty 07.07.2026 Jyväskylä, Keski-Suomi ID 15847995</div></body></html>',
+      { sourceListingId: "15847995" },
+    );
+
+    expect(page.sourceUpdatedDate).toBe("2026-07-07");
+    expect(page.sourceUpdatedDateLabel).toBe("Päivitetty 07.07.2026");
+    expect(page.sourceUpdatedDateSource).toBe("detail_header");
+    expect(page.sourceHtmlFragment).toContain("page-header__item_date-location");
+  });
+
+  it("leaves source updated date empty when detail page has no update label", () => {
+    const page = parseNettiautoDetailPage(
+      '<html><body><div class="page-header__item_date-location">Tuusula, Uusimaa ID 8478272</div></body></html>',
+      { sourceListingId: "8478272" },
+    );
+
+    expect(page.sourceUpdatedDate).toBeNull();
+    expect(page.sourceUpdatedDateLabel).toBeNull();
+    expect(page.sourceUpdatedDateSource).toBeNull();
   });
 });
 

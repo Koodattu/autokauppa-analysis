@@ -16,7 +16,9 @@ ADR changes them.
 - Source Listing identity is `(source, source_listing_id)`.
 - App-owned tables use UUID primary keys.
 - The first implementation collects current and sold Search Result Data only.
-- Detail Page Data is deferred until the Search Result Data pipeline is stable.
+- Broad Detail Page Data is deferred until the Search Result Data pipeline is
+  stable; the crawler may still enrich Listings with Nettiauto's visible
+  `Päivitetty DD.MM.YYYY` source update date.
 - Raw Listing Data is retained for parser reprocessing and auditability.
 - Normalized analytics fields use explicit typed columns.
 - Listing Sightings record crawl coverage; Listing Snapshots record changed
@@ -224,6 +226,7 @@ source_url text null
 source_payload jsonb not null
 source_html_fragment text null
 source_payload_sha256 text not null
+source_updated_date date null
 parser_version text not null
 parser_status parser_status not null
 captured_at timestamptz not null
@@ -256,6 +259,7 @@ vehicle_category vehicle_category not null
 canonical_source_url text null
 current_availability listing_availability not null default 'unknown'
 availability_last_confirmed_at timestamptz null
+source_updated_date date null
 first_seen_at timestamptz not null
 last_seen_at timestamptz not null
 last_raw_listing_record_id uuid null references raw_listing_records(id)
@@ -319,6 +323,7 @@ parser_version text not null
 observed_at timestamptz not null
 availability listing_availability not null
 source_status_label text null
+source_updated_date date null
 asking_price_eur integer null
 observed_sold_price_eur integer null
 price_source_label text null
@@ -344,6 +349,7 @@ Constraints and indexes:
 unique (listing_id, change_hash)
 index (listing_id, observed_at desc)
 index (availability, observed_at desc)
+index (source_updated_date)
 index (make_source_label, model_source_label)
 index (asking_price_eur)
 index (observed_sold_price_eur)

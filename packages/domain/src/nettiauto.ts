@@ -8,6 +8,7 @@ import {
 
 export const NETTIAUTO_SOURCE = "nettiauto" as const;
 export const NETTIAUTO_PARSER_VERSION = "nettiauto-search-result-v1";
+export const NETTIAUTO_DETAIL_PARSER_VERSION = "nettiauto-detail-v1";
 export const NETTIAUTO_BASE_URL = "https://www.nettiauto.com";
 export const NETTIAUTO_BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
@@ -85,6 +86,16 @@ export interface ParsedSearchResultPage {
   issues: ParseIssue[];
 }
 
+export interface ParsedNettiautoDetailPage {
+  source: typeof NETTIAUTO_SOURCE;
+  sourceListingId: string;
+  parserVersion: typeof NETTIAUTO_DETAIL_PARSER_VERSION;
+  sourceUpdatedDate: string | null;
+  sourceUpdatedDateLabel: string | null;
+  sourceUpdatedDateSource: "detail_header" | null;
+  sourceHtmlFragment: string | null;
+}
+
 export function buildNettiautoSearchUrl(
   entryPath: string,
   sourceSearchHash: string,
@@ -113,6 +124,18 @@ export function nettiautoAjaxRequestHeaders(
     "user-agent": NETTIAUTO_BROWSER_USER_AGENT,
     "x-requested-with": "XMLHttpRequest",
     referer: referer.toString(),
+  };
+}
+
+export function nettiautoDetailRequestHeaders(sourceUrl: string) {
+  return {
+    accept: "*/*",
+    "accept-language": "en-US,en;q=0.9,fi;q=0.8,fi-FI;q=0.7",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+    "user-agent": NETTIAUTO_BROWSER_USER_AGENT,
+    "x-requested-with": "XMLHttpRequest",
+    referer: sourceUrl,
   };
 }
 
@@ -270,6 +293,29 @@ export function parseNettiautoAjaxSearchResult(
     totalAds: ajaxResult.data.total_ads ?? null,
     listings,
     issues,
+  };
+}
+
+export function parseNettiautoDetailPage(
+  body: string,
+  options: { sourceListingId: string },
+): ParsedNettiautoDetailPage {
+  const $ = load(body);
+  const headerDateElement = $(".page-header__item_date-location").first();
+  const headerDateText = headerDateElement.text().replace(/\s+/g, " ").trim();
+  const dateMatch = headerDateText.match(/\bPäivitetty\s+(\d{1,2})\.(\d{1,2})\.(\d{4})\b/i);
+  const sourceUpdatedDate = dateMatch
+    ? datePartsToIsoDate(dateMatch[1], dateMatch[2], dateMatch[3])
+    : null;
+
+  return {
+    source: NETTIAUTO_SOURCE,
+    sourceListingId: options.sourceListingId,
+    parserVersion: NETTIAUTO_DETAIL_PARSER_VERSION,
+    sourceUpdatedDate,
+    sourceUpdatedDateLabel: sourceUpdatedDate ? (dateMatch?.[0] ?? null) : null,
+    sourceUpdatedDateSource: sourceUpdatedDate ? "detail_header" : null,
+    sourceHtmlFragment: headerDateElement.length > 0 ? $.html(headerDateElement) : null,
   };
 }
 
@@ -431,6 +477,39 @@ function parseInteger(value: unknown): number | null {
 
   const parsed = Number(digits);
   return Number.isInteger(parsed) ? parsed : null;
+}
+
+function datePartsToIsoDate(
+  dayValue: string | undefined,
+  monthValue: string | undefined,
+  yearValue: string | undefined,
+) {
+  const day = Number(dayValue);
+  const month = Number(monthValue);
+  const year = Number(yearValue);
+  if (
+    !Number.isInteger(day) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(year) ||
+    year < 1900 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function sourceLabel(value: unknown): string | null {

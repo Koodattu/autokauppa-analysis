@@ -1,7 +1,9 @@
 import type postgres from "postgres";
+import { sha256, stableStringify } from "./nettiauto";
 import type {
   NettiautoQueryParams,
   NettiautoResponseBodyShape,
+  ParsedNettiautoDetailPage,
   ParsedListingCard,
   ParsedSearchResultPage,
 } from "./nettiauto";
@@ -74,6 +76,31 @@ export interface PersistSearchResultPageResult {
   sourceFetchId: string;
   listingCount: number;
   issueCount: number;
+}
+
+export interface PersistNettiautoDetailPageInput {
+  crawlRunId: string;
+  searchQueryId: string;
+  sourceListingId: string;
+  sourceUrl: string;
+  responseStatus: number | null;
+  responseContentType: string | null;
+  responseBodyShape: NettiautoResponseBodyShape;
+  responseBodySha256: string | null;
+  responseBytes: number | null;
+  durationMs: number | null;
+  requestHeaders: Record<string, string>;
+  errorType?: string | null;
+  errorMessage?: string | null;
+  fetchedAt?: Date;
+  parsedDetail?: ParsedNettiautoDetailPage | null;
+}
+
+export interface PersistNettiautoDetailPageResult {
+  sourceFetchId: string;
+  rawListingRecordId: string | null;
+  listingId: string | null;
+  sourceUpdatedDate: string | null;
 }
 
 type SqlClient = postgres.Sql<Record<string, unknown>>;
@@ -435,6 +462,127 @@ export async function persistSearchResultPage(
   });
 }
 
+export async function persistNettiautoDetailPage(
+  sql: SqlClient,
+  input: PersistNettiautoDetailPageInput,
+): Promise<PersistNettiautoDetailPageResult> {
+  return sql.begin(async (tx) => {
+    const fetchedAt = input.fetchedAt ?? new Date();
+    const fetchRows = (await tx`
+      insert into source_fetches (
+        crawl_run_id,
+        search_query_id,
+        source,
+        fetch_kind,
+        page_number,
+        source_url,
+        request_headers,
+        response_status,
+        response_content_type,
+        response_body_shape,
+        response_body_sha256,
+        response_bytes,
+        fetched_at,
+        duration_ms,
+        error_type,
+        error_message
+      )
+      values (
+        ${input.crawlRunId},
+        ${input.searchQueryId},
+        'nettiauto',
+        'detail_page',
+        null,
+        ${input.sourceUrl},
+        ${tx.json(jsonValue(input.requestHeaders))},
+        ${input.responseStatus},
+        ${input.responseContentType},
+        ${input.responseBodyShape},
+        ${input.responseBodySha256},
+        ${input.responseBytes},
+        ${fetchedAt},
+        ${input.durationMs},
+        ${input.errorType ?? null},
+        ${input.errorMessage ?? null}
+      )
+      returning id
+    `) as unknown as Array<{ id: string }>;
+    const [fetchRow] = fetchRows;
+
+    if (!fetchRow) {
+      throw new Error("Failed to insert detail source fetch.");
+    }
+
+    if (!input.parsedDetail) {
+      return {
+        sourceFetchId: fetchRow.id,
+        rawListingRecordId: null,
+        listingId: null,
+        sourceUpdatedDate: null,
+      };
+    }
+
+    const sourcePayload = {
+      sourceUpdatedDate: input.parsedDetail.sourceUpdatedDate,
+      sourceUpdatedDateLabel: input.parsedDetail.sourceUpdatedDateLabel,
+      sourceUpdatedDateSource: input.parsedDetail.sourceUpdatedDateSource,
+    };
+    const rawRecordRows = (await tx`
+      insert into raw_listing_records (
+        source,
+        source_listing_id,
+        crawl_run_id,
+        source_fetch_id,
+        record_kind,
+        source_url,
+        source_payload,
+        source_html_fragment,
+        source_payload_sha256,
+        source_updated_date,
+        parser_version,
+        parser_status,
+        captured_at,
+        parse_error
+      )
+      values (
+        'nettiauto',
+        ${input.sourceListingId},
+        ${input.crawlRunId},
+        ${fetchRow.id},
+        'detail_page',
+        ${input.sourceUrl},
+        ${tx.json(jsonValue(sourcePayload))},
+        ${input.parsedDetail.sourceHtmlFragment},
+        ${sha256(stableStringify(sourcePayload))},
+        ${input.parsedDetail.sourceUpdatedDate}::date,
+        ${input.parsedDetail.parserVersion},
+        'parsed',
+        ${fetchedAt},
+        null
+      )
+      returning id
+    `) as unknown as Array<{ id: string }>;
+    const [rawRecord] = rawRecordRows;
+
+    if (!rawRecord) {
+      throw new Error("Failed to insert detail raw listing record.");
+    }
+
+    const listingId = await updateListingSourceUpdatedDate(tx, {
+      rawListingRecordId: rawRecord.id,
+      sourceListingId: input.sourceListingId,
+      sourceUpdatedDate: input.parsedDetail.sourceUpdatedDate,
+    });
+
+    return {
+      sourceFetchId: fetchRow.id,
+      rawListingRecordId: rawRecord.id,
+      listingId,
+      sourceUpdatedDate: input.parsedDetail.sourceUpdatedDate,
+    };
+  });
+}
+
 async function persistListingCard(
   tx: TransactionSqlClient,
   input: PersistSearchResultPageInput & {
@@ -664,4 +812,63 @@ async function persistListingCard(
         last_raw_listing_record_id = excluded.last_raw_listing_record_id
     `;
   }
+}
+
+async function updateListingSourceUpdatedDate(
+  tx: TransactionSqlClient,
+  input: {
+    rawListingRecordId: string;
+    sourceListingId: string;
+    sourceUpdatedDate: string | null;
+  },
+) {
+  if (!input.sourceUpdatedDate) {
+    return null;
+  }
+
+  const listingRows = (await tx`
+    update listings
+    set
+      source_updated_date = greatest(
+        coalesce(source_updated_date, ${input.sourceUpdatedDate}::date),
+        ${input.sourceUpdatedDate}::date
+      ),
+      updated_at = now()
+    where source = 'nettiauto'
+      and source_listing_id = ${input.sourceListingId}
+    returning id
+  `) as unknown as Array<{ id: string }>;
+  const [listing] = listingRows;
+
+  if (!listing) {
+    return null;
+  }
+
+  await tx`
+    update listing_snapshots
+    set
+      source_updated_date = ${input.sourceUpdatedDate}::date,
+      normalized_data = jsonb_set(
+        normalized_data,
+        '{sourceUpdatedDate}',
+        to_jsonb(${input.sourceUpdatedDate}::text),
+        true
+      )
+    where id = (
+      select id
+      from listing_snapshots
+      where listing_id = ${listing.id}
+      order by observed_at desc, created_at desc
+      limit 1
+    )
+      and source_updated_date is distinct from ${input.sourceUpdatedDate}::date
+  `;
+
+  await tx`
+    update raw_listing_records
+    set source_updated_date = ${input.sourceUpdatedDate}::date
+    where id = ${input.rawListingRecordId}
+  `;
+
+  return listing.id;
 }

@@ -23,7 +23,7 @@ Build:
 
 Do not build yet:
 
-- Detail Page Data enrichment.
+- Broad Detail Page Data enrichment beyond the `Päivitetty` source update date.
 - Saved Views, watchlists, alerts, or user accounts.
 - Bulk export or general open data API.
 - Image downloads.
@@ -260,7 +260,8 @@ The first demo is complete when:
 
 - Finish one milestone with its acceptance checks before widening scope.
 - Prefer fixture tests before live source probes.
-- Do not add Detail Page Data until the Search Result Data pipeline is stable.
+- Do not add Detail Page Data beyond the narrow `Päivitetty` source update date
+  until the Search Result Data pipeline is stable.
 - Do not add public bulk export.
 - Do not expose admin-only data through public API or UI surfaces.
 - Revisit docs only when an implementation decision changes architecture,

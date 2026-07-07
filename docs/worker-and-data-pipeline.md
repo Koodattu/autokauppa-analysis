@@ -44,8 +44,9 @@ dependency surface, but also more custom reliability code.
 Both Current Listings Crawl and Sold Listings Crawl are in the first
 implementation scope. Current Listings Crawl has higher freshness priority; Sold
 Listings Crawl may run on a slower cadence while still supporting observed sold
-price trends. Detail Page Data enrichment is not part of the first crawler
-implementation.
+price trends. Broad Detail Page Data enrichment is not part of the first
+crawler implementation, except for a narrow Nettiauto detail-page probe that
+captures the visible `Päivitetty DD.MM.YYYY` source update date.
 
 For Nettiauto, the first implementation should fetch Search Result Pages with
 normal HTTP plus the Source's AJAX pagination header:

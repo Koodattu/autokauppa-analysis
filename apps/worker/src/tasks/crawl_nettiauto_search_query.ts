@@ -50,6 +50,7 @@ const task: Task = async (payload, helpers) => {
         crawlKind: "current" | "sold";
         vehicleCategory: "passenger_car";
         entryPath: string;
+        priority: number;
         sourceSearchHash: string;
         queryParams: Record<string, unknown>;
       }[]
@@ -59,6 +60,7 @@ const task: Task = async (payload, helpers) => {
         crawl_kind as "crawlKind",
         vehicle_category as "vehicleCategory",
         entry_path as "entryPath",
+        priority,
         source_search_hash as "sourceSearchHash",
         query_params as "queryParams"
       from source_search_queries
@@ -78,6 +80,7 @@ const task: Task = async (payload, helpers) => {
     let status: "completed" | "partial" | "failed" = "completed";
     let failureReason: string | null = null;
     const maxPages = Math.max(1, config.CRAWLER_MAX_PAGES_PER_RUN);
+    let detailJobOffset = 0;
 
     for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
       const pageUrl = buildNettiautoSearchUrl(
@@ -219,6 +222,30 @@ const task: Task = async (payload, helpers) => {
         requestHeaders,
         parsedPage,
       });
+      for (const listing of parsedPage.listings) {
+        if (!listing.normalized.sourceUrl) {
+          continue;
+        }
+
+        await helpers.addJob(
+          "crawl_nettiauto_detail_page",
+          {
+            crawlRunId,
+            searchQueryId: sourceQuery.id,
+            sourceListingId: listing.sourceListingId,
+            sourceUrl: listing.normalized.sourceUrl,
+          },
+          {
+            queueName: "nettiauto",
+            maxAttempts: 2,
+            jobKey: `nettiauto:detail:${crawlRunId}:${listing.sourceListingId}`,
+            jobKeyMode: "preserve_run_at",
+            priority: sourceQuery.priority + 10,
+            runAt: new Date(Date.now() + detailJobOffset * config.CRAWLER_DELAY_MS),
+          },
+        );
+        detailJobOffset += 1;
+      }
 
       logger.info(
         {

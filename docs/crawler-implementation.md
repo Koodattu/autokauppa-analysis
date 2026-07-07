@@ -255,12 +255,13 @@ the source query.
 
 ## Detail Page Enrichment
 
-Detail Page Data is out of scope for the first implementation. The first
-crawler implementation covers current and sold Search Result Data only, so the
-pipeline can prove fetching, parsing, persistence, API queries, and UI behavior
-without multiplying request volume.
+The first detail-page enrichment is intentionally narrow: after Search Result
+Data discovers a Listing URL, the worker may fetch that detail page with the
+same AJAX-style request shape and parse the visible `Päivitetty DD.MM.YYYY`
+label into `source_updated_date`. This is a Source-provided update date, not a
+created date, sold date, or exact timestamp.
 
-When added later, detail enrichment should be a separate lower-priority job that:
+Broader detail enrichment remains a separate lower-priority path that should:
 
 - starts from known `listings`;
 - fetches individual listing pages politely;
