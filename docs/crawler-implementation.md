@@ -41,6 +41,12 @@ The Admin Panel's manual crawl action enqueues `schedule_nettiauto_crawl` with
 `force: true`, which bypasses cadence but still skips Source Search Queries
 that already have an active Crawl Run.
 
+`CRAWLER_MAX_PAGES_PER_RUN` controls the per-query page cap. A positive value
+fetches at most that many Search Result Pages. `0` means no configured cap; the
+crawler still stops at the Source-reported `total_page` from the AJAX response.
+Do not crawl until an empty page is seen, because Nettiauto may return
+non-empty JSON for page numbers beyond `total_page`.
+
 ## Fetch Strategy
 
 Use the same endpoint URLs for page 1 and later pages:

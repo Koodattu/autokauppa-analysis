@@ -58,7 +58,8 @@ Include:
 - `APP_ENV`, `DATABASE_URL`, `ADMIN_PASSWORD`, `SESSION_SECRET`.
 - `CRAWLER_ENABLED`, defaulting to disabled for live source requests.
 - Initial crawler knobs such as delay between page fetches and max pages per
-  run.
+  run. `CRAWLER_MAX_PAGES_PER_RUN=0` means crawl every Source-reported page for
+  a due query.
 - Safe logging defaults that never print secrets, cookies, or raw page bodies.
 
 Acceptance checks:

@@ -55,6 +55,21 @@ The current-listing AJAX response had 32 listing records in `data-datalayer`:
 response had 30 `Listaussivu` records, all `Myyty`. Totals are live and changed
 between probes.
 
+Out-of-range pagination probes on 2026-07-07 used the same AJAX headers against
+`/vaihtoautot?haku=P3847755184`. Nettiauto reported `total_page: 2580`, but
+requests beyond that still returned HTTP 200 JSON with parseable listing cards:
+
+| Requested page | Reported `current_page` | Reported `total_page` | Parsed cards | Notes |
+| --- | ---: | ---: | ---: | --- |
+| 2579 | 2579 | 2580 | 32 | Normal near-end page |
+| 2580 | 2580 | 2580 | 3 | Last reported page at probe time |
+| 2581 | 2581 | 2580 | 32 | Beyond reported range, still non-empty |
+| 2582 | 2582 | 2580 | 32 | Beyond reported range, duplicate IDs appeared |
+| 10000 | 10000 | 2580 | 32 | Beyond reported range, nonsensical positions appeared |
+
+Therefore the crawler must stop from Source metadata, not by probing until an
+empty page is returned. Treat `total_page` as the upper bound for full crawls.
+
 ## Payloads
 
 ### JSON-LD

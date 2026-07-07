@@ -79,7 +79,10 @@ const task: Task = async (payload, helpers) => {
     let sourceTotalAds: number | null = null;
     let status: "completed" | "partial" | "failed" = "completed";
     let failureReason: string | null = null;
-    const maxPages = Math.max(1, config.CRAWLER_MAX_PAGES_PER_RUN);
+    const crawlAllPages = config.CRAWLER_MAX_PAGES_PER_RUN === 0;
+    const maxPages = crawlAllPages
+      ? Number.POSITIVE_INFINITY
+      : Math.max(1, config.CRAWLER_MAX_PAGES_PER_RUN);
     let detailJobOffset = 0;
 
     for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
@@ -269,6 +272,12 @@ const task: Task = async (payload, helpers) => {
         break;
       }
 
+      if (crawlAllPages && expectedPageCount === null) {
+        status = "partial";
+        failureReason = "missing_total_page_for_uncapped_crawl";
+        break;
+      }
+
       if (expectedPageCount !== null && pageNumber >= Math.min(expectedPageCount, maxPages)) {
         break;
       }
@@ -276,7 +285,12 @@ const task: Task = async (payload, helpers) => {
       await sleep(config.CRAWLER_DELAY_MS, helpers.abortSignal);
     }
 
-    if (expectedPageCount !== null && expectedPageCount > maxPages && status === "completed") {
+    if (
+      Number.isFinite(maxPages) &&
+      expectedPageCount !== null &&
+      expectedPageCount > maxPages &&
+      status === "completed"
+    ) {
       status = "partial";
       failureReason = "max_pages_per_run_reached";
     }
