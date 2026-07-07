@@ -137,3 +137,15 @@ placeholder secrets before using anything beyond local development.
 Local development can use `SITE_ADDRESS=:80` or direct service ports. Production
 should set `SITE_ADDRESS` to the real subdomain so Caddy can manage HTTPS; use a
 small Compose override if local and production Caddy settings need to diverge.
+
+On small VPS instances, avoid building all service images in parallel. Parallel
+`bun install` steps can exhaust memory and fail with exit code 137. Use:
+
+```bash
+COMPOSE_PARALLEL_LIMIT=1 docker compose up -d --build
+```
+
+The Compose file uses the PostgreSQL 18 volume layout and mounts
+`postgres_data` at `/var/lib/postgresql`. If an earlier failed first deploy
+created a volume with the old `/var/lib/postgresql/data` layout and no real data
+has been stored yet, remove that volume before retrying.

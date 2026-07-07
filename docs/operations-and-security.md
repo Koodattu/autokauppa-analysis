@@ -71,6 +71,22 @@ Important dependency expectations:
 
 Plain startup order is not enough when a service takes time to become ready.
 
+On small VPS instances, run Compose builds serially:
+
+```bash
+COMPOSE_PARALLEL_LIMIT=1 docker compose up -d --build
+```
+
+The service Dockerfiles currently install workspace dependencies during each
+image build. Building `api`, `worker`, `web`, and `migrate` in parallel can
+exhaust memory and produce exit code 137 during `bun install`.
+
+PostgreSQL 18 Docker images expect the persistent volume at
+`/var/lib/postgresql`, not `/var/lib/postgresql/data`. If a first deploy created
+a broken volume using the old mount path and migrations never ran, it can be
+removed and recreated. Do not remove this volume after real data exists unless a
+backup and restore plan is in place.
+
 Reference: https://docs.docker.com/compose/how-tos/startup-order/
 
 ## Migrations
