@@ -125,7 +125,8 @@ Required practice:
 
 - Keep `.env.example` safe and non-secret.
 - Validate required env vars at startup with Zod.
-- Fail fast on missing or malformed production config.
+- Fail fast on missing required production config.
+- Warn on weak placeholder admin secrets in production without blocking startup.
 
 ## Database Operations
 
@@ -281,7 +282,8 @@ necessary.
 A hashed admin password secret may be introduced later if operational handling
 of plain environment secrets becomes uncomfortable. For the first version,
 `ADMIN_PASSWORD` and `SESSION_SECRET` must remain separate high-entropy secrets
-and must not be logged.
+and must not be logged. Weak placeholder values should produce startup warnings,
+but they should not prevent the service from starting.
 
 Public analytics and Listing endpoints may expose curated Public Listing Data.
 Registration Number is public by default when visible in the Source. VIN, Raw

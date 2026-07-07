@@ -64,7 +64,8 @@ Include:
 
 Acceptance checks:
 
-- Missing required production config fails fast.
+- Missing required production config fails fast; weak placeholder admin secrets
+  warn without blocking startup.
 - Local development can run without live crawling enabled.
 - Package typechecks pass.
 

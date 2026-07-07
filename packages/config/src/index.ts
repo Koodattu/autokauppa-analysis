@@ -70,7 +70,7 @@ export type ApiConfig = SharedServiceConfig & AdminConfig;
 export type WorkerConfig = SharedServiceConfig;
 export type WebConfig = z.infer<typeof webConfigSchema>;
 
-function assertProductionSecret(
+function warnWeakProductionSecret(
   name: "ADMIN_PASSWORD" | "SESSION_SECRET",
   value: string,
   appEnv: AppEnv,
@@ -80,15 +80,18 @@ function assertProductionSecret(
   }
 
   if (value === "change-me" || value.length < 32) {
-    throw new Error(`${name} must be a non-placeholder secret of at least 32 characters in production`);
+    console.warn(
+      `${name} should be a non-placeholder high-entropy secret in production. ` +
+        "The service will start, but this should be fixed before exposing admin access.",
+    );
   }
 }
 
 export function parseApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const shared = sharedConfigSchema.parse(env);
   const admin = adminConfigSchema.parse(env);
-  assertProductionSecret("ADMIN_PASSWORD", admin.ADMIN_PASSWORD, shared.APP_ENV);
-  assertProductionSecret("SESSION_SECRET", admin.SESSION_SECRET, shared.APP_ENV);
+  warnWeakProductionSecret("ADMIN_PASSWORD", admin.ADMIN_PASSWORD, shared.APP_ENV);
+  warnWeakProductionSecret("SESSION_SECRET", admin.SESSION_SECRET, shared.APP_ENV);
 
   return {
     ...shared,
