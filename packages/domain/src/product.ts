@@ -106,6 +106,12 @@ export interface ListingSearchResponse {
   coverage: CoverageMetadata;
 }
 
+export interface MarketOverviewResponse {
+  filters: FilterMetadata;
+  analytics: AnalyticsTrendResponse;
+  listings: ListingSearchResponse;
+}
+
 export interface ListingTableItem {
   listingId: string;
   sourceListingId: string;
@@ -255,22 +261,21 @@ export async function getAnalyticsTrend(
   filters: ListingFiltersQuery,
 ): Promise<AnalyticsTrendResponse> {
   const [
-    summary,
+    summaryAndCoverage,
     byMake,
-    coverage,
     marketOverTime,
     priceByYear,
     priceByMileageBucket,
     priceMileageScatter,
   ] = await Promise.all([
-    getSummary(sql, filters),
+    getSummaryAndCoverage(sql, filters),
     getMakeBreakdown(sql, filters),
-    getCoverage(sql, filters),
     getMarketOverTime(sql, filters),
     getPriceByYear(sql, filters),
     getPriceByMileageBucket(sql, filters),
     getPriceMileageScatter(sql, filters),
   ]);
+  const { summary, coverage } = summaryAndCoverage;
 
   return {
     appliedFilters: filters,
@@ -294,22 +299,39 @@ export async function getAnalyticsTrend(
   };
 }
 
-export async function searchListings(sql: Sql, query: ListingSearchQuery): Promise<ListingSearchResponse> {
+export async function getMarketOverview(
+  sql: Sql,
+  query: ListingSearchQuery,
+): Promise<MarketOverviewResponse> {
+  const [facets, summaryAndCoverage] = await Promise.all([
+    queryFacets(sql),
+    getSummaryAndCoverage(sql, query),
+  ]);
+  const listings = await searchListings(sql, query, {
+    coverage: summaryAndCoverage.coverage,
+  });
+  const filters = {
+    ...facets,
+    availability: ["all", "current", "sold"] as FilterMetadata["availability"],
+    coverage: summaryAndCoverage.coverage,
+  };
+
+  return {
+    filters,
+    analytics: emptyAnalyticsTrend(query, summaryAndCoverage),
+    listings,
+  };
+}
+
+export async function searchListings(
+  sql: Sql,
+  query: ListingSearchQuery,
+  options: { coverage?: CoverageMetadata } = {},
+): Promise<ListingSearchResponse> {
   const { whereSql, params } = buildFilterWhere(query);
   const orderBy = sortToOrderBy(query.sort);
   const offset = (query.page - 1) * query.pageSize;
-  const countParams = [...params];
-  const [{ totalItems } = { totalItems: 0 }] = await sql.unsafe<{ totalItems: number }[]>(
-    `
-      with latest_snapshots as (${latestSnapshotSql()})
-      select count(*)::int as "totalItems"
-      from latest_snapshots s
-      join listings l on l.id = s.listing_id
-      ${whereSql}
-    `,
-    countParams,
-  );
-  const rows = await sql.unsafe<ListingTableItem[]>(
+  const rows = await sql.unsafe<Array<ListingTableItem & { totalItems: number }>>(
     `
       with latest_snapshots as (${latestSnapshotSql()})
       select
@@ -325,7 +347,8 @@ export async function searchListings(sql: Sql, query: ListingSearchQuery): Promi
         s.seller_source_label as "seller",
         s.seller_type_source_label as "sellerType",
         l.last_seen_at::text as "lastSeenAt",
-        l.canonical_source_url as "sourceUrl"
+        l.canonical_source_url as "sourceUrl",
+        count(*) over()::int as "totalItems"
       from latest_snapshots s
       join listings l on l.id = s.listing_id
       ${whereSql}
@@ -335,9 +358,12 @@ export async function searchListings(sql: Sql, query: ListingSearchQuery): Promi
     `,
     [...params, query.pageSize, offset],
   );
+  const totalItems =
+    rows[0]?.totalItems ?? (offset > 0 ? await countListingMatches(sql, whereSql, params) : 0);
+  const items = rows.map(({ totalItems: _totalItems, ...row }) => row);
 
   return {
-    items: rows,
+    items,
     pagination: {
       page: query.page,
       pageSize: query.pageSize,
@@ -345,8 +371,23 @@ export async function searchListings(sql: Sql, query: ListingSearchQuery): Promi
       totalPages: Math.max(1, Math.ceil(totalItems / query.pageSize)),
     },
     sort: query.sort,
-    coverage: await getCoverage(sql, query),
+    coverage: options.coverage ?? (await getCoverage(sql, query)),
   };
+}
+
+async function countListingMatches(sql: Sql, whereSql: string, params: SqlParameter[]) {
+  const [{ totalItems } = { totalItems: 0 }] = await sql.unsafe<{ totalItems: number }[]>(
+    `
+      with latest_snapshots as (${latestSnapshotSql()})
+      select count(*)::int as "totalItems"
+      from latest_snapshots s
+      join listings l on l.id = s.listing_id
+      ${whereSql}
+    `,
+    params,
+  );
+
+  return totalItems;
 }
 
 export async function getPublicListingDetail(
@@ -644,7 +685,10 @@ async function queryFacets(sql: Sql) {
   };
 }
 
-async function getSummary(sql: Sql, filters: ListingFiltersQuery): Promise<AnalyticsTrendResponse["summary"]> {
+async function getSummaryAndCoverage(
+  sql: Sql,
+  filters: ListingFiltersQuery,
+): Promise<Pick<AnalyticsTrendResponse, "summary" | "coverage">> {
   const { whereSql, params } = buildFilterWhere(filters);
   const analyticsMileageSql = validAnalyticsMileageSql("s");
   const [row] = await sql.unsafe<
@@ -655,6 +699,10 @@ async function getSummary(sql: Sql, filters: ListingFiltersQuery): Promise<Analy
       medianAskingPriceEur: number | null;
       medianObservedSoldPriceEur: number | null;
       medianMileageKm: number | null;
+      sampleSize: number;
+      lastRelevantCrawlAt: string | null;
+      includesCurrent: boolean | null;
+      includesSold: boolean | null;
     }[]
   >(
     `
@@ -668,21 +716,36 @@ async function getSummary(sql: Sql, filters: ListingFiltersQuery): Promise<Analy
         (percentile_cont(0.5) within group (order by s.observed_sold_price_eur)
           filter (where s.observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
         (percentile_cont(0.5) within group (order by ${analyticsMileageSql})
-          filter (where ${analyticsMileageSql} is not null))::int as "medianMileageKm"
+          filter (where ${analyticsMileageSql} is not null))::int as "medianMileageKm",
+        count(*)::int as "sampleSize",
+        max(l.last_seen_at)::text as "lastRelevantCrawlAt",
+        bool_or(s.availability = 'active') as "includesCurrent",
+        bool_or(s.availability = 'sold') as "includesSold"
       from latest_snapshots s
       join listings l on l.id = s.listing_id
       ${whereSql}
     `,
     params,
   );
+  const completeness = await getCoverageCompleteness(sql);
 
   return {
-    listingCount: row?.listingCount ?? 0,
-    activeCount: row?.activeCount ?? 0,
-    soldCount: row?.soldCount ?? 0,
-    medianAskingPriceEur: row?.medianAskingPriceEur ?? null,
-    medianObservedSoldPriceEur: row?.medianObservedSoldPriceEur ?? null,
-    medianMileageKm: row?.medianMileageKm ?? null,
+    summary: {
+      listingCount: row?.listingCount ?? 0,
+      activeCount: row?.activeCount ?? 0,
+      soldCount: row?.soldCount ?? 0,
+      medianAskingPriceEur: row?.medianAskingPriceEur ?? null,
+      medianObservedSoldPriceEur: row?.medianObservedSoldPriceEur ?? null,
+      medianMileageKm: row?.medianMileageKm ?? null,
+    },
+    coverage: {
+      lastRelevantCrawlAt: row?.lastRelevantCrawlAt ?? null,
+      sampleSize: row?.sampleSize ?? 0,
+      includesCurrent: row?.includesCurrent ?? false,
+      includesSold: row?.includesSold ?? false,
+      dataSource: "search_result_data",
+      completeness,
+    },
   };
 }
 
@@ -968,12 +1031,7 @@ async function getCoverage(sql: Sql, filters: Partial<ListingFiltersQuery>): Pro
     `,
     params,
   );
-  const [statusRow] = await sql<{ partialCount: number; completedCount: number }[]>`
-    select
-      count(*) filter (where status = 'partial')::int as "partialCount",
-      count(*) filter (where status = 'completed')::int as "completedCount"
-    from crawl_runs
-  `;
+  const completeness = await getCoverageCompleteness(sql);
 
   return {
     lastRelevantCrawlAt: row?.lastRelevantCrawlAt ?? null,
@@ -981,12 +1039,43 @@ async function getCoverage(sql: Sql, filters: Partial<ListingFiltersQuery>): Pro
     includesCurrent: row?.includesCurrent ?? false,
     includesSold: row?.includesSold ?? false,
     dataSource: "search_result_data",
-    completeness:
-      (statusRow?.partialCount ?? 0) > 0
-        ? "partial"
-        : (statusRow?.completedCount ?? 0) > 0
-          ? "complete"
-          : "unknown",
+    completeness,
+  };
+}
+
+async function getCoverageCompleteness(sql: Sql): Promise<CoverageMetadata["completeness"]> {
+  const [statusRow] = await sql<{ partialCount: number; completedCount: number }[]>`
+    select
+      count(*) filter (where status = 'partial')::int as "partialCount",
+      count(*) filter (where status = 'completed')::int as "completedCount"
+    from crawl_runs
+  `;
+
+  if ((statusRow?.partialCount ?? 0) > 0) {
+    return "partial";
+  }
+
+  return (statusRow?.completedCount ?? 0) > 0 ? "complete" : "unknown";
+}
+
+function emptyAnalyticsTrend(
+  query: ListingSearchQuery,
+  summaryAndCoverage: Pick<AnalyticsTrendResponse, "summary" | "coverage">,
+): AnalyticsTrendResponse {
+  return {
+    appliedFilters: query,
+    coverage: summaryAndCoverage.coverage,
+    summary: summaryAndCoverage.summary,
+    timeSeries: [],
+    breakdowns: {
+      byMake: [],
+    },
+    charts: {
+      marketOverTime: [],
+      priceByYear: [],
+      priceByMileageBucket: [],
+      priceMileageScatter: [],
+    },
   };
 }
 

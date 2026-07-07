@@ -12,6 +12,7 @@ import {
   getAdminCrawlerStatus,
   getAnalyticsTrend,
   getFilterMetadata,
+  getMarketOverview,
   getPublicListingDetail,
   searchListings,
 } from "@nettiauto/domain";
@@ -68,6 +69,15 @@ app.get("/analytics/trends", async (c) => {
   }
 
   return c.json(await getAnalyticsTrend(sql, result.data));
+});
+
+app.get("/market/overview", async (c) => {
+  const result = listingSearchQuerySchema.safeParse(c.req.query());
+  if (!result.success) {
+    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  }
+
+  return c.json(await getMarketOverview(sql, result.data));
 });
 
 app.get("/listings", async (c) => {

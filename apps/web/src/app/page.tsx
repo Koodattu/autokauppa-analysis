@@ -1,12 +1,9 @@
 import Link from "next/link";
-import { AnalyticsCharts } from "./analytics-charts";
 import {
   ApiError,
   apiGet,
   searchParamsToQueryString,
-  type AnalyticsTrendResponse,
-  type FilterMetadata,
-  type ListingSearchResponse,
+  type MarketOverviewResponse,
 } from "@/lib/api";
 
 type PageProps = {
@@ -189,8 +186,6 @@ export default async function Home({ searchParams }: PageProps) {
           <Metric label="Median mileage" value={formatKm(analytics.summary.medianMileageKm)} />
         </section>
 
-        <AnalyticsCharts analytics={analytics} />
-
         <section className="coverage">
           <span>Freshness: {formatDate(analytics.coverage.lastRelevantCrawlAt)}</span>
           <span>Sample: {formatNumber(analytics.coverage.sampleSize)}</span>
@@ -257,24 +252,19 @@ export default async function Home({ searchParams }: PageProps) {
 async function loadHomeData(queryString: string): Promise<
   | {
       ok: true;
-      data: {
-        filters: FilterMetadata;
-        analytics: AnalyticsTrendResponse;
-        listings: ListingSearchResponse;
-      };
+      data: MarketOverviewResponse;
     }
   | { ok: false; error: unknown }
 > {
   try {
-    const [filters, analytics, listings] = await Promise.all([
-      apiGet<FilterMetadata>("/filters"),
-      apiGet<AnalyticsTrendResponse>(`/analytics/trends${queryString ? `?${queryString}` : ""}`),
-      apiGet<ListingSearchResponse>(`/listings${queryString ? `?${queryString}` : ""}`),
-    ]);
+    const overview = await apiGet<MarketOverviewResponse>(
+      `/market/overview${queryString ? `?${queryString}` : ""}`,
+      { next: { revalidate: 60 } },
+    );
 
     return {
       ok: true,
-      data: { filters, analytics, listings },
+      data: overview,
     };
   } catch (error) {
     return { ok: false, error };

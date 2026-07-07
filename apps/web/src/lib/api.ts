@@ -119,6 +119,12 @@ export interface ListingSearchResponse {
   coverage: CoverageMetadata;
 }
 
+export interface MarketOverviewResponse {
+  filters: FilterMetadata;
+  analytics: AnalyticsTrendResponse;
+  listings: ListingSearchResponse;
+}
+
 export interface PublicVehicleDetails {
   sourceUpdatedDate: string | null;
   sourceLocationLabel: string | null;
@@ -246,10 +252,12 @@ export function apiPath(path: string) {
 }
 
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(apiPath(path), {
-    ...init,
-    cache: "no-store",
-  });
+  const requestInit: RequestInit = { ...init };
+  if (requestInit.cache === undefined && !("next" in requestInit)) {
+    requestInit.cache = "no-store";
+  }
+
+  const response = await fetch(apiPath(path), requestInit);
 
   if (!response.ok) {
     throw new ApiError(`API request failed: ${path}`, response.status);
