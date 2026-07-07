@@ -68,6 +68,10 @@ export const adminLoginRequestSchema = z.object({
   password: z.string().min(1),
 });
 
+export const adminCrawlerRunRequestSchema = z.object({
+  crawlKind: z.enum(["all", "current", "sold"]).default("all"),
+});
+
 export const nettiautoCrawlKindSchema = z.enum(["current", "sold"]);
 export const nettiautoAvailabilitySchema = z.enum(["active", "sold", "unknown"]);
 
@@ -113,6 +117,7 @@ export const coverageMetadataSchema = z.object({
 export type ListingFiltersQuery = z.infer<typeof listingFiltersQuerySchema>;
 export type ListingSearchQuery = z.infer<typeof listingSearchQuerySchema>;
 export type AdminLoginRequest = z.infer<typeof adminLoginRequestSchema>;
+export type AdminCrawlerRunRequest = z.infer<typeof adminCrawlerRunRequestSchema>;
 export type NettiautoAjaxResponse = z.infer<typeof nettiautoAjaxResponseSchema>;
 export type NettiautoDataLayer = z.infer<typeof nettiautoDataLayerSchema>;
 export type CoverageMetadata = z.infer<typeof coverageMetadataSchema>;

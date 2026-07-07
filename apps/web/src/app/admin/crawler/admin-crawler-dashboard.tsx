@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { AdminCrawlerRunResponse, AdminCrawlerStatusResponse } from "@/lib/api";
+import type {
+  AdminCrawlerRunResponse,
+  AdminCrawlerRunTarget,
+  AdminCrawlerStatusResponse,
+} from "@/lib/api";
 
 type Notice = {
   kind: "success" | "error";
@@ -24,6 +28,7 @@ export function AdminCrawlerDashboard({
   const [notice, setNotice] = useState<Notice | null>(initialNotice);
   const [pollError, setPollError] = useState<string | null>(null);
   const [runPending, setRunPending] = useState(false);
+  const [selectedCrawlTarget, setSelectedCrawlTarget] = useState<AdminCrawlerRunTarget>("all");
   const canRunCrawler = status.crawlerState.enabled && !status.crawlerState.paused && !runPending;
   const problemCount = useMemo(
     () =>
@@ -68,7 +73,8 @@ export function AdminCrawlerDashboard({
     try {
       const response = await fetch("/api/admin/crawler/run", {
         method: "POST",
-        headers: { accept: "application/json" },
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify({ crawlKind: selectedCrawlTarget }),
       });
 
       if (response.status === 401) {
@@ -84,7 +90,7 @@ export function AdminCrawlerDashboard({
       const body = (await response.json()) as AdminCrawlerRunResponse;
       setNotice({
         kind: "success",
-        message: `Crawl queued${body.jobId ? ` as job ${body.jobId}` : ""}.`,
+        message: `Crawl queued for ${labelRunTarget(body.crawlKind)}${body.jobId ? ` as job ${body.jobId}` : ""}.`,
       });
       try {
         setStatus(await fetchCrawlerStatus());
@@ -116,6 +122,18 @@ export function AdminCrawlerDashboard({
           </p>
         </div>
         <div className="topbar-actions">
+          <label className="run-target-field">
+            Crawl job
+            <select
+              value={selectedCrawlTarget}
+              disabled={runPending}
+              onChange={(event) => setSelectedCrawlTarget(event.target.value as AdminCrawlerRunTarget)}
+            >
+              <option value="all">All enabled crawls</option>
+              <option value="current">Current listings</option>
+              <option value="sold">Sold listings</option>
+            </select>
+          </label>
           <button type="button" disabled={!canRunCrawler} onClick={runCrawlerNow}>
             {runPending ? "Queueing..." : "Run crawl now"}
           </button>
@@ -399,8 +417,21 @@ function formatRunError(error: string) {
       return "Crawler is paused by environment.";
     case "worker_not_ready":
       return "Worker queue is not ready yet.";
+    case "invalid_request":
+      return "Choose a valid crawl job and try again.";
     default:
       return "Crawler run could not be queued.";
+  }
+}
+
+function labelRunTarget(value: AdminCrawlerRunTarget) {
+  switch (value) {
+    case "current":
+      return "current listings";
+    case "sold":
+      return "sold listings";
+    case "all":
+      return "all enabled crawls";
   }
 }
 

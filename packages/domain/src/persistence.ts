@@ -242,7 +242,7 @@ export async function getEnabledSourceSearchQueries(sql: SqlClient) {
 
 export async function getSchedulableSourceSearchQueries(
   sql: SqlClient,
-  options: { force?: boolean; now?: Date } = {},
+  options: { force?: boolean; crawlKind?: "current" | "sold"; now?: Date } = {},
 ) {
   const rows = await sql<
     Array<{
@@ -286,8 +286,12 @@ export async function getSchedulableSourceSearchQueries(
   `;
 
   return rows
-    .filter((row) =>
-      shouldScheduleSourceSearchQuery(
+    .filter((row) => {
+      if (options.crawlKind && row.crawlKind !== options.crawlKind) {
+        return false;
+      }
+
+      return shouldScheduleSourceSearchQuery(
         {
           force: options.force,
           hasActiveCrawlRun: row.hasActiveCrawlRun,
@@ -295,8 +299,8 @@ export async function getSchedulableSourceSearchQueries(
           targetCadenceSeconds: row.targetCadenceSeconds,
         },
         options.now,
-      ),
-    )
+      );
+    })
     .map(({ targetCadenceSeconds, lastAttemptAt, hasActiveCrawlRun, ...query }) => query);
 }
 

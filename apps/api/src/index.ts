@@ -17,6 +17,7 @@ import {
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
 import {
+  adminCrawlerRunRequestSchema,
   adminLoginRequestSchema,
   listingFiltersQuerySchema,
   listingSearchQuerySchema,
@@ -144,6 +145,16 @@ app.get("/admin/crawler/status", adminOnly, async (c) => {
 });
 
 app.post("/admin/crawler/run", adminOnly, async (c) => {
+  const body = await readOptionalJsonBody(c.req);
+  if (body === invalidJsonBody) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+
+  const result = adminCrawlerRunRequestSchema.safeParse(body);
+  if (!result.success) {
+    return c.json({ error: "invalid_request", issues: result.error.issues }, 400);
+  }
+
   if (!config.CRAWLER_ENABLED) {
     return c.json({ error: "crawler_disabled" }, 409);
   }
@@ -159,31 +170,53 @@ app.post("/admin/crawler/run", adminOnly, async (c) => {
     return c.json({ error: "worker_not_ready" }, 503);
   }
 
+  const crawlKind = result.data.crawlKind;
+  const payload = crawlKind === "all" ? { force: true } : { force: true, crawlKind };
+  const jobKey = `nettiauto:schedule:manual:${crawlKind}`;
   const [job] = await sql<{ jobId: string; runAt: string }[]>`
     select
       id::text as "jobId",
       run_at::text as "runAt"
     from graphile_worker.add_job(
       identifier => 'schedule_nettiauto_crawl',
-      payload => '{"force":true}'::json,
+      payload => ${sql.json(payload)}::json,
       queue_name => 'nettiauto',
       run_at => null::timestamptz,
       max_attempts => 1,
-      job_key => 'nettiauto:schedule:manual',
+      job_key => ${jobKey},
       priority => 0,
       flags => null::text[],
       job_key_mode => 'preserve_run_at'
     )
   `;
 
-  logger.info({ jobId: job?.jobId }, "Manual Nettiauto crawl scheduled");
+  logger.info({ jobId: job?.jobId, crawlKind }, "Manual Nettiauto crawl scheduled");
   return c.json({
     ok: true,
     task: "schedule_nettiauto_crawl",
+    crawlKind,
     jobId: job?.jobId ?? null,
     runAt: job?.runAt ?? null,
   });
 });
+
+const invalidJsonBody = Symbol("invalidJsonBody");
+
+async function readOptionalJsonBody(req: {
+  header(name: string): string | undefined;
+  json(): Promise<unknown>;
+}) {
+  const contentType = req.header("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return {};
+  }
+
+  try {
+    return await req.json();
+  } catch {
+    return invalidJsonBody;
+  }
+}
 
 function wantsJson(acceptHeader: string | undefined) {
   return acceptHeader?.includes("application/json") ?? false;

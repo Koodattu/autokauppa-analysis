@@ -143,8 +143,13 @@ label {
 .topbar-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: end;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.run-target-field {
+  min-width: 190px;
 }
 
 .topbar-meta {

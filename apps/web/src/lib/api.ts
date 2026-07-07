@@ -231,9 +231,12 @@ export interface AdminCrawlerStatusResponse {
   }>;
 }
 
+export type AdminCrawlerRunTarget = "all" | "current" | "sold";
+
 export interface AdminCrawlerRunResponse {
   ok: boolean;
   task: "schedule_nettiauto_crawl";
+  crawlKind: AdminCrawlerRunTarget;
   jobId: string | null;
   runAt: string | null;
 }

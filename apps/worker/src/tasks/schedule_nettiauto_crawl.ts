@@ -13,6 +13,7 @@ import { createLogger } from "@nettiauto/logging";
 
 const payloadSchema = z.object({
   force: z.boolean().optional().default(false),
+  crawlKind: z.enum(["current", "sold"]).optional(),
 });
 
 const task: Task = async (payload, helpers) => {
@@ -29,6 +30,7 @@ const task: Task = async (payload, helpers) => {
         jobId: helpers.job.id,
         task: "schedule_nettiauto_crawl",
         force: payloadResult.data.force,
+        crawlKind: payloadResult.data.crawlKind ?? "all",
         crawlerEnabled: config.CRAWLER_ENABLED,
         crawlerPaused: config.CRAWLER_PAUSED,
       },
@@ -43,6 +45,7 @@ const task: Task = async (payload, helpers) => {
     const recoveredRuns = await markStaleCrawlRunsPartial(sql);
     const queries = await getSchedulableSourceSearchQueries(sql, {
       force: payloadResult.data.force,
+      crawlKind: payloadResult.data.crawlKind,
     });
     for (const query of queries) {
       const crawlRunId = await createCrawlRunForSourceQuery(sql, query.id);
@@ -75,6 +78,7 @@ const task: Task = async (payload, helpers) => {
         jobId: helpers.job.id,
         task: "schedule_nettiauto_crawl",
         force: payloadResult.data.force,
+        crawlKind: payloadResult.data.crawlKind ?? "all",
         scheduledQueryCount: queries.length,
         recoveredStaleRunCount: recoveredRuns.length,
       },
