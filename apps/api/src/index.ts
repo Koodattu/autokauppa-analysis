@@ -23,12 +23,30 @@ import {
   listingFiltersQuerySchema,
   listingSearchQuerySchema,
 } from "@nettiauto/schemas";
+import { AnalyticsTrendCache } from "./analytics-cache";
+
+const ANALYTICS_CACHE_TTL_MS = 5 * 60 * 1000;
+const ANALYTICS_CACHE_MAX_ENTRIES = 32;
+const ANALYTICS_CACHE_REFRESH_SWEEP_MS = 30 * 1000;
 
 const config = parseApiConfig();
 const logger = createLogger({ service: "api", env: config.APP_ENV });
 const sql = createSqlClient(config.DATABASE_URL);
+const analyticsTrendCache = new AnalyticsTrendCache({
+  ttlMs: ANALYTICS_CACHE_TTL_MS,
+  maxEntries: ANALYTICS_CACHE_MAX_ENTRIES,
+  loader: (query) => getAnalyticsTrend(sql, query),
+  logger,
+});
+const defaultAnalyticsFilters = listingFiltersQuerySchema.parse({});
 
 const app = new Hono();
+
+analyticsTrendCache.prewarm(defaultAnalyticsFilters);
+setInterval(() => {
+  analyticsTrendCache.prewarm(defaultAnalyticsFilters);
+  analyticsTrendCache.refreshExpiredEntries();
+}, ANALYTICS_CACHE_REFRESH_SWEEP_MS);
 
 const adminOnly = createMiddleware(async (c, next) => {
   const session = verifyAdminSessionCookieValue(
@@ -68,7 +86,10 @@ app.get("/analytics/trends", async (c) => {
     return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
   }
 
-  return c.json(await getAnalyticsTrend(sql, result.data));
+  const cached = await analyticsTrendCache.get(result.data);
+  c.header("X-Analytics-Cache", cached.status);
+  c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
+  return c.json(cached.value);
 });
 
 app.get("/market/overview", async (c) => {
