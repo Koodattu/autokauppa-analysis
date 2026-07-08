@@ -3,8 +3,10 @@ import {
   ApiError,
   apiGet,
   searchParamsToQueryString,
+  type AnalyticsTrendResponse,
   type MarketOverviewResponse,
 } from "@/lib/api";
+import { AnalyticsCharts } from "./analytics-charts";
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -198,6 +200,8 @@ export default async function Home({ searchParams }: PageProps) {
           </span>
         </section>
 
+        <AnalyticsCharts analytics={analytics} />
+
         <section className="table-wrap" aria-label="Listings">
           <div className="section-heading">
             <h2>Listings</h2>
@@ -257,14 +261,26 @@ async function loadHomeData(queryString: string): Promise<
   | { ok: false; error: unknown }
 > {
   try {
-    const overview = await apiGet<MarketOverviewResponse>(
-      `/market/overview${queryString ? `?${queryString}` : ""}`,
-      { next: { revalidate: 60 } },
-    );
+    const apiQuery = queryString ? `?${queryString}` : "";
+    const [overviewResult, analyticsResult] = await Promise.allSettled([
+      apiGet<MarketOverviewResponse>(`/market/overview${apiQuery}`, {
+        next: { revalidate: 60 },
+      }),
+      apiGet<AnalyticsTrendResponse>(`/analytics/trends${apiQuery}`, {
+        next: { revalidate: 60 },
+      }),
+    ]);
+    if (overviewResult.status === "rejected") {
+      throw overviewResult.reason;
+    }
+
+    const overview = overviewResult.value;
+    const analytics =
+      analyticsResult.status === "fulfilled" ? analyticsResult.value : overview.analytics;
 
     return {
       ok: true,
-      data: overview,
+      data: { ...overview, analytics },
     };
   } catch (error) {
     return { ok: false, error };
