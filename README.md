@@ -1,10 +1,10 @@
-# nettiauto-analytics
+# autokauppa-analytics
 
-Public analytics application for collecting, storing, and analyzing Nettiauto
+Public analytics application for collecting, storing, and analyzing vehicle
 listing data, with private admin-only crawler operations.
 
 This repository now contains the first proof-of-concept implementation slice:
-fixture-tested Nettiauto Search Result parsing, the initial PostgreSQL schema,
+fixture-tested Search Result parsing, the initial PostgreSQL schema,
 idempotent page persistence helpers, public analytics/listing API routes,
 admin-protected crawler status, Graphile Worker task entry points, and a
 noindex Next.js web UI.
@@ -32,7 +32,7 @@ noindex Next.js web UI.
 - [Worker and Data Pipeline](docs/worker-and-data-pipeline.md)
 - [Database Structure](docs/database-structure.md)
 - [Crawler Implementation Notes](docs/crawler-implementation.md)
-- [Nettiauto Crawler Research](docs/crawler-research.md)
+- [Crawler Research](docs/crawler-research.md)
 - [Product Analytics Ideas](docs/product-analytics.md)
 - [Operations and Security](docs/operations-and-security.md)
 - [Testing and Quality](docs/testing-and-quality.md)
