@@ -1,9 +1,11 @@
 import { z } from "zod";
 
+export const MAX_LISTING_PAGE = 1_000;
 export const availabilityFilterSchema = z.enum(["current", "sold", "all"]).default("all");
 export const listingSortSchema = z
   .enum([
     "lastSeenDesc",
+    "sourceUpdatedDesc",
     "priceAsc",
     "priceDesc",
     "mileageAsc",
@@ -12,57 +14,72 @@ export const listingSortSchema = z
   ])
   .default("lastSeenDesc");
 
-const optionalTrimmed = z
-  .string()
-  .trim()
-  .transform((value) => (value === "" ? undefined : value))
-  .optional();
+const optionalTrimmed = (maxLength = 100) =>
+  z
+    .string()
+    .trim()
+    .max(maxLength)
+    .transform((value) => (value === "" ? undefined : value))
+    .optional();
 
-const optionalInteger = z
-  .preprocess((value) => {
-    if (value === undefined || value === "") {
-      return undefined;
-    }
+const optionalInteger = ({ min, max }: { min: number; max: number }) =>
+  z.preprocess(
+    (value) => {
+      if (value === undefined || value === "") {
+        return undefined;
+      }
 
-    if (typeof value === "number") {
-      return value;
-    }
+      if (typeof value === "number") {
+        return value;
+      }
 
-    if (typeof value !== "string") {
-      return value;
-    }
+      if (typeof value !== "string") {
+        return value;
+      }
 
-    const parsed = Number(value);
-    return Number.isInteger(parsed) ? parsed : value;
-  }, z.number().int().optional());
+      const parsed = Number(value);
+      return Number.isInteger(parsed) ? parsed : value;
+    },
+    z.number().int().min(min).max(max).optional(),
+  );
 
 const optionalDate = z
   .string()
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(isValidIsoDate, "Date must be a valid calendar date.")
   .optional();
 
-export const listingFiltersQuerySchema = z.object({
-  make: optionalTrimmed,
-  model: optionalTrimmed,
-  modelYearFrom: optionalInteger,
-  modelYearTo: optionalInteger,
-  priceMin: optionalInteger,
-  priceMax: optionalInteger,
-  mileageMin: optionalInteger,
-  mileageMax: optionalInteger,
+const listingFilterShape = {
+  make: optionalTrimmed(80),
+  model: optionalTrimmed(120),
+  modelYear: optionalInteger({ min: 1886, max: 2100 }),
+  modelYearFrom: optionalInteger({ min: 1886, max: 2100 }),
+  modelYearTo: optionalInteger({ min: 1886, max: 2100 }),
+  priceMin: optionalInteger({ min: 0, max: 100_000_000 }),
+  priceMax: optionalInteger({ min: 0, max: 100_000_000 }),
+  mileageMin: optionalInteger({ min: 0, max: 2_000_000 }),
+  mileageMax: optionalInteger({ min: 0, max: 2_000_000 }),
   availability: availabilityFilterSchema,
-  sellerType: optionalTrimmed,
+  sellerType: optionalTrimmed(80),
+  transmission: optionalTrimmed(80),
   from: optionalDate,
   to: optionalDate,
   interval: z.enum(["day", "week", "month"]).default("week"),
-});
+};
 
-export const listingSearchQuerySchema = listingFiltersQuerySchema.extend({
-  page: optionalInteger.transform((value) => Math.max(1, value ?? 1)),
-  pageSize: optionalInteger.transform((value) => Math.min(50, Math.max(1, value ?? 25))),
-  sort: listingSortSchema,
-});
+export const listingFiltersQuerySchema = z.object(listingFilterShape).superRefine(validateRanges);
+
+export const listingSearchQuerySchema = z
+  .object({
+    ...listingFilterShape,
+    page: optionalInteger({ min: 1, max: MAX_LISTING_PAGE }).transform((value) => value ?? 1),
+    pageSize: optionalInteger({ min: 1, max: 50 }).transform((value) => value ?? 25),
+    sort: listingSortSchema,
+  })
+  .superRefine(validateRanges);
+
+export const listingIdSchema = z.string().uuid();
 
 export const adminLoginRequestSchema = z.object({
   password: z.string().min(1),
@@ -110,7 +127,7 @@ export const coverageMetadataSchema = z.object({
   sampleSize: z.number().int().nonnegative(),
   includesCurrent: z.boolean(),
   includesSold: z.boolean(),
-  dataSource: z.literal("search_result_data"),
+  dataSource: z.enum(["search_result_data", "search_and_detail_data"]),
   completeness: z.enum(["complete", "partial", "unknown"]),
 });
 
@@ -121,3 +138,49 @@ export type AdminCrawlerRunRequest = z.infer<typeof adminCrawlerRunRequestSchema
 export type NettiautoAjaxResponse = z.infer<typeof nettiautoAjaxResponseSchema>;
 export type NettiautoDataLayer = z.infer<typeof nettiautoDataLayerSchema>;
 export type CoverageMetadata = z.infer<typeof coverageMetadataSchema>;
+
+function validateRanges(
+  value: {
+    modelYearFrom?: number;
+    modelYearTo?: number;
+    priceMin?: number;
+    priceMax?: number;
+    mileageMin?: number;
+    mileageMax?: number;
+    from?: string;
+    to?: string;
+  },
+  context: z.RefinementCtx,
+) {
+  validateRange(value.modelYearFrom, value.modelYearTo, "modelYearTo", "year", context);
+  validateRange(value.priceMin, value.priceMax, "priceMax", "price", context);
+  validateRange(value.mileageMin, value.mileageMax, "mileageMax", "mileage", context);
+  if (value.from && value.to && value.from > value.to) {
+    context.addIssue({
+      code: "custom",
+      path: ["to"],
+      message: "End date must be on or after start date.",
+    });
+  }
+}
+
+function validateRange(
+  minimum: number | undefined,
+  maximum: number | undefined,
+  path: string,
+  label: string,
+  context: z.RefinementCtx,
+) {
+  if (minimum !== undefined && maximum !== undefined && minimum > maximum) {
+    context.addIssue({
+      code: "custom",
+      path: [path],
+      message: `Maximum ${label} must be at least the minimum ${label}.`,
+    });
+  }
+}
+
+function isValidIsoDate(value: string) {
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}

@@ -64,6 +64,19 @@ describe("AnalyticsTrendCache", () => {
       value: responseWithCount(20),
     });
   });
+
+  it("keeps exact year and transmission filters in separate entries", async () => {
+    const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTrendResponse>>(
+      (input) => Promise.resolve(responseWithCount((input.modelYear ?? 0) + (input.transmission ? 1 : 0))),
+    );
+    const cache = createCache(loader);
+
+    await cache.get({ ...query, modelYear: 2018 });
+    await cache.get({ ...query, modelYear: 2019 });
+    await cache.get({ ...query, modelYear: 2019, transmission: "Automatic" });
+
+    expect(loader).toHaveBeenCalledTimes(3);
+  });
 });
 
 function createCache(
@@ -100,16 +113,15 @@ function responseWithCount(listingCount: number): AnalyticsTrendResponse {
       medianAskingPriceEur: null,
       medianObservedSoldPriceEur: null,
       medianMileageKm: null,
-    },
-    timeSeries: [],
-    breakdowns: {
-      byMake: [],
+      askingPriceSampleSize: 0,
+      observedSoldPriceSampleSize: 0,
+      mileageSampleSize: 0,
     },
     charts: {
       marketOverTime: [],
       priceByYear: [],
       priceByMileageBucket: [],
-      priceMileageScatter: [],
+      priceByTransmission: [],
     },
   };
 }

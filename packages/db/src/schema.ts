@@ -118,6 +118,13 @@ export const crawlRuns = pgTable(
       table.status,
       table.createdAt,
     ),
+    index("crawl_runs_recent_idx").on(table.createdAt.desc()),
+    index("crawl_runs_completed_kind_finished_idx")
+      .on(table.crawlKind, table.finishedAt.desc())
+      .where(sql`${table.status} = 'completed'`),
+    index("crawl_runs_recent_failures_idx")
+      .on(table.createdAt.desc(), table.failureReason)
+      .where(sql`${table.status} in ('failed', 'partial')`),
   ],
 );
 
@@ -155,6 +162,9 @@ export const sourceFetches = pgTable(
     index("source_fetches_search_query_page_idx").on(table.searchQueryId, table.pageNumber),
     index("source_fetches_response_status_idx").on(table.responseStatus),
     index("source_fetches_response_body_shape_idx").on(table.responseBodyShape),
+    index("source_fetches_failures_fetched_idx")
+      .on(table.fetchedAt.desc())
+      .where(sql`${table.errorType} is not null`),
   ],
 );
 
@@ -190,6 +200,9 @@ export const rawListingRecords = pgTable(
     index("raw_listing_records_source_listing_idx").on(table.source, table.sourceListingId),
     index("raw_listing_records_crawl_run_idx").on(table.crawlRunId),
     index("raw_listing_records_parser_status_idx").on(table.parserVersion, table.parserStatus),
+    index("raw_listing_records_failed_captured_idx")
+      .on(table.capturedAt.desc())
+      .where(sql`${table.parserStatus} = 'failed'`),
   ],
 );
 
@@ -214,6 +227,7 @@ export const listings = pgTable(
     uniqueIndex("listings_source_listing_uq").on(table.source, table.sourceListingId),
     index("listings_availability_last_seen_idx").on(table.currentAvailability, table.lastSeenAt),
     index("listings_category_availability_idx").on(table.vehicleCategory, table.currentAvailability),
+    index("listings_last_seen_id_idx").on(table.lastSeenAt.desc(), table.id),
   ],
 );
 

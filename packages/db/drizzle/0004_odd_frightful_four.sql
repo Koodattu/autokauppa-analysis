@@ -1,0 +1,6 @@
+CREATE INDEX "crawl_runs_recent_idx" ON "crawl_runs" USING btree ("created_at" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "crawl_runs_completed_kind_finished_idx" ON "crawl_runs" USING btree ("crawl_kind","finished_at" DESC NULLS LAST) WHERE "crawl_runs"."status" = 'completed';--> statement-breakpoint
+CREATE INDEX "crawl_runs_recent_failures_idx" ON "crawl_runs" USING btree ("created_at" DESC NULLS LAST,"failure_reason") WHERE "crawl_runs"."status" in ('failed', 'partial');--> statement-breakpoint
+CREATE INDEX "listings_last_seen_id_idx" ON "listings" USING btree ("last_seen_at" DESC NULLS LAST,"id");--> statement-breakpoint
+CREATE INDEX "raw_listing_records_failed_captured_idx" ON "raw_listing_records" USING btree ("captured_at" DESC NULLS LAST) WHERE "raw_listing_records"."parser_status" = 'failed';--> statement-breakpoint
+CREATE INDEX "source_fetches_failures_fetched_idx" ON "source_fetches" USING btree ("fetched_at" DESC NULLS LAST) WHERE "source_fetches"."error_type" is not null;

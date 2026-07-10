@@ -12,7 +12,7 @@ export interface CoverageMetadata {
   sampleSize: number;
   includesCurrent: boolean;
   includesSold: boolean;
-  dataSource: "search_result_data";
+  dataSource: "search_result_data" | "search_and_detail_data";
   completeness: "complete" | "partial" | "unknown";
 }
 
@@ -21,8 +21,8 @@ export interface FilterMetadata {
   models: string[];
   yearRange: { min: number | null; max: number | null };
   sellerTypes: string[];
+  transmissions: string[];
   availability: Array<"current" | "sold" | "all">;
-  coverage: CoverageMetadata;
 }
 
 export interface AnalyticsTrendResponse {
@@ -34,15 +34,9 @@ export interface AnalyticsTrendResponse {
     medianAskingPriceEur: number | null;
     medianObservedSoldPriceEur: number | null;
     medianMileageKm: number | null;
-  };
-  timeSeries: Array<{
-    bucket: string;
-    listingCount: number;
-    medianAskingPriceEur: number | null;
-    medianObservedSoldPriceEur: number | null;
-  }>;
-  breakdowns: {
-    byMake: Array<{ make: string; count: number }>;
+    askingPriceSampleSize: number;
+    observedSoldPriceSampleSize: number;
+    mileageSampleSize: number;
   };
   charts: {
     marketOverTime: Array<{
@@ -54,10 +48,14 @@ export interface AnalyticsTrendResponse {
       medianAskingPriceEur: number | null;
       medianObservedSoldPriceEur: number | null;
       sampleSize: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
     }>;
     priceByYear: Array<{
       yearModel: number;
       listingCount: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
       medianMileageKm: number | null;
       askingPriceP25Eur: number | null;
       medianAskingPriceEur: number | null;
@@ -70,6 +68,8 @@ export interface AnalyticsTrendResponse {
       bucketStartKm: number;
       bucketEndKm: number;
       listingCount: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
       medianYearModel: number | null;
       askingPriceP25Eur: number | null;
       medianAskingPriceEur: number | null;
@@ -78,15 +78,18 @@ export interface AnalyticsTrendResponse {
       medianObservedSoldPriceEur: number | null;
       observedSoldPriceP75Eur: number | null;
     }>;
-    priceMileageScatter: Array<{
-      listingId: string;
-      make: string | null;
-      model: string | null;
-      yearModel: number | null;
-      mileageKm: number;
-      availability: string;
-      askingPriceEur: number | null;
-      observedSoldPriceEur: number | null;
+    priceByTransmission: Array<{
+      transmission: string;
+      listingCount: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
+      medianMileageKm: number | null;
+      askingPriceP25Eur: number | null;
+      medianAskingPriceEur: number | null;
+      askingPriceP75Eur: number | null;
+      observedSoldPriceP25Eur: number | null;
+      medianObservedSoldPriceEur: number | null;
+      observedSoldPriceP75Eur: number | null;
     }>;
   };
 }
@@ -103,8 +106,8 @@ export interface ListingTableItem {
   mileageKm: number | null;
   seller: string | null;
   sellerType: string | null;
+  sourceUpdatedDate: string | null;
   lastSeenAt: string;
-  sourceUrl: string | null;
 }
 
 export interface ListingSearchResponse {
@@ -164,16 +167,22 @@ export interface PublicListingDetailResponse {
       observedDataLabel: string;
     };
   };
-  priceHistory: Array<{
+  history: Array<{
     observedAt: string;
+    sourceUpdatedDate: string | null;
+    availability: string;
     askingPriceEur: number | null;
     observedSoldPriceEur: number | null;
+    mileageKm: number | null;
   }>;
-  mileageHistory: Array<{ observedAt: string; mileageKm: number | null }>;
-  availabilityHistory: Array<{ observedAt: string; availability: string }>;
-  imageMetadata: Array<{ imageUrl: string; role: string | null; position: number | null }>;
+  imageMetadata: Array<{
+    imageUrl: string;
+    role: string | null;
+    position: number | null;
+    width: number | null;
+    height: number | null;
+  }>;
   vehicleDetails: PublicVehicleDetails | null;
-  coverage: CoverageMetadata;
 }
 
 export interface AdminCrawlerStatusResponse {
@@ -209,6 +218,9 @@ export interface AdminCrawlerStatusResponse {
     lockedJobs: number;
     failedJobs: number;
   };
+}
+
+export interface AdminCrawlerDiagnosticsResponse {
   failureCounts: Array<{ failureReason: string; count: number }>;
   latestSourceFetchFailures: Array<{
     fetchedAt: string;
@@ -281,4 +293,8 @@ export function searchParamsToQueryString(searchParams: Record<string, string | 
   }
 
   return params.toString();
+}
+
+export function singleSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }

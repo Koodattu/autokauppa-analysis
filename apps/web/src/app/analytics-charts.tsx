@@ -1,385 +1,364 @@
+"use client";
+
 import type { ReactNode } from "react";
+import {
+  Area,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type TooltipContentProps,
+} from "recharts";
 import type { AnalyticsTrendResponse } from "@/lib/api";
+import { formatCurrency, formatKm, formatNumber } from "@/lib/format";
 
 type Charts = AnalyticsTrendResponse["charts"];
-type MarketPoint = Charts["marketOverTime"][number];
-type YearPoint = Charts["priceByYear"][number];
-type MileageBucketPoint = Charts["priceByMileageBucket"][number];
-type ScatterPoint = Charts["priceMileageScatter"][number];
+type ChartRow = Record<string, unknown>;
 
-const SVG_WIDTH = 720;
-const SVG_HEIGHT = 300;
-const PLOT = {
-  top: 24,
-  right: 22,
-  bottom: 56,
-  left: 70,
-};
-const PLOT_RIGHT = SVG_WIDTH - PLOT.right;
-const PLOT_BOTTOM = SVG_HEIGHT - PLOT.bottom;
-const PLOT_WIDTH = PLOT_RIGHT - PLOT.left;
 const ASKING_COLOR = "#0f766e";
 const SOLD_COLOR = "#b45309";
-const NEW_COLOR = "#334155";
-const GRID_COLOR = "#d9dee5";
-const TEXT_COLOR = "#68717d";
+const COUNT_COLOR = "#334155";
+const GRID_COLOR = "#e5e7eb";
+const AXIS_COLOR = "#667085";
 
 export function AnalyticsCharts({ analytics }: { analytics: AnalyticsTrendResponse }) {
   return (
-    <section className="analytics-grid" aria-label="Analytics charts">
-      <PriceTrendChart data={analytics.charts.marketOverTime} />
-      <InventoryChart data={analytics.charts.marketOverTime} />
-      <YearPriceChart data={analytics.charts.priceByYear} />
-      <MileagePriceChart data={analytics.charts.priceByMileageBucket} />
-      <ScatterChart data={analytics.charts.priceMileageScatter} />
-      <MakeBreakdownChart data={analytics.breakdowns.byMake} />
+    <section className="analytics-grid" aria-label="Market charts">
+      <PriceOverTimeChart data={analytics.charts.marketOverTime} />
+      <PriceByYearChart data={analytics.charts.priceByYear} />
+      <PriceByMileageChart data={analytics.charts.priceByMileageBucket} />
+      <PriceByTransmissionChart
+        data={analytics.charts.priceByTransmission}
+        totalListings={analytics.summary.listingCount}
+      />
+      <ObservedListingsChart data={analytics.charts.marketOverTime} />
     </section>
   );
 }
 
-function PriceTrendChart({ data }: { data: MarketPoint[] }) {
-  const asking = data.filter((point) => point.medianAskingPriceEur !== null);
-  const sold = data.filter((point) => point.medianObservedSoldPriceEur !== null);
-  const values = [
-    ...asking.map((point) => point.medianAskingPriceEur ?? 0),
-    ...sold.map((point) => point.medianObservedSoldPriceEur ?? 0),
-  ];
-
-  if (values.length === 0) {
-    return <EmptyChart title="Price over time" message="No price trend data for these filters." />;
-  }
-
-  const yMax = niceMax(Math.max(...values));
-  const askingPath = linePath(
-    data
-      .map((point, index) =>
-        point.medianAskingPriceEur === null
-          ? null
-          : {
-              x: xForIndex(index, data.length),
-              y: yForValue(point.medianAskingPriceEur, yMax),
-            },
-      )
-      .filter(isPoint),
-  );
-  const soldPath = linePath(
-    data
-      .map((point, index) =>
-        point.medianObservedSoldPriceEur === null
-          ? null
-          : {
-              x: xForIndex(index, data.length),
-              y: yForValue(point.medianObservedSoldPriceEur, yMax),
-            },
-      )
-      .filter(isPoint),
-  );
-
-  return (
-    <ChartPanel
-      title="Price over time"
-      meta={`${formatNumber(totalSampleSize(data))} observed listings`}
-      legend={[
-        { label: "Asking Price", color: ASKING_COLOR },
-        { label: "Observed Sold Price", color: SOLD_COLOR },
-      ]}
-    >
-      <svg className="chart-svg" viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} role="img">
-        <title>Median Asking Price and Observed Sold Price over time</title>
-        <Grid yMax={yMax} formatY={formatCurrencyCompact} />
-        <XAxisLabels labels={data.map((point) => formatBucket(point.bucket))} />
-        {askingPath ? <path className="chart-line" d={askingPath} stroke={ASKING_COLOR} /> : null}
-        {soldPath ? <path className="chart-line" d={soldPath} stroke={SOLD_COLOR} /> : null}
-        {data.map((point, index) =>
-          point.medianAskingPriceEur === null ? null : (
-            <circle
-              key={`asking-${point.bucket}`}
-              className="chart-dot"
-              cx={xForIndex(index, data.length)}
-              cy={yForValue(point.medianAskingPriceEur, yMax)}
-              r="4"
-              fill={ASKING_COLOR}
-            />
-          ),
-        )}
-        {data.map((point, index) =>
-          point.medianObservedSoldPriceEur === null ? null : (
-            <circle
-              key={`sold-${point.bucket}`}
-              className="chart-dot"
-              cx={xForIndex(index, data.length)}
-              cy={yForValue(point.medianObservedSoldPriceEur, yMax)}
-              r="4"
-              fill={SOLD_COLOR}
-            />
-          ),
-        )}
-      </svg>
-    </ChartPanel>
-  );
-}
-
-function InventoryChart({ data }: { data: MarketPoint[] }) {
-  const maxCount = Math.max(...data.map((point) => Math.max(point.listingCount, point.newListingCount)), 0);
-  if (data.length === 0 || maxCount === 0) {
-    return <EmptyChart title="Inventory over time" message="No inventory trend data for these filters." />;
-  }
-
-  const yMax = niceMax(maxCount);
-  const slotWidth = PLOT_WIDTH / Math.max(data.length, 1);
-  const barWidth = Math.max(2, Math.min(18, slotWidth * 0.58));
-  const newListingPath = linePath(
-    data.map((point, index) => ({
-      x: xForIndex(index, data.length),
-      y: yForValue(point.newListingCount, yMax),
-    })),
-  );
-
-  return (
-    <ChartPanel
-      title="Inventory over time"
-      meta={`${formatNumber(data.at(-1)?.listingCount ?? 0)} latest bucket listings`}
-      legend={[
-        { label: "Current", color: ASKING_COLOR },
-        { label: "Sold", color: SOLD_COLOR },
-        { label: "New", color: NEW_COLOR },
-      ]}
-    >
-      <svg className="chart-svg" viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} role="img">
-        <title>Current, sold, and new listings over time</title>
-        <Grid yMax={yMax} formatY={formatNumberCompact} />
-        <XAxisLabels labels={data.map((point) => formatBucket(point.bucket))} />
-        {data.map((point, index) => {
-          const x = xForIndex(index, data.length) - barWidth / 2;
-          const activeHeight = PLOT_BOTTOM - yForValue(point.activeCount, yMax);
-          const soldHeight = PLOT_BOTTOM - yForValue(point.soldCount, yMax);
-          const soldY = PLOT_BOTTOM - activeHeight - soldHeight;
-
-          return (
-            <g key={point.bucket}>
-              <rect
-                className="chart-bar-bg"
-                x={x}
-                y={yForValue(point.listingCount, yMax)}
-                width={barWidth}
-                height={Math.max(1, PLOT_BOTTOM - yForValue(point.listingCount, yMax))}
-                rx="3"
-              />
-              <rect
-                x={x}
-                y={PLOT_BOTTOM - activeHeight}
-                width={barWidth}
-                height={Math.max(0, activeHeight)}
-                rx="3"
-                fill={ASKING_COLOR}
-              />
-              <rect
-                x={x}
-                y={soldY}
-                width={barWidth}
-                height={Math.max(0, soldHeight)}
-                rx="3"
-                fill={SOLD_COLOR}
-              />
-            </g>
-          );
-        })}
-        {newListingPath ? <path className="chart-line thin" d={newListingPath} stroke={NEW_COLOR} /> : null}
-      </svg>
-    </ChartPanel>
-  );
-}
-
-function YearPriceChart({ data }: { data: YearPoint[] }) {
-  const rows = data.filter(
+function PriceOverTimeChart({ data }: { data: Charts["marketOverTime"] }) {
+  const rows = withBucketTime(data);
+  const pricePoints = rows.filter(
     (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
   );
-  const values = rows.flatMap((point) =>
-    [
-      point.askingPriceP25Eur,
-      point.medianAskingPriceEur,
-      point.askingPriceP75Eur,
-      point.observedSoldPriceP25Eur,
-      point.medianObservedSoldPriceEur,
-      point.observedSoldPriceP75Eur,
-    ].filter((value): value is number => value !== null),
-  );
+  if (pricePoints.length < 2) {
+    return (
+      <EmptyChart
+        title="Price over observed time"
+        message="At least two observed periods are needed for a price trend."
+        full
+      />
+    );
+  }
 
-  if (rows.length === 0 || values.length === 0) {
+  return (
+    <ChartPanel
+      title="Price over observed time"
+      meta="Median price in each observed period"
+      full
+      legend
+    >
+      <ChartCanvas>
+        <LineChart
+          data={rows}
+          margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
+          title="Price over observed time"
+          desc="Median asking and observed sold prices by observation period"
+        >
+          <ChartGrid />
+          <XAxis
+            dataKey="bucketTime"
+            type="number"
+            scale="time"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={formatTimeAxis}
+            minTickGap={32}
+            {...axisProps}
+          />
+          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrencyCompact} width={72} {...axisProps} />
+          <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={formatObservedDate} />} />
+          <Line
+            type="monotone"
+            dataKey="medianAskingPriceEur"
+            name="Median asking price"
+            stroke={ASKING_COLOR}
+            strokeWidth={2.5}
+            dot={{ r: 3, strokeWidth: 2, fill: "white" }}
+            activeDot={{ r: 5 }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="medianObservedSoldPriceEur"
+            name="Median observed sold price"
+            stroke={SOLD_COLOR}
+            strokeWidth={2.5}
+            dot={{ r: 3, strokeWidth: 2, fill: "white" }}
+            activeDot={{ r: 5 }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ChartCanvas>
+    </ChartPanel>
+  );
+}
+
+function PriceByYearChart({ data }: { data: Charts["priceByYear"] }) {
+  const rows = withAskingRange(
+    data.filter(
+      (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
+    ),
+  );
+  if (rows.length === 0) {
     return <EmptyChart title="Price by model year" message="No model-year price data for these filters." />;
   }
 
-  const yMax = niceMax(Math.max(...values));
-
   return (
-    <ChartPanel
-      title="Price by model year"
-      meta={`${formatNumber(rows.reduce((sum, point) => sum + point.listingCount, 0))} listings`}
-      legend={[
-        { label: "Asking p25-p75", color: ASKING_COLOR },
-        { label: "Observed Sold Price median", color: SOLD_COLOR },
-      ]}
-    >
-      <svg className="chart-svg" viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} role="img">
-        <title>Asking Price range and Observed Sold Price median by model year</title>
-        <Grid yMax={yMax} formatY={formatCurrencyCompact} />
-        <XAxisLabels labels={rows.map((point) => String(point.yearModel))} />
-        {rows.map((point, index) => (
-          <g key={point.yearModel}>{renderRangePoint(point, xForIndex(index, rows.length), yMax)}</g>
-        ))}
-      </svg>
+    <ChartPanel title="Price by model year" meta="Asking-price middle 50% shown as a band" legend>
+      <ChartCanvas>
+        <ComposedChart
+          data={rows}
+          margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
+          title="Price by model year"
+          desc="Median price and asking-price middle 50 percent by model year"
+        >
+          <ChartGrid />
+          <XAxis
+            dataKey="yearModel"
+            type="number"
+            domain={["dataMin", "dataMax"]}
+            allowDecimals={false}
+            minTickGap={18}
+            {...axisProps}
+          />
+          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrencyCompact} width={72} {...axisProps} />
+          <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={String} />} />
+          <Area
+            type="monotone"
+            dataKey="askingRange"
+            name="Asking p25–p75"
+            stroke="none"
+            fill={ASKING_COLOR}
+            fillOpacity={0.13}
+            tooltipType="none"
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="medianAskingPriceEur"
+            name="Median asking price"
+            stroke={ASKING_COLOR}
+            strokeWidth={2.5}
+            dot={{ r: 3, strokeWidth: 2, fill: "white" }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="medianObservedSoldPriceEur"
+            name="Median observed sold price"
+            stroke={SOLD_COLOR}
+            strokeWidth={2}
+            strokeDasharray="5 4"
+            dot={{ r: 3, strokeWidth: 2, fill: "white" }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        </ComposedChart>
+      </ChartCanvas>
     </ChartPanel>
   );
 }
 
-function MileagePriceChart({ data }: { data: MileageBucketPoint[] }) {
+function PriceByMileageChart({ data }: { data: Charts["priceByMileageBucket"] }) {
+  const rows = withAskingRange(
+    data.filter(
+      (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
+    ),
+  );
+  if (rows.length === 0) {
+    return <EmptyChart title="Price by mileage" message="No mileage and price data for these filters." />;
+  }
+
+  return (
+    <ChartPanel title="Price by mileage" meta="25,000 km buckets · model year can affect the result" legend>
+      <ChartCanvas>
+        <ComposedChart
+          data={rows}
+          margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
+          title="Price by mileage"
+          desc="Median price and asking-price middle 50 percent by 25,000 kilometre mileage bucket"
+        >
+          <ChartGrid />
+          <XAxis
+            dataKey="bucketStartKm"
+            type="number"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={formatKmCompact}
+            minTickGap={34}
+            {...axisProps}
+          />
+          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrencyCompact} width={72} {...axisProps} />
+          <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={formatKmBucket} />} />
+          <Area
+            type="monotone"
+            dataKey="askingRange"
+            name="Asking p25–p75"
+            stroke="none"
+            fill={ASKING_COLOR}
+            fillOpacity={0.13}
+            tooltipType="none"
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="medianAskingPriceEur"
+            name="Median asking price"
+            stroke={ASKING_COLOR}
+            strokeWidth={2.5}
+            dot={{ r: 3, strokeWidth: 2, fill: "white" }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="medianObservedSoldPriceEur"
+            name="Median observed sold price"
+            stroke={SOLD_COLOR}
+            strokeWidth={2}
+            strokeDasharray="5 4"
+            dot={{ r: 3, strokeWidth: 2, fill: "white" }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        </ComposedChart>
+      </ChartCanvas>
+    </ChartPanel>
+  );
+}
+
+function PriceByTransmissionChart({
+  data,
+  totalListings,
+}: {
+  data: Charts["priceByTransmission"];
+  totalListings: number;
+}) {
   const rows = data.filter(
     (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
   );
-  const values = rows.flatMap((point) =>
-    [point.medianAskingPriceEur, point.medianObservedSoldPriceEur].filter(
-      (value): value is number => value !== null,
-    ),
-  );
-
-  if (rows.length === 0 || values.length === 0) {
-    return <EmptyChart title="Price by mileage" message="No mileage price data for these filters." />;
-  }
-
-  const yMax = niceMax(Math.max(...values));
-  const askingPath = linePath(
-    rows
-      .map((point, index) =>
-        point.medianAskingPriceEur === null
-          ? null
-          : {
-              x: xForIndex(index, rows.length),
-              y: yForValue(point.medianAskingPriceEur, yMax),
-            },
-      )
-      .filter(isPoint),
-  );
-  const soldPath = linePath(
-    rows
-      .map((point, index) =>
-        point.medianObservedSoldPriceEur === null
-          ? null
-          : {
-              x: xForIndex(index, rows.length),
-              y: yForValue(point.medianObservedSoldPriceEur, yMax),
-            },
-      )
-      .filter(isPoint),
-  );
-
-  return (
-    <ChartPanel
-      title="Price by mileage"
-      meta={`${formatKmCompact(rows[0]?.bucketStartKm ?? 0)}-${formatKmCompact(rows.at(-1)?.bucketEndKm ?? 0)}`}
-      legend={[
-        { label: "Asking Price", color: ASKING_COLOR },
-        { label: "Observed Sold Price", color: SOLD_COLOR },
-      ]}
-    >
-      <svg className="chart-svg" viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} role="img">
-        <title>Median Asking Price and Observed Sold Price by mileage bucket</title>
-        <Grid yMax={yMax} formatY={formatCurrencyCompact} />
-        <XAxisLabels labels={rows.map((point) => formatKmCompact(point.bucketStartKm))} />
-        {askingPath ? <path className="chart-line" d={askingPath} stroke={ASKING_COLOR} /> : null}
-        {soldPath ? <path className="chart-line" d={soldPath} stroke={SOLD_COLOR} /> : null}
-        {rows.map((point, index) =>
-          point.medianAskingPriceEur === null ? null : (
-            <circle
-              key={`asking-mileage-${point.bucketStartKm}`}
-              className="chart-dot"
-              cx={xForIndex(index, rows.length)}
-              cy={yForValue(point.medianAskingPriceEur, yMax)}
-              r="3.5"
-              fill={ASKING_COLOR}
-            />
-          ),
-        )}
-        {rows.map((point, index) =>
-          point.medianObservedSoldPriceEur === null ? null : (
-            <circle
-              key={`sold-mileage-${point.bucketStartKm}`}
-              className="chart-dot"
-              cx={xForIndex(index, rows.length)}
-              cy={yForValue(point.medianObservedSoldPriceEur, yMax)}
-              r="3.5"
-              fill={SOLD_COLOR}
-            />
-          ),
-        )}
-      </svg>
-    </ChartPanel>
-  );
-}
-
-function ScatterChart({ data }: { data: ScatterPoint[] }) {
-  const rows = data.filter((point) => priceForPoint(point) !== null);
   if (rows.length === 0) {
-    return <EmptyChart title="Mileage versus price" message="No mileage and price pairs for these filters." />;
+    return <EmptyChart title="Price by transmission" message="No transmission price data for these filters." />;
   }
-
-  const xMax = niceMax(Math.max(...rows.map((point) => point.mileageKm)));
-  const yMax = niceMax(Math.max(...rows.map((point) => priceForPoint(point) ?? 0)));
-  const radius = rows.length > 300 ? 2.2 : 3.2;
+  const knownCount = data.reduce((sum, point) => sum + point.listingCount, 0);
 
   return (
     <ChartPanel
-      title="Mileage versus price"
-      meta={`${formatNumber(rows.length)} plotted listings`}
-      legend={[
-        { label: "Current", color: ASKING_COLOR },
-        { label: "Sold", color: SOLD_COLOR },
-      ]}
+      title="Price by transmission"
+      meta={`${formatNumber(knownCount)} of ${formatNumber(totalListings)} listings have transmission data`}
+      legend
     >
-      <svg className="chart-svg" viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`} role="img">
-        <title>Listing Asking Price or Observed Sold Price compared with mileage</title>
-        <Grid yMax={yMax} formatY={formatCurrencyCompact} />
-        <NumericXAxisLabels max={xMax} format={formatKmCompact} />
-        {rows.map((point) => {
-          const price = priceForPoint(point);
-          if (price === null) {
-            return null;
-          }
-
-          return (
-            <circle
-              key={point.listingId}
-              className="scatter-dot"
-              cx={scale(point.mileageKm, 0, xMax, PLOT.left, PLOT_RIGHT)}
-              cy={yForValue(price, yMax)}
-              r={radius}
-              fill={point.availability === "sold" ? SOLD_COLOR : ASKING_COLOR}
+      <div className="chart-canvas" style={{ height: Math.max(280, rows.length * 52) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={rows}
+            layout="vertical"
+            margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
+            title="Price by transmission"
+            desc="Median asking and observed sold price grouped by transmission"
+          >
+            <ChartGrid vertical />
+            <XAxis type="number" tickFormatter={formatCurrencyCompact} {...axisProps} />
+            <YAxis type="category" dataKey="transmission" width={108} {...axisProps} />
+            <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={String} />} />
+            <Bar
+              dataKey="medianAskingPriceEur"
+              name="Median asking price"
+              fill={ASKING_COLOR}
+              radius={[0, 5, 5, 0]}
+              maxBarSize={18}
+              isAnimationActive={false}
             />
-          );
-        })}
-      </svg>
+            <Bar
+              dataKey="medianObservedSoldPriceEur"
+              name="Median observed sold price"
+              fill={SOLD_COLOR}
+              radius={[0, 5, 5, 0]}
+              maxBarSize={18}
+              isAnimationActive={false}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </ChartPanel>
   );
 }
 
-function MakeBreakdownChart({ data }: { data: AnalyticsTrendResponse["breakdowns"]["byMake"] }) {
+function ObservedListingsChart({ data }: { data: Charts["marketOverTime"] }) {
   if (data.length === 0) {
-    return <EmptyChart title="Make mix" message="No make data for these filters." />;
+    return <EmptyChart title="Listings observed over time" message="No observed listing periods for these filters." />;
   }
 
-  const maxCount = Math.max(...data.map((row) => row.count), 1);
   return (
-    <ChartPanel title="Make mix" meta={`${formatNumber(data.length)} groups`}>
-      <div className="breakdown-bars">
-        {data.map((row) => (
-          <div key={row.make} className="breakdown-row">
-            <span>{row.make}</span>
-            <div className="breakdown-track">
-              <span style={{ width: `${Math.max(4, (row.count / maxCount) * 100)}%` }} />
-            </div>
-            <strong>{formatNumber(row.count)}</strong>
-          </div>
-        ))}
-      </div>
+    <ChartPanel title="Listings observed over time" meta="Listings seen in each period · not a point-in-time inventory">
+      <ChartCanvas>
+        <ComposedChart
+          data={withBucketTime(data)}
+          margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
+          title="Listings observed over time"
+          desc="Current, sold, and first-observed listing counts by observation period"
+        >
+          <ChartGrid />
+          <XAxis
+            dataKey="bucketTime"
+            type="number"
+            scale="time"
+            domain={["dataMin", "dataMax"]}
+            tickFormatter={formatTimeAxis}
+            minTickGap={32}
+            {...axisProps}
+          />
+          <YAxis tickFormatter={formatNumberCompact} width={58} {...axisProps} />
+          <Tooltip content={(props) => <CountTooltip {...props} />} />
+          <Bar
+            dataKey="activeCount"
+            name="Current"
+            stackId="availability"
+            fill={ASKING_COLOR}
+            maxBarSize={22}
+            isAnimationActive={false}
+          />
+          <Bar
+            dataKey="soldCount"
+            name="Sold"
+            stackId="availability"
+            fill={SOLD_COLOR}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={22}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="newListingCount"
+            name="First observed"
+            stroke={COUNT_COLOR}
+            strokeWidth={2}
+            dot={false}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        </ComposedChart>
+      </ChartCanvas>
     </ChartPanel>
   );
 }
@@ -387,246 +366,175 @@ function MakeBreakdownChart({ data }: { data: AnalyticsTrendResponse["breakdowns
 function ChartPanel({
   title,
   meta,
-  legend = [],
+  legend = false,
+  full = false,
   children,
 }: {
   title: string;
   meta?: string;
-  legend?: Array<{ label: string; color: string }>;
+  legend?: boolean;
+  full?: boolean;
   children: ReactNode;
 }) {
   return (
-    <section className="chart-panel">
+    <section className={`chart-panel ${full ? "chart-panel-full" : ""}`}>
       <div className="chart-heading">
         <div>
           <h2>{title}</h2>
-          {meta ? <span>{meta}</span> : null}
+          {meta ? <p>{meta}</p> : null}
         </div>
-        {legend.length > 0 ? (
-          <div className="chart-legend" aria-label={`${title} legend`}>
-            {legend.map((item) => (
-              <span key={item.label}>
-                <i style={{ background: item.color }} />
-                {item.label}
-              </span>
-            ))}
-          </div>
-        ) : null}
+        {legend ? <PriceLegend /> : null}
       </div>
       {children}
     </section>
   );
 }
 
-function EmptyChart({ title, message }: { title: string; message: string }) {
+function PriceLegend() {
   return (
-    <ChartPanel title={title}>
+    <div className="chart-legend" aria-label="Chart legend">
+      <span>
+        <i style={{ background: ASKING_COLOR }} /> Asking
+      </span>
+      <span>
+        <i style={{ background: SOLD_COLOR }} /> Observed sold
+      </span>
+    </div>
+  );
+}
+
+function ChartCanvas({ children }: { children: ReactNode }) {
+  return (
+    <div className="chart-canvas">
+      <ResponsiveContainer width="100%" height="100%">
+        {children}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function EmptyChart({ title, message, full = false }: { title: string; message: string; full?: boolean }) {
+  return (
+    <ChartPanel title={title} full={full}>
       <div className="chart-empty">{message}</div>
     </ChartPanel>
   );
 }
 
-function Grid({ yMax, formatY }: { yMax: number; formatY: (value: number) => string }) {
-  const ticks = uniqueTicks([0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio)));
+function PriceTooltip({
+  active,
+  payload,
+  label,
+  formatLabel,
+}: TooltipContentProps & { formatLabel: (value: string | number) => string }) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+  const row = (payload[0]?.payload ?? {}) as ChartRow;
+
   return (
-    <>
-      {ticks.map((tick) => {
-        const y = yForValue(tick, yMax);
-        return (
-          <g key={tick}>
-            <line x1={PLOT.left} x2={PLOT_RIGHT} y1={y} y2={y} stroke={GRID_COLOR} />
-            <text x={PLOT.left - 10} y={y + 4} textAnchor="end" fill={TEXT_COLOR}>
-              {formatY(tick)}
-            </text>
-          </g>
-        );
-      })}
-      <line x1={PLOT.left} x2={PLOT.left} y1={PLOT.top} y2={PLOT_BOTTOM} stroke={GRID_COLOR} />
-      <line
-        x1={PLOT.left}
-        x2={PLOT_RIGHT}
-        y1={PLOT_BOTTOM}
-        y2={PLOT_BOTTOM}
-        stroke={GRID_COLOR}
-      />
-    </>
+    <div className="chart-tooltip">
+      <strong>{formatLabel(String(label ?? ""))}</strong>
+      {payload
+        .filter((entry) => entry.value !== null && entry.value !== undefined && entry.type !== "none")
+        .map((entry) => {
+          const asking = entry.dataKey === "medianAskingPriceEur";
+          const sample = asking ? row.askingPriceSampleSize : row.observedSoldPriceSampleSize;
+          return (
+            <div key={String(entry.dataKey)}>
+              <span>
+                <i style={{ background: entry.color }} /> {entry.name}
+              </span>
+              <b>{formatCurrency(Number(entry.value))}</b>
+              {typeof sample === "number" ? <small>n={formatNumber(sample)}</small> : null}
+            </div>
+          );
+        })}
+      {typeof row.askingPriceP25Eur === "number" && typeof row.askingPriceP75Eur === "number" ? (
+        <p>
+          Asking p25–p75: {formatCurrency(row.askingPriceP25Eur)}–{formatCurrency(row.askingPriceP75Eur)}
+        </p>
+      ) : null}
+      {typeof row.medianYearModel === "number" ? <p>Median model year: {row.medianYearModel}</p> : null}
+      {typeof row.medianMileageKm === "number" ? <p>Median mileage: {formatKm(row.medianMileageKm)}</p> : null}
+    </div>
   );
 }
 
-function XAxisLabels({ labels }: { labels: string[] }) {
-  const indexes = sampledIndexes(labels.length);
+function CountTooltip({ active, payload, label }: TooltipContentProps) {
+  if (!active || !payload?.length) {
+    return null;
+  }
   return (
-    <>
-      {indexes.map((index) => (
-        <text
-          key={`${labels[index]}-${index}`}
-          x={xForIndex(index, labels.length)}
-          y={SVG_HEIGHT - 18}
-          textAnchor="middle"
-          fill={TEXT_COLOR}
-        >
-          {labels[index]}
-        </text>
+    <div className="chart-tooltip">
+      <strong>{formatObservedDate(String(label ?? ""))}</strong>
+      {payload.map((entry) => (
+        <div key={String(entry.dataKey)}>
+          <span>
+            <i style={{ background: entry.color }} /> {entry.name}
+          </span>
+          <b>{formatNumber(Number(entry.value ?? 0))}</b>
+        </div>
       ))}
-    </>
+    </div>
   );
 }
 
-function NumericXAxisLabels({ max, format }: { max: number; format: (value: number) => string }) {
-  const ticks = uniqueTicks([0, 0.5, 1].map((ratio) => Math.round(max * ratio)));
-  return (
-    <>
-      {ticks.map((tick) => (
-        <text
-          key={tick}
-          x={scale(tick, 0, max, PLOT.left, PLOT_RIGHT)}
-          y={SVG_HEIGHT - 18}
-          textAnchor="middle"
-          fill={TEXT_COLOR}
-        >
-          {format(tick)}
-        </text>
-      ))}
-    </>
+function ChartGrid({ vertical = false }: { vertical?: boolean }) {
+  return <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 3" vertical={vertical} />;
+}
+
+const axisProps = {
+  axisLine: false,
+  tickLine: false,
+  tick: { fill: AXIS_COLOR, fontSize: 11 },
+} as const;
+
+function withAskingRange<
+  T extends { askingPriceP25Eur: number | null; askingPriceP75Eur: number | null },
+>(data: T[]) {
+  return data.map((row) => ({
+    ...row,
+    askingRange:
+      row.askingPriceP25Eur !== null && row.askingPriceP75Eur !== null
+        ? [row.askingPriceP25Eur, row.askingPriceP75Eur]
+        : null,
+  }));
+}
+
+function withBucketTime<T extends { bucket: string }>(data: T[]) {
+  return data.map((row) => ({ ...row, bucketTime: new Date(`${row.bucket}T00:00:00`).getTime() }));
+}
+
+function formatTimeAxis(value: number) {
+  return new Intl.DateTimeFormat("fi-FI", { month: "short", year: "2-digit" }).format(
+    new Date(value),
   );
 }
 
-function renderRangePoint(point: YearPoint, x: number, yMax: number) {
-  const askingMedian = point.medianAskingPriceEur;
-  const soldMedian = point.medianObservedSoldPriceEur;
-
-  return (
-    <>
-      {point.askingPriceP25Eur !== null && point.askingPriceP75Eur !== null ? (
-        <line
-          className="range-line"
-          x1={x}
-          x2={x}
-          y1={yForValue(point.askingPriceP75Eur, yMax)}
-          y2={yForValue(point.askingPriceP25Eur, yMax)}
-          stroke={ASKING_COLOR}
-        />
-      ) : null}
-      {askingMedian !== null ? (
-        <circle className="chart-dot" cx={x} cy={yForValue(askingMedian, yMax)} r="4.5" fill={ASKING_COLOR} />
-      ) : null}
-      {soldMedian !== null ? (
-        <circle
-          className="chart-dot"
-          cx={x + 7}
-          cy={yForValue(soldMedian, yMax)}
-          r="4"
-          fill={SOLD_COLOR}
-        />
-      ) : null}
-    </>
-  );
+function formatObservedDate(value: string | number) {
+  const numericValue = Number(value);
+  const date = Number.isFinite(numericValue) ? new Date(numericValue) : new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : new Intl.DateTimeFormat("fi-FI", { dateStyle: "medium" }).format(date);
 }
 
-function xForIndex(index: number, total: number) {
-  if (total <= 1) {
-    return PLOT.left + PLOT_WIDTH / 2;
-  }
-
-  return scale(index, 0, total - 1, PLOT.left, PLOT_RIGHT);
-}
-
-function yForValue(value: number, max: number) {
-  return scale(value, 0, max, PLOT_BOTTOM, PLOT.top);
-}
-
-function scale(value: number, min: number, max: number, outputMin: number, outputMax: number) {
-  if (max <= min) {
-    return (outputMin + outputMax) / 2;
-  }
-
-  return outputMin + ((value - min) / (max - min)) * (outputMax - outputMin);
-}
-
-function linePath(points: Array<{ x: number; y: number }>) {
-  if (points.length < 2) {
-    return "";
-  }
-
-  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-}
-
-function isPoint(point: { x: number; y: number } | null): point is { x: number; y: number } {
-  return point !== null;
-}
-
-function sampledIndexes(length: number) {
-  if (length <= 6) {
-    return Array.from({ length }, (_, index) => index);
-  }
-
-  const indexes = new Set<number>();
-  for (let step = 0; step < 6; step += 1) {
-    indexes.add(Math.round((step / 5) * (length - 1)));
-  }
-
-  return [...indexes].sort((a, b) => a - b);
-}
-
-function uniqueTicks(values: number[]) {
-  return [...new Set(values)].sort((a, b) => a - b);
-}
-
-function niceMax(value: number) {
-  if (!Number.isFinite(value) || value <= 0) {
-    return 1;
-  }
-
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  return Math.ceil((value * 1.08) / magnitude) * magnitude;
-}
-
-function priceForPoint(point: ScatterPoint) {
-  return point.askingPriceEur ?? point.observedSoldPriceEur;
-}
-
-function totalSampleSize(data: MarketPoint[]) {
-  return data.reduce((sum, point) => sum + point.sampleSize, 0);
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("fi-FI").format(value);
-}
-
-function formatNumberCompact(value: number) {
-  if (value >= 1_000_000) {
-    return `${Math.round(value / 100_000) / 10}M`;
-  }
-  if (value >= 1_000) {
-    return `${Math.round(value / 100) / 10}k`;
-  }
-  return formatNumber(value);
+function formatKmBucket(value: string | number) {
+  return `${formatKmCompact(Number(value))}–${formatKmCompact(Number(value) + 24_999)}`;
 }
 
 function formatCurrencyCompact(value: number) {
-  if (value >= 1_000_000) {
-    return `${Math.round(value / 100_000) / 10}M EUR`;
-  }
-  if (value >= 1_000) {
-    return `${Math.round(value / 100) / 10}k EUR`;
-  }
-  return `${formatNumber(value)} EUR`;
+  return `${formatNumberCompact(value)} €`;
 }
 
 function formatKmCompact(value: number) {
-  if (value >= 1_000) {
-    return `${Math.round(value / 100) / 10}k km`;
-  }
-  return `${formatNumber(value)} km`;
+  return `${formatNumberCompact(value)} km`;
 }
 
-function formatBucket(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("fi-FI", {
-    dateStyle: "short",
-  }).format(date);
+function formatNumberCompact(value: number) {
+  return new Intl.NumberFormat("fi-FI", {
+    notation: value >= 1_000 ? "compact" : "standard",
+    maximumFractionDigits: 1,
+  }).format(value);
 }

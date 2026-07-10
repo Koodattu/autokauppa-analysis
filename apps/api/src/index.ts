@@ -9,6 +9,7 @@ import {
   issueAdminSessionCookieValue,
   verifyAdminPassword,
   verifyAdminSessionCookieValue,
+  getAdminCrawlerDiagnostics,
   getAdminCrawlerStatus,
   getAnalyticsTrend,
   getFilterMetadata,
@@ -20,6 +21,7 @@ import { createLogger } from "@nettiauto/logging";
 import {
   adminCrawlerRunRequestSchema,
   adminLoginRequestSchema,
+  listingIdSchema,
   listingFiltersQuerySchema,
   listingSearchQuerySchema,
 } from "@nettiauto/schemas";
@@ -45,7 +47,6 @@ const app = new Hono();
 analyticsTrendCache.prewarm(defaultAnalyticsFilters);
 setInterval(() => {
   analyticsTrendCache.prewarm(defaultAnalyticsFilters);
-  analyticsTrendCache.refreshExpiredEntries();
 }, ANALYTICS_CACHE_REFRESH_SWEEP_MS);
 
 const adminOnly = createMiddleware(async (c, next) => {
@@ -77,7 +78,13 @@ app.get("/health", (c) => {
 });
 
 app.get("/filters", async (c) => {
-  return c.json(await getFilterMetadata(sql));
+  const result = listingFiltersQuerySchema.safeParse(c.req.query());
+  if (!result.success) {
+    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  }
+
+  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  return c.json(await getFilterMetadata(sql, result.data));
 });
 
 app.get("/analytics/trends", async (c) => {
@@ -87,6 +94,7 @@ app.get("/analytics/trends", async (c) => {
   }
 
   const cached = await analyticsTrendCache.get(result.data);
+  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   c.header("X-Analytics-Cache", cached.status);
   c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
   return c.json(cached.value);
@@ -111,7 +119,12 @@ app.get("/listings", async (c) => {
 });
 
 app.get("/listings/:listingId", async (c) => {
-  const listing = await getPublicListingDetail(sql, c.req.param("listingId"));
+  const listingId = listingIdSchema.safeParse(c.req.param("listingId"));
+  if (!listingId.success) {
+    return c.json({ error: "not_found" }, 404);
+  }
+
+  const listing = await getPublicListingDetail(sql, listingId.data);
   if (!listing) {
     return c.json({ error: "not_found" }, 404);
   }
@@ -173,6 +186,10 @@ app.get("/admin/crawler/status", adminOnly, async (c) => {
       maxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
     }),
   );
+});
+
+app.get("/admin/crawler/diagnostics", adminOnly, async (c) => {
+  return c.json(await getAdminCrawlerDiagnostics(sql));
 });
 
 app.post("/admin/crawler/run", adminOnly, async (c) => {

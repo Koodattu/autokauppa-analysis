@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type {
+  AdminCrawlerDiagnosticsResponse,
   AdminCrawlerRunResponse,
   AdminCrawlerRunTarget,
   AdminCrawlerStatusResponse,
 } from "@/lib/api";
+import { SiteHeader } from "../../site-header";
 
 type Notice = {
   kind: "success" | "error";
@@ -17,13 +19,16 @@ type AdminCrawlerDashboardProps = {
   initialNotice: Notice | null;
 };
 
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = 20_000;
 
 export function AdminCrawlerDashboard({
   initialStatus,
   initialNotice,
 }: AdminCrawlerDashboardProps) {
   const [status, setStatus] = useState(initialStatus);
+  const [diagnostics, setDiagnostics] = useState<AdminCrawlerDiagnosticsResponse | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [diagnosticsPending, setDiagnosticsPending] = useState(true);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(new Date());
   const [notice, setNotice] = useState<Notice | null>(initialNotice);
   const [pollError, setPollError] = useState<string | null>(null);
@@ -33,17 +38,27 @@ export function AdminCrawlerDashboard({
   const problemCount = useMemo(
     () =>
       status.queueBacklog.failedJobs +
-      status.failureCounts.reduce((sum, failure) => sum + failure.count, 0) +
-      status.latestSourceFetchFailures.length +
-      status.latestParserErrorSummaries.length +
-      status.latestFailedJobs.length,
-    [status],
+      (diagnostics?.failureCounts.reduce((sum, failure) => sum + failure.count, 0) ?? 0) +
+      (diagnostics?.latestSourceFetchFailures.length ?? 0) +
+      (diagnostics?.latestParserErrorSummaries.length ?? 0) +
+      (diagnostics?.latestFailedJobs.length ?? 0),
+    [diagnostics, status.queueBacklog.failedJobs],
   );
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
+    let timeout: number | undefined;
 
     async function poll() {
+      if (!active || inFlight) {
+        return;
+      }
+      if (document.hidden) {
+        timeout = window.setTimeout(poll, POLL_INTERVAL_MS);
+        return;
+      }
+      inFlight = true;
       try {
         const nextStatus = await fetchCrawlerStatus();
         if (!active) {
@@ -57,15 +72,65 @@ export function AdminCrawlerDashboard({
           return;
         }
         setPollError(error instanceof Error ? error.message : "Status refresh failed.");
+      } finally {
+        inFlight = false;
+        if (active) {
+          timeout = window.setTimeout(poll, POLL_INTERVAL_MS);
+        }
       }
     }
 
-    const interval = window.setInterval(poll, POLL_INTERVAL_MS);
+    function handleVisibilityChange() {
+      if (!document.hidden && !inFlight) {
+        window.clearTimeout(timeout);
+        void poll();
+      }
+    }
+
+    timeout = window.setTimeout(poll, POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       active = false;
-      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetchCrawlerDiagnostics()
+      .then((nextDiagnostics) => {
+        if (active) {
+          setDiagnostics(nextDiagnostics);
+          setDiagnosticsError(null);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setDiagnosticsError(error instanceof Error ? error.message : "Diagnostics could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setDiagnosticsPending(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function refreshDiagnostics() {
+    setDiagnosticsPending(true);
+    try {
+      setDiagnostics(await fetchCrawlerDiagnostics());
+      setDiagnosticsError(null);
+    } catch (error) {
+      setDiagnosticsError(error instanceof Error ? error.message : "Diagnostics could not be loaded.");
+    } finally {
+      setDiagnosticsPending(false);
+    }
+  }
 
   async function runCrawlerNow() {
     setRunPending(true);
@@ -111,7 +176,8 @@ export function AdminCrawlerDashboard({
 
   return (
     <main className="shell">
-      <header className="topbar">
+      <SiteHeader active="admin" />
+      <header className="page-heading admin-heading">
         <div>
           <p className="eyebrow">Admin</p>
           <h1>Crawler status</h1>
@@ -196,11 +262,21 @@ export function AdminCrawlerDashboard({
         </div>
       </section>
 
-      <section className="admin-grid">
+      <div className="diagnostics-heading">
+        <div>
+          <h2>Diagnostics</h2>
+          <span>Loaded separately from live health</span>
+        </div>
+        <button className="secondary-button" type="button" disabled={diagnosticsPending} onClick={refreshDiagnostics}>
+          {diagnosticsPending ? "Loading…" : "Refresh diagnostics"}
+        </button>
+      </div>
+      {diagnosticsError ? <p className="notice error-state">{diagnosticsError}</p> : null}
+      {diagnostics ? <section className="admin-grid">
         <ErrorPanel
-          title="Crawl failures"
+          title="Crawl failures · 30 days"
           emptyText="No failed or partial crawl runs."
-          items={status.failureCounts.map((failure) => ({
+          items={diagnostics.failureCounts.map((failure) => ({
             key: failure.failureReason,
             label: failure.failureReason,
             meta: `${failure.count} run${failure.count === 1 ? "" : "s"}`,
@@ -209,7 +285,7 @@ export function AdminCrawlerDashboard({
         <ErrorPanel
           title="Source fetch errors"
           emptyText="No recent source fetch errors."
-          items={status.latestSourceFetchFailures.map((failure, index) => ({
+          items={diagnostics.latestSourceFetchFailures.map((failure, index) => ({
             key: `${failure.fetchedAt}-${failure.sourceUrl}-${index}`,
             label: failure.errorType,
             meta: `${failure.fetchKind}${failure.pageNumber ? ` page ${failure.pageNumber}` : ""} · ${formatDate(failure.fetchedAt)} · HTTP ${failure.responseStatus ?? "-"}`,
@@ -219,7 +295,7 @@ export function AdminCrawlerDashboard({
         <ErrorPanel
           title="Parser errors"
           emptyText="No recent parser errors."
-          items={status.latestParserErrorSummaries.map((failure, index) => ({
+          items={diagnostics.latestParserErrorSummaries.map((failure, index) => ({
             key: `${failure.capturedAt}-${index}`,
             label: failure.parserVersion,
             meta: formatDate(failure.capturedAt),
@@ -229,16 +305,16 @@ export function AdminCrawlerDashboard({
         <ErrorPanel
           title="Failed worker jobs"
           emptyText="No failed worker jobs."
-          items={status.latestFailedJobs.map((job) => ({
+          items={diagnostics.latestFailedJobs.map((job) => ({
             key: job.id,
             label: job.taskIdentifier,
             meta: `${job.attempts}/${job.maxAttempts} attempts · ${formatDate(job.updatedAt ?? job.createdAt)}`,
             detail: job.lastError ?? `run at ${formatDate(job.runAt)}`,
           }))}
         />
-      </section>
+      </section> : diagnosticsPending ? <div className="panel diagnostics-loading">Loading diagnostics…</div> : null}
 
-      <section className="table-wrap">
+      <section className="table-wrap admin-table-wrap">
         <div className="section-heading">
           <h2>Recent runs</h2>
           <span>{status.recentRuns.length} shown</span>
@@ -300,6 +376,23 @@ async function fetchCrawlerStatus() {
   }
 
   return response.json() as Promise<AdminCrawlerStatusResponse>;
+}
+
+async function fetchCrawlerDiagnostics() {
+  const response = await fetch("/api/admin/crawler/diagnostics", {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    window.location.assign("/admin/login");
+    throw new Error("Sign in required.");
+  }
+  if (!response.ok) {
+    throw new Error(`Diagnostics refresh failed with HTTP ${response.status}.`);
+  }
+
+  return response.json() as Promise<AdminCrawlerDiagnosticsResponse>;
 }
 
 async function readRunError(response: Response) {

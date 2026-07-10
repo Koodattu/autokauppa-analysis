@@ -2,6 +2,18 @@ import Link from "next/link";
 import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import { ApiError, apiGet, type PublicListingDetailResponse } from "@/lib/api";
+import {
+  formatCurrency,
+  formatDate,
+  formatDateOnly,
+  formatDateTime,
+  formatKm,
+  formatNumber,
+  labelAvailability,
+} from "@/lib/format";
+import { SiteHeader } from "../../site-header";
+import { ListingGallery } from "./listing-gallery";
+import { ListingHistoryChart } from "./listing-history-chart";
 
 type PageProps = {
   params: Promise<{ listingId: string }>;
@@ -11,7 +23,9 @@ export default async function ListingPage({ params }: PageProps) {
   const { listingId } = await params;
   let data: PublicListingDetailResponse;
   try {
-    data = await apiGet<PublicListingDetailResponse>(`/listings/${listingId}`);
+    data = await apiGet<PublicListingDetailResponse>(`/listings/${listingId}`, {
+      next: { revalidate: 60 },
+    });
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       notFound();
@@ -22,215 +36,225 @@ export default async function ListingPage({ params }: PageProps) {
   const title =
     [data.listing.make, data.listing.model, data.listing.yearModel].filter(Boolean).join(" ") ||
     "Unknown listing";
-  const vehicleRows = data.vehicleDetails ? vehicleDetailRows(data.vehicleDetails) : [];
+  const details = data.vehicleDetails;
+  const detailGroups = details ? vehicleDetailGroups(details) : [];
+  const sourceUpdatedDate = details?.sourceUpdatedDate ?? data.listing.sourceUpdatedDate;
 
   return (
     <main className="shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Listing</p>
-          <h1>{title}</h1>
-        </div>
-        <Link className="text-link" href="/">
-          Analytics
-        </Link>
-      </header>
+      <SiteHeader active="listings" />
 
-      <section className="metrics">
-        <Metric label="Availability" value={labelAvailability(data.listing.availability)} />
-        <Metric
-          label="Price"
-          value={formatCurrency(data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur)}
-        />
-        <Metric label="Mileage" value={formatKm(data.listing.mileageKm)} />
-        <Metric label="First seen" value={formatDate(data.listing.firstSeenAt)} />
-        <Metric label="Last seen" value={formatDate(data.listing.lastSeenAt)} />
+      <nav className="breadcrumb" aria-label="Breadcrumb">
+        <Link href="/listings">Listings</Link>
+        <span aria-hidden="true">/</span>
+        <span>{data.listing.sourceListingId}</span>
+      </nav>
+
+      <section className="listing-heading">
+        <div>
+          <div className="heading-status">
+            <span className={`status-badge status-${statusTone(data.listing.availability)}`}>
+              {labelAvailability(data.listing.availability)}
+            </span>
+            <span>#{data.listing.sourceListingId}</span>
+          </div>
+          <h1>{title}</h1>
+          <p>{[data.listing.seller, data.listing.sellerType].filter(Boolean).join(" · ") || "Seller unknown"}</p>
+        </div>
+        {data.listing.sourceAttribution.sourceUrl ? (
+          <a
+            className="button-link secondary-button"
+            href={data.listing.sourceAttribution.sourceUrl}
+            rel="nofollow noreferrer"
+            target="_blank"
+          >
+            Open on Nettiauto
+          </a>
+        ) : null}
       </section>
 
-      {vehicleRows.length > 0 ? (
-        <section className="panel">
-          <h2>Vehicle Details</h2>
-          <dl className="details">
-            {vehicleRows.map((row) => (
-              <Fragment key={row.label}>
-                <dt>{row.label}</dt>
-                <dd>{row.value}</dd>
-              </Fragment>
-            ))}
+      <section className="listing-hero">
+        <ListingGallery images={data.imageMetadata} title={title} />
+        <aside className="listing-summary panel">
+          <div className="listing-price">
+            <span>{data.listing.askingPriceEur !== null ? "Asking price" : "Observed sold price"}</span>
+            <strong>{formatCurrency(data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur)}</strong>
+          </div>
+          <dl className="summary-list">
+            <SummaryRow label="Mileage" value={formatKm(data.listing.mileageKm)} />
+            <SummaryRow label="Model year" value={data.listing.yearModel ? String(data.listing.yearModel) : "–"} />
+            <SummaryRow label="Transmission" value={details?.transmissionSourceLabel ?? "–"} />
+            <SummaryRow label="Updated on source" value={formatDateOnly(sourceUpdatedDate)} />
+            <SummaryRow label="First observed" value={formatDateTime(data.listing.firstSeenAt)} />
+            <SummaryRow label="Last observed" value={formatDateTime(data.listing.lastSeenAt)} />
           </dl>
+        </aside>
+      </section>
+
+      <section className="panel history-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>History</h2>
+            <p>Dates are observations unless “updated on source” is shown separately.</p>
+          </div>
+          <span>{data.history.length} changes</span>
+        </div>
+        {data.history.length === 0 ? (
+          <p className="muted">No history recorded.</p>
+        ) : (
+          <>
+            <ListingHistoryChart history={data.history} />
+            <div className="history-table-wrap">
+              <table className="history-table">
+                <thead>
+                  <tr>
+                    <th>Observed</th>
+                    <th>Availability</th>
+                    <th>Price</th>
+                    <th>Mileage</th>
+                    <th>Updated on source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.history.map((row, index) => (
+                    <tr key={`${row.observedAt}-${index}`}>
+                      <td>{formatDateTime(row.observedAt)}</td>
+                      <td>{labelAvailability(row.availability)}</td>
+                      <td>{formatCurrency(row.askingPriceEur ?? row.observedSoldPriceEur)}</td>
+                      <td>{formatKm(row.mileageKm)}</td>
+                      <td>{formatDateOnly(row.sourceUpdatedDate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+
+      {detailGroups.length > 0 ? (
+        <section className="spec-grid" aria-label="Vehicle details">
+          {detailGroups.map((group) => (
+            <section className="panel spec-panel" key={group.title}>
+              <h2>{group.title}</h2>
+              <dl className="details">
+                {group.rows.map((row) => (
+                  <Fragment key={row.label}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            </section>
+          ))}
         </section>
       ) : null}
 
-      <section className="split">
-        <div className="panel">
-          <h2>Source Attribution</h2>
-          <dl className="details">
-            <dt>Source</dt>
-            <dd>{data.listing.sourceAttribution.source}</dd>
-            <dt>Source listing ID</dt>
-            <dd>{data.listing.sourceAttribution.sourceListingId}</dd>
-            <dt>Observed data</dt>
-            <dd>{data.listing.sourceAttribution.observedDataLabel}</dd>
-            <dt>Source page</dt>
-            <dd>
-              {data.listing.sourceAttribution.sourceUrl ? (
-                <a href={data.listing.sourceAttribution.sourceUrl} rel="nofollow noreferrer">
-                  Open Nettiauto listing
-                </a>
-              ) : (
-                "-"
-              )}
-            </dd>
-          </dl>
-        </div>
+      {details?.sellerNotes ? (
+        <section className="panel seller-notes">
+          <h2>Seller notes</h2>
+          <p>{details.sellerNotes}</p>
+        </section>
+      ) : null}
 
-        <div className="panel">
-          <h2>History</h2>
-          <div className="trend-list">
-            {data.priceHistory.length === 0 ? (
-              <p className="muted">No price history yet.</p>
-            ) : (
-              data.priceHistory.map((row) => (
-                <div key={row.observedAt} className="trend-row">
-                  <span>{formatDate(row.observedAt)}</span>
-                  <strong>{formatCurrency(row.askingPriceEur ?? row.observedSoldPriceEur)}</strong>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="image-section">
-        <div className="image-section-heading">
-          <h2>Images</h2>
-          <span>{data.imageMetadata.length} observed</span>
-        </div>
-        {data.imageMetadata.length === 0 ? (
-          <p className="empty image-empty">No image metadata observed.</p>
-        ) : (
-          <div className="image-grid">
-            {data.imageMetadata.map((image, index) => (
-              <a
-                key={image.imageUrl}
-                className="image-tile"
-                href={image.imageUrl}
-                rel="nofollow noreferrer"
-                target="_blank"
-              >
-                <img
-                  src={image.imageUrl}
-                  alt={`${title} image ${image.position ?? index + 1}`}
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                />
-                <span>
-                  {image.role ?? "image"}
-                  {image.position ? ` #${image.position}` : ""}
-                </span>
-              </a>
-            ))}
-          </div>
-        )}
+      <section className="panel source-panel">
+        <h2>Source</h2>
+        <dl className="details compact-details">
+          <dt>Source</dt>
+          <dd>{data.listing.sourceAttribution.source}</dd>
+          <dt>Source listing ID</dt>
+          <dd>{data.listing.sourceAttribution.sourceListingId}</dd>
+          <dt>Data basis</dt>
+          <dd>{data.listing.sourceAttribution.observedDataLabel}</dd>
+          <dt>Last observed</dt>
+          <dd>{formatDateTime(data.listing.lastSeenAt)}</dd>
+        </dl>
       </section>
     </main>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
     </div>
   );
 }
 
-function formatCurrency(value: number | null) {
-  return value === null ? "-" : `${new Intl.NumberFormat("fi-FI").format(value)} EUR`;
+function vehicleDetailGroups(details: NonNullable<PublicListingDetailResponse["vehicleDetails"]>) {
+  return [
+    {
+      title: "Vehicle",
+      rows: compactRows([
+        ["Location", details.sourceLocationLabel],
+        ["Registration number", details.registrationNumber],
+        ["Vehicle type", details.vehicleTypeSourceLabel],
+        ["Body type", details.bodyTypeSourceLabel],
+        ["Color", details.colorSourceLabel],
+        ["First registration", formatOptionalDate(details.firstRegistrationDate)],
+        ["Inspection", details.inspectionDateLabel],
+      ]),
+    },
+    {
+      title: "Powertrain",
+      rows: compactRows([
+        ["Engine", details.engineSourceLabel],
+        ["Fuel", details.fuelTypeSourceLabel],
+        ["Transmission", details.transmissionSourceLabel],
+        ["Drivetrain", details.drivetrainSourceLabel],
+        ["Power", formatPower(details.powerKw, details.powerHp)],
+        ["Consumption", details.fuelConsumptionSourceLabel],
+        ["CO₂", formatUnit(details.co2GKm, "g/km")],
+        ["Top speed", formatUnit(details.topSpeedKmh, "km/h")],
+        ["0–100 km/h", formatUnit(details.acceleration0To100S, "s")],
+      ]),
+    },
+    {
+      title: "Dimensions and capacity",
+      rows: compactRows([
+        ["Seats", formatCount(details.seatCount)],
+        ["Doors", formatCount(details.doorCount)],
+        ["Steering", details.steeringSideSourceLabel],
+        ["Curb weight", formatUnit(details.curbWeightKg, "kg")],
+        ["Gross weight", formatUnit(details.grossWeightKg, "kg")],
+        ["Braked towing mass", formatUnit(details.towingWeightBrakedKg, "kg")],
+        ["Unbraked towing mass", formatUnit(details.towingWeightUnbrakedKg, "kg")],
+      ]),
+    },
+  ].filter((group) => group.rows.length > 0);
 }
 
-function formatKm(value: number | null) {
-  return value === null ? "-" : `${new Intl.NumberFormat("fi-FI").format(value)} km`;
+function compactRows(rows: Array<[string, string | null]>) {
+  return rows
+    .filter((row): row is [string, string] => Boolean(row[1]))
+    .map(([label, value]) => ({ label, value }));
 }
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("fi-FI", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function formatDateOnly(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("fi-FI", {
-    dateStyle: "medium",
-  }).format(new Date(`${value}T00:00:00`));
-}
-
-function vehicleDetailRows(details: NonNullable<PublicListingDetailResponse["vehicleDetails"]>) {
-  const rows: Array<{ label: string; value: string | null }> = [
-    { label: "Updated on Nettiauto", value: formatDateOnly(details.sourceUpdatedDate) },
-    { label: "Location", value: details.sourceLocationLabel },
-    { label: "Registration number", value: details.registrationNumber },
-    { label: "Vehicle type", value: details.vehicleTypeSourceLabel },
-    { label: "Body type", value: details.bodyTypeSourceLabel },
-    { label: "Color", value: details.colorSourceLabel },
-    { label: "Engine", value: details.engineSourceLabel },
-    { label: "Fuel", value: details.fuelTypeSourceLabel },
-    { label: "Transmission", value: details.transmissionSourceLabel },
-    { label: "Drivetrain", value: details.drivetrainSourceLabel },
-    { label: "Power", value: formatPower(details.powerKw, details.powerHp) },
-    { label: "First registration", value: formatDateOnly(details.firstRegistrationDate) },
-    { label: "Inspection", value: details.inspectionDateLabel },
-    { label: "Seats", value: formatCount(details.seatCount) },
-    { label: "Doors", value: formatCount(details.doorCount) },
-    { label: "Steering", value: details.steeringSideSourceLabel },
-    { label: "CO2", value: formatUnit(details.co2GKm, "g/km") },
-    { label: "Consumption", value: details.fuelConsumptionSourceLabel },
-    { label: "Curb weight", value: formatUnit(details.curbWeightKg, "kg") },
-    { label: "Gross weight", value: formatUnit(details.grossWeightKg, "kg") },
-    { label: "Braked towing mass", value: formatUnit(details.towingWeightBrakedKg, "kg") },
-    { label: "Unbraked towing mass", value: formatUnit(details.towingWeightUnbrakedKg, "kg") },
-    { label: "Top speed", value: formatUnit(details.topSpeedKmh, "km/h") },
-    { label: "0-100 km/h", value: formatUnit(details.acceleration0To100S, "s") },
-    { label: "Seller notes", value: details.sellerNotes },
-  ];
-
-  return rows.filter((row) => row.value);
+function formatOptionalDate(value: string | null) {
+  return value ? formatDate(`${value}T00:00:00`) : null;
 }
 
 function formatPower(powerKw: number | null, powerHp: number | null) {
-  if (powerKw === null && powerHp === null) {
-    return null;
-  }
-
-  return [formatUnit(powerKw, "kW"), formatUnit(powerHp, "hp")].filter(Boolean).join(" / ");
+  const values = [formatUnit(powerKw, "kW"), formatUnit(powerHp, "hp")].filter(Boolean);
+  return values.length > 0 ? values.join(" / ") : null;
 }
 
 function formatCount(value: number | null) {
-  return value === null ? null : new Intl.NumberFormat("fi-FI").format(value);
+  return value === null ? null : formatNumber(value);
 }
 
 function formatUnit(value: number | null, unit: string) {
-  return value === null ? null : `${new Intl.NumberFormat("fi-FI").format(value)} ${unit}`;
+  return value === null ? null : `${formatNumber(value)} ${unit}`;
 }
 
-function labelAvailability(value: string) {
-  if (value === "active" || value === "current") {
-    return "Current";
+function statusTone(availability: string) {
+  if (availability === "sold") {
+    return "warning";
   }
-
-  if (value === "sold") {
-    return "Sold";
+  if (availability === "active" || availability === "current") {
+    return "default";
   }
-
-  return "Unknown";
+  return "neutral";
 }

@@ -1,12 +1,16 @@
 import type postgres from "postgres";
-import type { ListingFiltersQuery, ListingSearchQuery } from "@nettiauto/schemas";
+import {
+  MAX_LISTING_PAGE,
+  type ListingFiltersQuery,
+  type ListingSearchQuery,
+} from "@nettiauto/schemas";
 
 export interface CoverageMetadata {
   lastRelevantCrawlAt: string | null;
   sampleSize: number;
   includesCurrent: boolean;
   includesSold: boolean;
-  dataSource: "search_result_data";
+  dataSource: "search_result_data" | "search_and_detail_data";
   completeness: "complete" | "partial" | "unknown";
 }
 
@@ -15,8 +19,8 @@ export interface FilterMetadata {
   models: string[];
   yearRange: { min: number | null; max: number | null };
   sellerTypes: string[];
+  transmissions: string[];
   availability: Array<"current" | "sold" | "all">;
-  coverage: CoverageMetadata;
 }
 
 export interface MarketOverTimePoint {
@@ -28,11 +32,15 @@ export interface MarketOverTimePoint {
   medianAskingPriceEur: number | null;
   medianObservedSoldPriceEur: number | null;
   sampleSize: number;
+  askingPriceSampleSize: number;
+  observedSoldPriceSampleSize: number;
 }
 
 export interface PriceByYearPoint {
   yearModel: number;
   listingCount: number;
+  askingPriceSampleSize: number;
+  observedSoldPriceSampleSize: number;
   medianMileageKm: number | null;
   askingPriceP25Eur: number | null;
   medianAskingPriceEur: number | null;
@@ -46,6 +54,8 @@ export interface PriceByMileageBucketPoint {
   bucketStartKm: number;
   bucketEndKm: number;
   listingCount: number;
+  askingPriceSampleSize: number;
+  observedSoldPriceSampleSize: number;
   medianYearModel: number | null;
   askingPriceP25Eur: number | null;
   medianAskingPriceEur: number | null;
@@ -55,15 +65,18 @@ export interface PriceByMileageBucketPoint {
   observedSoldPriceP75Eur: number | null;
 }
 
-export interface PriceMileageScatterPoint {
-  listingId: string;
-  make: string | null;
-  model: string | null;
-  yearModel: number | null;
-  mileageKm: number;
-  availability: string;
-  askingPriceEur: number | null;
-  observedSoldPriceEur: number | null;
+export interface PriceByTransmissionPoint {
+  transmission: string;
+  listingCount: number;
+  askingPriceSampleSize: number;
+  observedSoldPriceSampleSize: number;
+  medianMileageKm: number | null;
+  askingPriceP25Eur: number | null;
+  medianAskingPriceEur: number | null;
+  askingPriceP75Eur: number | null;
+  observedSoldPriceP25Eur: number | null;
+  medianObservedSoldPriceEur: number | null;
+  observedSoldPriceP75Eur: number | null;
 }
 
 export interface AnalyticsTrendResponse {
@@ -76,21 +89,15 @@ export interface AnalyticsTrendResponse {
     medianAskingPriceEur: number | null;
     medianObservedSoldPriceEur: number | null;
     medianMileageKm: number | null;
-  };
-  timeSeries: Array<{
-    bucket: string;
-    listingCount: number;
-    medianAskingPriceEur: number | null;
-    medianObservedSoldPriceEur: number | null;
-  }>;
-  breakdowns: {
-    byMake: Array<{ make: string; count: number }>;
+    askingPriceSampleSize: number;
+    observedSoldPriceSampleSize: number;
+    mileageSampleSize: number;
   };
   charts: {
     marketOverTime: MarketOverTimePoint[];
     priceByYear: PriceByYearPoint[];
     priceByMileageBucket: PriceByMileageBucketPoint[];
-    priceMileageScatter: PriceMileageScatterPoint[];
+    priceByTransmission: PriceByTransmissionPoint[];
   };
 }
 
@@ -124,8 +131,8 @@ export interface ListingTableItem {
   mileageKm: number | null;
   seller: string | null;
   sellerType: string | null;
+  sourceUpdatedDate: string | null;
   lastSeenAt: string;
-  sourceUrl: string | null;
 }
 
 export interface PublicVehicleDetails {
@@ -167,16 +174,22 @@ export interface PublicListingDetailResponse {
       observedDataLabel: string;
     };
   };
-  priceHistory: Array<{
+  history: Array<{
     observedAt: string;
+    sourceUpdatedDate: string | null;
+    availability: string;
     askingPriceEur: number | null;
     observedSoldPriceEur: number | null;
+    mileageKm: number | null;
   }>;
-  mileageHistory: Array<{ observedAt: string; mileageKm: number | null }>;
-  availabilityHistory: Array<{ observedAt: string; availability: string }>;
-  imageMetadata: Array<{ imageUrl: string; role: string | null; position: number | null }>;
+  imageMetadata: Array<{
+    imageUrl: string;
+    role: string | null;
+    position: number | null;
+    width: number | null;
+    height: number | null;
+  }>;
   vehicleDetails: PublicVehicleDetails | null;
-  coverage: CoverageMetadata;
 }
 
 export interface AdminCrawlerStatusResponse {
@@ -212,6 +225,9 @@ export interface AdminCrawlerStatusResponse {
     lockedJobs: number;
     failedJobs: number;
   };
+}
+
+export interface AdminCrawlerDiagnosticsResponse {
   failureCounts: Array<{ failureReason: string; count: number }>;
   latestSourceFetchFailures: Array<{
     fetchedAt: string;
@@ -244,15 +260,16 @@ type Sql = postgres.Sql<Record<string, unknown>>;
 type SqlParameter = string | number | boolean | Date | null;
 const ANALYTICS_MAX_MILEAGE_KM = 2_000_000;
 const ANALYTICS_MILEAGE_BUCKET_KM = 25_000;
-const ANALYTICS_SCATTER_POINT_LIMIT = 500;
 const ANALYTICS_DEFAULT_TREND_LOOKBACK_DAYS = 365;
 
-export async function getFilterMetadata(sql: Sql): Promise<FilterMetadata> {
-  const [facets, coverage] = await Promise.all([queryFacets(sql), getCoverage(sql, {})]);
+export async function getFilterMetadata(
+  sql: Sql,
+  filters: Partial<ListingFiltersQuery> = {},
+): Promise<FilterMetadata> {
+  const facets = await queryFacets(sql, filters);
   return {
     ...facets,
     availability: ["all", "current", "sold"],
-    coverage,
   };
 }
 
@@ -262,39 +279,33 @@ export async function getAnalyticsTrend(
 ): Promise<AnalyticsTrendResponse> {
   const [
     summaryAndCoverage,
-    byMake,
     marketOverTime,
     priceByYear,
     priceByMileageBucket,
-    priceMileageScatter,
+    priceByTransmission,
   ] = await Promise.all([
     getSummaryAndCoverage(sql, filters),
-    getMakeBreakdown(sql, filters),
     getMarketOverTime(sql, filters),
     getPriceByYear(sql, filters),
     getPriceByMileageBucket(sql, filters),
-    getPriceMileageScatter(sql, filters),
+    getPriceByTransmission(sql, filters),
   ]);
   const { summary, coverage } = summaryAndCoverage;
+  const analyticsCoverage: CoverageMetadata = {
+    ...coverage,
+    dataSource:
+      priceByTransmission.length > 0 ? "search_and_detail_data" : coverage.dataSource,
+  };
 
   return {
     appliedFilters: filters,
-    coverage,
+    coverage: analyticsCoverage,
     summary,
-    timeSeries: marketOverTime.map((row) => ({
-      bucket: row.bucket,
-      listingCount: row.listingCount,
-      medianAskingPriceEur: row.medianAskingPriceEur,
-      medianObservedSoldPriceEur: row.medianObservedSoldPriceEur,
-    })),
-    breakdowns: {
-      byMake,
-    },
     charts: {
       marketOverTime,
       priceByYear,
       priceByMileageBucket,
-      priceMileageScatter,
+      priceByTransmission,
     },
   };
 }
@@ -304,7 +315,7 @@ export async function getMarketOverview(
   query: ListingSearchQuery,
 ): Promise<MarketOverviewResponse> {
   const [facets, summaryAndCoverage] = await Promise.all([
-    queryFacets(sql),
+    queryFacets(sql, query),
     getSummaryAndCoverage(sql, query),
   ]);
   const listings = await searchListings(sql, query, {
@@ -313,7 +324,6 @@ export async function getMarketOverview(
   const filters = {
     ...facets,
     availability: ["all", "current", "sold"] as FilterMetadata["availability"],
-    coverage: summaryAndCoverage.coverage,
   };
 
   return {
@@ -346,8 +356,8 @@ export async function searchListings(
         s.mileage_km as "mileageKm",
         s.seller_source_label as "seller",
         s.seller_type_source_label as "sellerType",
+        s.source_updated_date::text as "sourceUpdatedDate",
         l.last_seen_at::text as "lastSeenAt",
-        l.canonical_source_url as "sourceUrl",
         count(*) over()::int as "totalItems"
       from latest_snapshots s
       join listings l on l.id = s.listing_id
@@ -368,7 +378,7 @@ export async function searchListings(
       page: query.page,
       pageSize: query.pageSize,
       totalItems,
-      totalPages: Math.max(1, Math.ceil(totalItems / query.pageSize)),
+      totalPages: Math.min(MAX_LISTING_PAGE, Math.max(1, Math.ceil(totalItems / query.pageSize))),
     },
     sort: query.sort,
     coverage: options.coverage ?? (await getCoverage(sql, query)),
@@ -397,7 +407,9 @@ export async function getPublicListingDetail(
   const [detailRow] = await sql.unsafe<
     Array<
       ListingTableItem & {
-        sourceUpdatedDate: string | null;
+        firstSeenAt: string;
+        sourceUrl: string | null;
+        fuelTypeSourceLabel: string | null;
         transmissionSourceLabel: string | null;
         bodyTypeSourceLabel: string | null;
         colorSourceLabel: string | null;
@@ -406,7 +418,6 @@ export async function getPublicListingDetail(
     >
   >(
     `
-      with latest_snapshots as (${latestSnapshotSql()})
       select
         l.id as "listingId",
         l.source_listing_id as "sourceListingId",
@@ -420,15 +431,18 @@ export async function getPublicListingDetail(
         s.seller_source_label as "seller",
         s.seller_type_source_label as "sellerType",
         s.source_updated_date::text as "sourceUpdatedDate",
+        s.fuel_type_source_label as "fuelTypeSourceLabel",
         s.transmission_source_label as "transmissionSourceLabel",
         s.body_type_source_label as "bodyTypeSourceLabel",
         s.color_source_label as "colorSourceLabel",
         s.normalized_data as "normalizedData",
+        l.first_seen_at::text as "firstSeenAt",
         l.last_seen_at::text as "lastSeenAt",
         l.canonical_source_url as "sourceUrl"
-      from latest_snapshots s
-      join listings l on l.id = s.listing_id
+      from listings l
+      join listing_snapshots s on s.listing_id = l.id
       where l.id = $1
+      order by s.observed_at desc, s.created_at desc
       limit 1
     `,
     [listingId],
@@ -439,7 +453,9 @@ export async function getPublicListingDetail(
   }
 
   const {
-    sourceUpdatedDate,
+    firstSeenAt,
+    sourceUrl,
+    fuelTypeSourceLabel,
     transmissionSourceLabel,
     bodyTypeSourceLabel,
     colorSourceLabel,
@@ -447,79 +463,77 @@ export async function getPublicListingDetail(
     ...listing
   } = detailRow;
   const vehicleDetails = buildPublicVehicleDetails({
-    sourceUpdatedDate,
+    sourceUpdatedDate: listing.sourceUpdatedDate,
+    fuelTypeSourceLabel,
     transmissionSourceLabel,
     bodyTypeSourceLabel,
     colorSourceLabel,
     normalizedData,
   });
 
-  const [baseRow] = await sql<{ firstSeenAt: string }[]>`
-    select first_seen_at::text as "firstSeenAt"
-    from listings
-    where id = ${listingId}
-  `;
-  const [history, images, coverage] = await Promise.all([
+  const [history, images] = await Promise.all([
     sql<
       {
         observedAt: string;
+        sourceUpdatedDate: string | null;
         availability: string;
         askingPriceEur: number | null;
         observedSoldPriceEur: number | null;
         mileageKm: number | null;
       }[]
     >`
-      select
-        observed_at::text as "observedAt",
-        availability,
-        asking_price_eur as "askingPriceEur",
-        observed_sold_price_eur as "observedSoldPriceEur",
-        mileage_km as "mileageKm"
-      from listing_snapshots
-      where listing_id = ${listingId}
-      order by observed_at asc
+      select *
+      from (
+        select
+          observed_at::text as "observedAt",
+          source_updated_date::text as "sourceUpdatedDate",
+          availability,
+          asking_price_eur as "askingPriceEur",
+          observed_sold_price_eur as "observedSoldPriceEur",
+          mileage_km as "mileageKm"
+        from listing_snapshots
+        where listing_id = ${listingId}
+        order by observed_at desc, created_at desc
+        limit 500
+      ) recent_history
+      order by "observedAt" asc
     `,
-    sql<{ imageUrl: string; role: string | null; position: number | null }[]>`
-      select image_url as "imageUrl", image_role as "role", position
+    sql<
+      {
+        imageUrl: string;
+        role: string | null;
+        position: number | null;
+        width: number | null;
+        height: number | null;
+      }[]
+    >`
+      select image_url as "imageUrl", image_role as "role", position, width, height
       from listing_images
       where listing_id = ${listingId}
       order by position nulls last, first_seen_at asc
     `,
-    getCoverage(sql, {}),
   ]);
 
   return {
     listing: {
       ...listing,
-      firstSeenAt: baseRow?.firstSeenAt ?? listing.lastSeenAt,
+      firstSeenAt,
       sourceAttribution: {
         source: "Nettiauto",
-        sourceUrl: listing.sourceUrl,
+        sourceUrl,
         sourceListingId: listing.sourceListingId,
         observedDataLabel: "Search Result Data",
       },
     },
-    priceHistory: history.map((row) => ({
-      observedAt: row.observedAt,
-      askingPriceEur: row.askingPriceEur,
-      observedSoldPriceEur: row.observedSoldPriceEur,
-    })),
-    mileageHistory: history.map((row) => ({
-      observedAt: row.observedAt,
-      mileageKm: row.mileageKm,
-    })),
-    availabilityHistory: history.map((row) => ({
-      observedAt: row.observedAt,
-      availability: row.availability,
-    })),
+    history,
     imageMetadata: images,
     vehicleDetails,
-    coverage,
   };
 }
 
 function buildPublicVehicleDetails(input: {
   sourceUpdatedDate: string | null;
+  fuelTypeSourceLabel: string | null;
   transmissionSourceLabel: string | null;
   bodyTypeSourceLabel: string | null;
   colorSourceLabel: string | null;
@@ -531,7 +545,7 @@ function buildPublicVehicleDetails(input: {
     sourceLocationLabel: stringValue(data.sourceLocationLabel),
     registrationNumber: stringValue(data.registrationNumber),
     engineSourceLabel: stringValue(data.engineSourceLabel),
-    fuelTypeSourceLabel: stringValue(data.fuelTypeSourceLabel),
+    fuelTypeSourceLabel: stringValue(data.fuelTypeSourceLabel) ?? input.fuelTypeSourceLabel,
     transmissionSourceLabel: stringValue(data.transmissionSourceLabel) ?? input.transmissionSourceLabel,
     drivetrainSourceLabel: stringValue(data.drivetrainSourceLabel),
     firstRegistrationDate: stringValue(data.firstRegistrationDate),
@@ -562,84 +576,41 @@ export async function getAdminCrawlerStatus(
   sql: Sql,
   state: { enabled: boolean; paused: boolean; delayMs: number; maxPagesPerRun: number },
 ): Promise<AdminCrawlerStatusResponse> {
-  const [
-    lastSuccessfulCrawls,
-    recentRuns,
-    freshnessBySegment,
-    failureCounts,
-    sourceFetchFailures,
-    parserErrors,
-    queueBacklog,
-    failedJobs,
-  ] = await Promise.all([
-      sql<AdminCrawlerStatusResponse["lastSuccessfulCrawls"]>`
-        select distinct on (crawl_kind)
-          crawl_kind as "crawlKind",
-          finished_at::text as "finishedAt",
-          parsed_listing_count as "parsedListingCount"
-        from crawl_runs
-        where status = 'completed'
-        order by crawl_kind, finished_at desc nulls last
-      `,
-      sql<AdminCrawlerStatusResponse["recentRuns"]>`
-        select
-          id,
-          crawl_kind as "crawlKind",
-          status,
-          started_at::text as "startedAt",
-          finished_at::text as "finishedAt",
-          fetched_page_count as "fetchedPageCount",
-          parsed_listing_count as "parsedListingCount",
-          failure_reason as "failureReason"
-        from crawl_runs
-        order by created_at desc
-        limit 10
-      `,
-      sql<AdminCrawlerStatusResponse["freshnessBySegment"]>`
-        select
-          crawl_kind as "crawlKind",
-          last_success_at::text as "lastSuccessAt",
-          last_failure_at::text as "lastFailureAt",
-          enabled
-        from source_search_queries
-        order by priority asc, crawl_kind asc
-      `,
-      sql<{ failureReason: string; count: number }[]>`
-        select coalesce(failure_reason, 'unknown') as "failureReason", count(*)::int as count
-        from crawl_runs
-        where status in ('failed', 'partial')
-        group by 1
-        order by count desc
-        limit 10
-      `,
-      sql<AdminCrawlerStatusResponse["latestSourceFetchFailures"]>`
-        select
-          fetched_at::text as "fetchedAt",
-          fetch_kind as "fetchKind",
-          page_number as "pageNumber",
-          source_url as "sourceUrl",
-          response_status as "responseStatus",
-          response_body_shape as "responseBodyShape",
-          error_type as "errorType",
-          left(error_message, 500) as "errorMessage"
-        from source_fetches
-        where error_type is not null
-        order by fetched_at desc
-        limit 10
-      `,
-      sql<AdminCrawlerStatusResponse["latestParserErrorSummaries"]>`
-        select
-          captured_at::text as "capturedAt",
-          parser_version as "parserVersion",
-          left(coalesce(parse_error, 'unknown parser error'), 240) as "parseError"
-        from raw_listing_records
-        where parser_status = 'failed'
-        order by captured_at desc
-        limit 10
-      `,
-      getQueueBacklog(sql),
-      getLatestFailedJobs(sql),
-    ]);
+  const [lastSuccessfulCrawls, recentRuns, freshnessBySegment, queueBacklog] = await Promise.all([
+    sql<AdminCrawlerStatusResponse["lastSuccessfulCrawls"]>`
+      select distinct on (crawl_kind)
+        crawl_kind as "crawlKind",
+        finished_at::text as "finishedAt",
+        parsed_listing_count as "parsedListingCount"
+      from crawl_runs
+      where status = 'completed'
+      order by crawl_kind, finished_at desc nulls last
+    `,
+    sql<AdminCrawlerStatusResponse["recentRuns"]>`
+      select
+        id,
+        crawl_kind as "crawlKind",
+        status,
+        started_at::text as "startedAt",
+        finished_at::text as "finishedAt",
+        fetched_page_count as "fetchedPageCount",
+        parsed_listing_count as "parsedListingCount",
+        failure_reason as "failureReason"
+      from crawl_runs
+      order by created_at desc
+      limit 10
+    `,
+    sql<AdminCrawlerStatusResponse["freshnessBySegment"]>`
+      select
+        crawl_kind as "crawlKind",
+        last_success_at::text as "lastSuccessAt",
+        last_failure_at::text as "lastFailureAt",
+        enabled
+      from source_search_queries
+      order by priority asc, crawl_kind asc
+    `,
+    getQueueBacklog(sql),
+  ]);
 
   return {
     crawlerState: state,
@@ -647,6 +618,51 @@ export async function getAdminCrawlerStatus(
     recentRuns,
     freshnessBySegment,
     queueBacklog,
+  };
+}
+
+export async function getAdminCrawlerDiagnostics(
+  sql: Sql,
+): Promise<AdminCrawlerDiagnosticsResponse> {
+  const [failureCounts, sourceFetchFailures, parserErrors, failedJobs] = await Promise.all([
+    sql<AdminCrawlerDiagnosticsResponse["failureCounts"]>`
+      select coalesce(failure_reason, 'unknown') as "failureReason", count(*)::int as count
+      from crawl_runs
+      where status in ('failed', 'partial')
+        and created_at >= now() - interval '30 days'
+      group by 1
+      order by count desc
+      limit 10
+    `,
+    sql<AdminCrawlerDiagnosticsResponse["latestSourceFetchFailures"]>`
+      select
+        fetched_at::text as "fetchedAt",
+        fetch_kind as "fetchKind",
+        page_number as "pageNumber",
+        source_url as "sourceUrl",
+        response_status as "responseStatus",
+        response_body_shape as "responseBodyShape",
+        error_type as "errorType",
+        left(error_message, 500) as "errorMessage"
+      from source_fetches
+      where error_type is not null
+      order by fetched_at desc
+      limit 10
+    `,
+    sql<AdminCrawlerDiagnosticsResponse["latestParserErrorSummaries"]>`
+      select
+        captured_at::text as "capturedAt",
+        parser_version as "parserVersion",
+        left(coalesce(parse_error, 'unknown parser error'), 240) as "parseError"
+      from raw_listing_records
+      where parser_status = 'failed'
+      order by captured_at desc
+      limit 10
+    `,
+    getLatestFailedJobs(sql),
+  ]);
+
+  return {
     failureCounts,
     latestSourceFetchFailures: sourceFetchFailures,
     latestParserErrorSummaries: parserErrors,
@@ -654,7 +670,7 @@ export async function getAdminCrawlerStatus(
   };
 }
 
-async function queryFacets(sql: Sql) {
+async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
   const [row] = await sql.unsafe<
     {
       makes: string[] | null;
@@ -662,19 +678,38 @@ async function queryFacets(sql: Sql) {
       minYear: number | null;
       maxYear: number | null;
       sellerTypes: string[] | null;
+      transmissions: string[] | null;
     }[]
   >(
     `
       with latest_snapshots as (${latestSnapshotSql()})
       select
         array_remove(array_agg(distinct make_source_label order by make_source_label), null) as makes,
-        array_remove(array_agg(distinct model_source_label order by model_source_label), null) as models,
-        min(year_model)::int as "minYear",
-        max(year_model)::int as "maxYear",
-        array_remove(array_agg(distinct seller_type_source_label order by seller_type_source_label), null) as "sellerTypes"
+        array_remove(
+          array_agg(distinct model_source_label order by model_source_label)
+            filter (where $1::text is null or make_source_label = $1),
+          null
+        ) as models,
+        min(year_model) filter (
+          where ($1::text is null or make_source_label = $1)
+            and ($2::text is null or model_source_label = $2)
+        )::int as "minYear",
+        max(year_model) filter (
+          where ($1::text is null or make_source_label = $1)
+            and ($2::text is null or model_source_label = $2)
+        )::int as "maxYear",
+        array_remove(array_agg(distinct seller_type_source_label order by seller_type_source_label), null) as "sellerTypes",
+        array_remove(
+          array_agg(distinct transmission_source_label order by transmission_source_label)
+            filter (
+              where ($1::text is null or make_source_label = $1)
+                and ($2::text is null or model_source_label = $2)
+            ),
+          null
+        ) as transmissions
       from latest_snapshots
     `,
-    [],
+    [filters.make ?? null, filters.model ?? null],
   );
 
   return {
@@ -682,6 +717,7 @@ async function queryFacets(sql: Sql) {
     models: row?.models ?? [],
     yearRange: { min: row?.minYear ?? null, max: row?.maxYear ?? null },
     sellerTypes: row?.sellerTypes ?? [],
+    transmissions: row?.transmissions ?? [],
   };
 }
 
@@ -699,8 +735,10 @@ async function getSummaryAndCoverage(
       medianAskingPriceEur: number | null;
       medianObservedSoldPriceEur: number | null;
       medianMileageKm: number | null;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
+      mileageSampleSize: number;
       sampleSize: number;
-      lastRelevantCrawlAt: string | null;
       includesCurrent: boolean | null;
       includesSold: boolean | null;
     }[]
@@ -717,8 +755,10 @@ async function getSummaryAndCoverage(
           filter (where s.observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
         (percentile_cont(0.5) within group (order by ${analyticsMileageSql})
           filter (where ${analyticsMileageSql} is not null))::int as "medianMileageKm",
+        count(s.asking_price_eur)::int as "askingPriceSampleSize",
+        count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
+        count(${analyticsMileageSql})::int as "mileageSampleSize",
         count(*)::int as "sampleSize",
-        max(l.last_seen_at)::text as "lastRelevantCrawlAt",
         bool_or(s.availability = 'active') as "includesCurrent",
         bool_or(s.availability = 'sold') as "includesSold"
       from latest_snapshots s
@@ -727,7 +767,7 @@ async function getSummaryAndCoverage(
     `,
     params,
   );
-  const completeness = await getCoverageCompleteness(sql);
+  const coverageState = await getCoverageState(sql, filters.availability);
 
   return {
     summary: {
@@ -737,33 +777,19 @@ async function getSummaryAndCoverage(
       medianAskingPriceEur: row?.medianAskingPriceEur ?? null,
       medianObservedSoldPriceEur: row?.medianObservedSoldPriceEur ?? null,
       medianMileageKm: row?.medianMileageKm ?? null,
+      askingPriceSampleSize: row?.askingPriceSampleSize ?? 0,
+      observedSoldPriceSampleSize: row?.observedSoldPriceSampleSize ?? 0,
+      mileageSampleSize: row?.mileageSampleSize ?? 0,
     },
     coverage: {
-      lastRelevantCrawlAt: row?.lastRelevantCrawlAt ?? null,
+      lastRelevantCrawlAt: coverageState.lastRelevantCrawlAt,
       sampleSize: row?.sampleSize ?? 0,
       includesCurrent: row?.includesCurrent ?? false,
       includesSold: row?.includesSold ?? false,
-      dataSource: "search_result_data",
-      completeness,
+      dataSource: filters.transmission ? "search_and_detail_data" : "search_result_data",
+      completeness: coverageState.completeness,
     },
   };
-}
-
-async function getMakeBreakdown(sql: Sql, filters: ListingFiltersQuery) {
-  const { whereSql, params } = buildFilterWhere(filters);
-  return sql.unsafe<{ make: string; count: number }[]>(
-    `
-      with latest_snapshots as (${latestSnapshotSql()})
-      select coalesce(s.make_source_label, 'Unknown') as make, count(*)::int as count
-      from latest_snapshots s
-      join listings l on l.id = s.listing_id
-      ${whereSql}
-      group by 1
-      order by count desc, make asc
-      limit 12
-    `,
-    params,
-  );
 }
 
 async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promise<MarketOverTimePoint[]> {
@@ -789,6 +815,8 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
       medianAskingPriceEur: number | string | null;
       medianObservedSoldPriceEur: number | string | null;
       sampleSize: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
     }[]
   >(
     `
@@ -835,7 +863,9 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
           filter (where asking_price_eur is not null))::int as "medianAskingPriceEur",
         (percentile_cont(0.5) within group (order by observed_sold_price_eur)
           filter (where observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
-        count(*)::int as "sampleSize"
+        count(*)::int as "sampleSize",
+        count(asking_price_eur)::int as "askingPriceSampleSize",
+        count(observed_sold_price_eur)::int as "observedSoldPriceSampleSize"
       from bucketed_snapshots
       group by bucket_start
       order by bucket_start
@@ -852,6 +882,8 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
     medianAskingPriceEur: nullableNumber(row.medianAskingPriceEur),
     medianObservedSoldPriceEur: nullableNumber(row.medianObservedSoldPriceEur),
     sampleSize: row.sampleSize,
+    askingPriceSampleSize: row.askingPriceSampleSize,
+    observedSoldPriceSampleSize: row.observedSoldPriceSampleSize,
   }));
 }
 
@@ -862,6 +894,8 @@ async function getPriceByYear(sql: Sql, filters: ListingFiltersQuery): Promise<P
     {
       yearModel: number;
       listingCount: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
       medianMileageKm: number | string | null;
       askingPriceP25Eur: number | string | null;
       medianAskingPriceEur: number | string | null;
@@ -876,6 +910,8 @@ async function getPriceByYear(sql: Sql, filters: ListingFiltersQuery): Promise<P
       select
         s.year_model as "yearModel",
         count(*)::int as "listingCount",
+        count(s.asking_price_eur)::int as "askingPriceSampleSize",
+        count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
         (percentile_cont(0.5) within group (order by ${analyticsMileageSql})
           filter (where ${analyticsMileageSql} is not null))::int as "medianMileageKm",
         (percentile_cont(0.25) within group (order by s.asking_price_eur)
@@ -902,6 +938,8 @@ async function getPriceByYear(sql: Sql, filters: ListingFiltersQuery): Promise<P
   return rows.map((row) => ({
     yearModel: row.yearModel,
     listingCount: row.listingCount,
+    askingPriceSampleSize: row.askingPriceSampleSize,
+    observedSoldPriceSampleSize: row.observedSoldPriceSampleSize,
     medianMileageKm: nullableNumber(row.medianMileageKm),
     askingPriceP25Eur: nullableNumber(row.askingPriceP25Eur),
     medianAskingPriceEur: nullableNumber(row.medianAskingPriceEur),
@@ -922,6 +960,8 @@ async function getPriceByMileageBucket(
     {
       bucketStartKm: number;
       listingCount: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
       medianYearModel: number | string | null;
       askingPriceP25Eur: number | string | null;
       medianAskingPriceEur: number | string | null;
@@ -936,6 +976,8 @@ async function getPriceByMileageBucket(
       select
         ${mileageBucketSql} as "bucketStartKm",
         count(*)::int as "listingCount",
+        count(s.asking_price_eur)::int as "askingPriceSampleSize",
+        count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
         (percentile_cont(0.5) within group (order by s.year_model)
           filter (where s.year_model is not null))::int as "medianYearModel",
         (percentile_cont(0.25) within group (order by s.asking_price_eur)
@@ -967,6 +1009,8 @@ async function getPriceByMileageBucket(
     bucketStartKm: row.bucketStartKm,
     bucketEndKm: row.bucketStartKm + ANALYTICS_MILEAGE_BUCKET_KM - 1,
     listingCount: row.listingCount,
+    askingPriceSampleSize: row.askingPriceSampleSize,
+    observedSoldPriceSampleSize: row.observedSoldPriceSampleSize,
     medianYearModel: nullableNumber(row.medianYearModel),
     askingPriceP25Eur: nullableNumber(row.askingPriceP25Eur),
     medianAskingPriceEur: nullableNumber(row.medianAskingPriceEur),
@@ -977,35 +1021,66 @@ async function getPriceByMileageBucket(
   }));
 }
 
-async function getPriceMileageScatter(
+async function getPriceByTransmission(
   sql: Sql,
   filters: ListingFiltersQuery,
-): Promise<PriceMileageScatterPoint[]> {
+): Promise<PriceByTransmissionPoint[]> {
   const { whereSql, params } = buildFilterWhere(filters);
-  return sql.unsafe<PriceMileageScatterPoint[]>(
+  const analyticsMileageSql = validAnalyticsMileageSql("s");
+  const rows = await sql.unsafe<
+    Array<
+      Omit<PriceByTransmissionPoint, "medianMileageKm" | "askingPriceP25Eur" | "medianAskingPriceEur" | "askingPriceP75Eur" | "observedSoldPriceP25Eur" | "medianObservedSoldPriceEur" | "observedSoldPriceP75Eur"> & {
+        medianMileageKm: number | string | null;
+        askingPriceP25Eur: number | string | null;
+        medianAskingPriceEur: number | string | null;
+        askingPriceP75Eur: number | string | null;
+        observedSoldPriceP25Eur: number | string | null;
+        medianObservedSoldPriceEur: number | string | null;
+        observedSoldPriceP75Eur: number | string | null;
+      }
+    >
+  >(
     `
       with latest_snapshots as (${latestSnapshotSql()})
       select
-        l.id as "listingId",
-        s.make_source_label as "make",
-        s.model_source_label as "model",
-        s.year_model as "yearModel",
-        s.mileage_km as "mileageKm",
-        s.availability,
-        s.asking_price_eur as "askingPriceEur",
-        s.observed_sold_price_eur as "observedSoldPriceEur"
+        s.transmission_source_label as transmission,
+        count(*)::int as "listingCount",
+        count(s.asking_price_eur)::int as "askingPriceSampleSize",
+        count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
+        (percentile_cont(0.5) within group (order by ${analyticsMileageSql})
+          filter (where ${analyticsMileageSql} is not null))::int as "medianMileageKm",
+        (percentile_cont(0.25) within group (order by s.asking_price_eur)
+          filter (where s.asking_price_eur is not null))::int as "askingPriceP25Eur",
+        (percentile_cont(0.5) within group (order by s.asking_price_eur)
+          filter (where s.asking_price_eur is not null))::int as "medianAskingPriceEur",
+        (percentile_cont(0.75) within group (order by s.asking_price_eur)
+          filter (where s.asking_price_eur is not null))::int as "askingPriceP75Eur",
+        (percentile_cont(0.25) within group (order by s.observed_sold_price_eur)
+          filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP25Eur",
+        (percentile_cont(0.5) within group (order by s.observed_sold_price_eur)
+          filter (where s.observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
+        (percentile_cont(0.75) within group (order by s.observed_sold_price_eur)
+          filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP75Eur"
       from latest_snapshots s
       join listings l on l.id = s.listing_id
-      ${appendWhereCondition(
-        whereSql,
-        `s.mileage_km between 0 and ${ANALYTICS_MAX_MILEAGE_KM}
-          and coalesce(s.asking_price_eur, s.observed_sold_price_eur) is not null`,
-      )}
-      order by l.last_seen_at desc, l.id asc
-      limit ${ANALYTICS_SCATTER_POINT_LIMIT}
+      ${appendWhereCondition(whereSql, "s.transmission_source_label is not null")}
+      group by s.transmission_source_label
+      order by "listingCount" desc, transmission asc
+      limit 12
     `,
     params,
   );
+
+  return rows.map((row) => ({
+    ...row,
+    medianMileageKm: nullableNumber(row.medianMileageKm),
+    askingPriceP25Eur: nullableNumber(row.askingPriceP25Eur),
+    medianAskingPriceEur: nullableNumber(row.medianAskingPriceEur),
+    askingPriceP75Eur: nullableNumber(row.askingPriceP75Eur),
+    observedSoldPriceP25Eur: nullableNumber(row.observedSoldPriceP25Eur),
+    medianObservedSoldPriceEur: nullableNumber(row.medianObservedSoldPriceEur),
+    observedSoldPriceP75Eur: nullableNumber(row.observedSoldPriceP75Eur),
+  }));
 }
 
 async function getCoverage(sql: Sql, filters: Partial<ListingFiltersQuery>): Promise<CoverageMetadata> {
@@ -1013,7 +1088,6 @@ async function getCoverage(sql: Sql, filters: Partial<ListingFiltersQuery>): Pro
   const [row] = await sql.unsafe<
     {
       sampleSize: number;
-      lastRelevantCrawlAt: string | null;
       includesCurrent: boolean | null;
       includesSold: boolean | null;
     }[]
@@ -1022,7 +1096,6 @@ async function getCoverage(sql: Sql, filters: Partial<ListingFiltersQuery>): Pro
       with latest_snapshots as (${latestSnapshotSql()})
       select
         count(*)::int as "sampleSize",
-        max(l.last_seen_at)::text as "lastRelevantCrawlAt",
         bool_or(s.availability = 'active') as "includesCurrent",
         bool_or(s.availability = 'sold') as "includesSold"
       from latest_snapshots s
@@ -1031,31 +1104,54 @@ async function getCoverage(sql: Sql, filters: Partial<ListingFiltersQuery>): Pro
     `,
     params,
   );
-  const completeness = await getCoverageCompleteness(sql);
+  const coverageState = await getCoverageState(sql, filters.availability);
 
   return {
-    lastRelevantCrawlAt: row?.lastRelevantCrawlAt ?? null,
+    lastRelevantCrawlAt: coverageState.lastRelevantCrawlAt,
     sampleSize: row?.sampleSize ?? 0,
     includesCurrent: row?.includesCurrent ?? false,
     includesSold: row?.includesSold ?? false,
-    dataSource: "search_result_data",
-    completeness,
+    dataSource: filters.transmission ? "search_and_detail_data" : "search_result_data",
+    completeness: coverageState.completeness,
   };
 }
 
-async function getCoverageCompleteness(sql: Sql): Promise<CoverageMetadata["completeness"]> {
-  const [statusRow] = await sql<{ partialCount: number; completedCount: number }[]>`
-    select
-      count(*) filter (where status = 'partial')::int as "partialCount",
-      count(*) filter (where status = 'completed')::int as "completedCount"
+async function getCoverageState(
+  sql: Sql,
+  availability: ListingFiltersQuery["availability"] | undefined,
+): Promise<Pick<CoverageMetadata, "completeness" | "lastRelevantCrawlAt">> {
+  const rows = await sql<{ crawlKind: "current" | "sold"; status: string; finishedAt: string }[]>`
+    select distinct on (crawl_kind)
+      crawl_kind as "crawlKind",
+      status,
+      coalesce(finished_at, updated_at, created_at)::text as "finishedAt"
     from crawl_runs
+    where status in ('completed', 'partial')
+    order by crawl_kind, coalesce(finished_at, updated_at, created_at) desc
   `;
+  const relevantKinds =
+    availability === "current"
+      ? new Set(["current"])
+      : availability === "sold"
+        ? new Set(["sold"])
+        : new Set(["current", "sold"]);
+  const relevantRows = rows.filter((row) => relevantKinds.has(row.crawlKind));
 
-  if ((statusRow?.partialCount ?? 0) > 0) {
-    return "partial";
+  if (relevantRows.length === 0) {
+    return { completeness: "unknown", lastRelevantCrawlAt: null };
   }
 
-  return (statusRow?.completedCount ?? 0) > 0 ? "complete" : "unknown";
+  if (relevantRows.length < relevantKinds.size) {
+    return {
+      completeness: "partial",
+      lastRelevantCrawlAt: relevantRows.map((row) => row.finishedAt).sort()[0] ?? null,
+    };
+  }
+
+  return {
+    completeness: relevantRows.some((row) => row.status === "partial") ? "partial" : "complete",
+    lastRelevantCrawlAt: relevantRows.map((row) => row.finishedAt).sort()[0] ?? null,
+  };
 }
 
 function emptyAnalyticsTrend(
@@ -1066,15 +1162,11 @@ function emptyAnalyticsTrend(
     appliedFilters: query,
     coverage: summaryAndCoverage.coverage,
     summary: summaryAndCoverage.summary,
-    timeSeries: [],
-    breakdowns: {
-      byMake: [],
-    },
     charts: {
       marketOverTime: [],
       priceByYear: [],
       priceByMileageBucket: [],
-      priceMileageScatter: [],
+      priceByTransmission: [],
     },
   };
 }
@@ -1102,7 +1194,9 @@ async function getQueueBacklog(sql: Sql) {
   };
 }
 
-async function getLatestFailedJobs(sql: Sql): Promise<AdminCrawlerStatusResponse["latestFailedJobs"]> {
+async function getLatestFailedJobs(
+  sql: Sql,
+): Promise<AdminCrawlerDiagnosticsResponse["latestFailedJobs"]> {
   const [existsRow] = await sql<{ relationName: string | null }[]>`
     select to_regclass('graphile_worker.jobs')::text as "relationName"
   `;
@@ -1142,7 +1236,7 @@ async function getLatestFailedJobs(sql: Sql): Promise<AdminCrawlerStatusResponse
     }
   }
 
-  return sql<AdminCrawlerStatusResponse["latestFailedJobs"]>`
+  return sql<AdminCrawlerDiagnosticsResponse["latestFailedJobs"]>`
     select
       id::text,
       task_identifier as "taskIdentifier",
@@ -1162,7 +1256,23 @@ async function getLatestFailedJobs(sql: Sql): Promise<AdminCrawlerStatusResponse
 function latestSnapshotSql() {
   return `
     select distinct on (listing_id)
-      *
+      listing_id,
+      observed_at,
+      created_at,
+      availability,
+      source_updated_date,
+      asking_price_eur,
+      observed_sold_price_eur,
+      mileage_km,
+      year_model,
+      make_source_label,
+      model_source_label,
+      fuel_type_source_label,
+      transmission_source_label,
+      body_type_source_label,
+      color_source_label,
+      seller_source_label,
+      seller_type_source_label
     from listing_snapshots
     order by listing_id, observed_at desc, created_at desc
   `;
@@ -1170,10 +1280,9 @@ function latestSnapshotSql() {
 
 function buildFilterWhere(
   filters: Partial<ListingFiltersQuery>,
-  options: { snapshotAlias?: string; timeColumn?: string; startIndex?: number } = {},
+  options: { snapshotAlias?: string; startIndex?: number } = {},
 ) {
   const snapshotAlias = options.snapshotAlias ?? "s";
-  const timeColumn = options.timeColumn ?? `${snapshotAlias}.observed_at`;
   const startIndex = options.startIndex ?? 0;
   const column = (name: string) => `${snapshotAlias}.${name}`;
   const conditions: string[] = [];
@@ -1184,10 +1293,13 @@ function buildFilterWhere(
   };
 
   if (filters.make) {
-    add(`${column("make_source_label")} ilike ?`, `%${filters.make}%`);
+    add(`${column("make_source_label")} = ?`, filters.make);
   }
   if (filters.model) {
-    add(`${column("model_source_label")} ilike ?`, `%${filters.model}%`);
+    add(`${column("model_source_label")} = ?`, filters.model);
+  }
+  if (filters.modelYear !== undefined) {
+    add(`${column("year_model")} = ?`, filters.modelYear);
   }
   if (filters.modelYearFrom !== undefined) {
     add(`${column("year_model")} >= ?`, filters.modelYearFrom);
@@ -1216,19 +1328,18 @@ function buildFilterWhere(
   if (filters.sellerType) {
     add(`${column("seller_type_source_label")} = ?`, filters.sellerType);
   }
+  if (filters.transmission) {
+    add(`${column("transmission_source_label")} = ?`, filters.transmission);
+  }
   if (filters.availability === "current") {
     conditions.push(`${column("availability")} = 'active'`);
   }
   if (filters.availability === "sold") {
     conditions.push(`${column("availability")} = 'sold'`);
   }
-  if (filters.from) {
-    add(`${timeColumn} >= ?::date`, filters.from);
+  if (filters.availability === "all") {
+    conditions.push(`${column("availability")} in ('active', 'sold')`);
   }
-  if (filters.to) {
-    add(`${timeColumn} < (?::date + interval '1 day')`, filters.to);
-  }
-
   return {
     whereSql: conditions.length > 0 ? `where ${conditions.join(" and ")}` : "",
     params,
@@ -1278,18 +1389,20 @@ function intervalToSqlInterval(interval: ListingFiltersQuery["interval"]) {
 function sortToOrderBy(sort: string) {
   switch (sort) {
     case "priceAsc":
-      return "coalesce(s.asking_price_eur, s.observed_sold_price_eur) asc nulls last";
+      return "coalesce(s.asking_price_eur, s.observed_sold_price_eur) asc nulls last, l.id asc";
     case "priceDesc":
-      return "coalesce(s.asking_price_eur, s.observed_sold_price_eur) desc nulls last";
+      return "coalesce(s.asking_price_eur, s.observed_sold_price_eur) desc nulls last, l.id asc";
     case "mileageAsc":
-      return "s.mileage_km asc nulls last";
+      return "s.mileage_km asc nulls last, l.id asc";
     case "mileageDesc":
-      return "s.mileage_km desc nulls last";
+      return "s.mileage_km desc nulls last, l.id asc";
     case "yearDesc":
-      return "s.year_model desc nulls last";
+      return "s.year_model desc nulls last, l.id asc";
+    case "sourceUpdatedDesc":
+      return "s.source_updated_date desc nulls last, l.last_seen_at desc, l.id asc";
     case "lastSeenDesc":
     default:
-      return "l.last_seen_at desc";
+      return "l.last_seen_at desc, l.id asc";
   }
 }
 

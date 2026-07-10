@@ -29,6 +29,13 @@
       "when": 1783514400000,
       "tag": "0003_query_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783682208470,
+      "tag": "0004_odd_frightful_four",
+      "breakpoints": true
     }
   ]
 }

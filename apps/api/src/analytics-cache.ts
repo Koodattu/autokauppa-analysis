@@ -80,15 +80,6 @@ export class AnalyticsTrendCache {
     this.refreshInBackground(key, query);
   }
 
-  refreshExpiredEntries() {
-    const now = this.now();
-    for (const [key, entry] of this.entries) {
-      if (entry.expiresAt <= now && !entry.refreshPromise) {
-        this.refreshInBackground(key, entry.query);
-      }
-    }
-  }
-
   private refreshInBackground(key: string, query: ListingFiltersQuery) {
     void this.refresh(key, query).catch(() => {
       // The refresh path logs failures and keeps the previous value when one exists.
@@ -189,6 +180,7 @@ function analyticsTrendCacheKey(query: ListingFiltersQuery) {
   return JSON.stringify({
     make: query.make ?? null,
     model: query.model ?? null,
+    modelYear: query.modelYear ?? null,
     modelYearFrom: query.modelYearFrom ?? null,
     modelYearTo: query.modelYearTo ?? null,
     priceMin: query.priceMin ?? null,
@@ -197,6 +189,7 @@ function analyticsTrendCacheKey(query: ListingFiltersQuery) {
     mileageMax: query.mileageMax ?? null,
     availability: query.availability,
     sellerType: query.sellerType ?? null,
+    transmission: query.transmission ?? null,
     from: query.from ?? null,
     to: query.to ?? null,
     interval: query.interval,

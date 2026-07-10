@@ -16,32 +16,34 @@ export default async function AdminCrawlerPage({ searchParams }: PageProps) {
   const cookie = requestHeaders.get("cookie") ?? "";
   const params = await searchParams;
 
+  const result = await loadCrawlerStatus(cookie);
+  if (!result.ok) {
+    return (
+      <main className="auth-shell">
+        <section className="login-panel">
+          <p className="eyebrow">Admin</p>
+          <h1>Sign in required</h1>
+          <Link className="button-link" href="/admin/login">
+            Sign in
+          </Link>
+        </section>
+      </main>
+    );
+  }
+
+  return <AdminCrawlerDashboard initialStatus={result.status} initialNotice={initialNotice(params)} />;
+}
+
+async function loadCrawlerStatus(cookie: string) {
   try {
     const status = await apiGet<AdminCrawlerStatusResponse>("/admin/crawler/status", {
       headers: { cookie },
     });
-
-    return (
-      <AdminCrawlerDashboard
-        initialStatus={status}
-        initialNotice={initialNotice(params)}
-      />
-    );
+    return { ok: true as const, status };
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
-      return (
-        <main className="auth-shell">
-          <section className="login-panel">
-            <p className="eyebrow">Admin</p>
-            <h1>Sign in required</h1>
-            <Link className="button-link" href="/admin/login">
-              Sign in
-            </Link>
-          </section>
-        </main>
-      );
+      return { ok: false as const };
     }
-
     throw error;
   }
 }

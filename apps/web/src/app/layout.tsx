@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Nettiauto Analytics",
-  description: "Public analytics for Nettiauto listing data.",
+  title: {
+    default: "Nettiauto Analytics",
+    template: "%s · Nettiauto Analytics",
+  },
+  description: "Price, mileage, and market analysis from observed Nettiauto listings.",
   robots: {
     index: false,
     follow: false,
@@ -17,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
