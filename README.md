@@ -1,4 +1,4 @@
-# autokauppa-analytics
+# autokauppa-analysis
 
 Public analytics application for collecting, storing, and analyzing vehicle
 listing data, with private admin-only crawler operations.
