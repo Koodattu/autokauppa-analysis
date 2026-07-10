@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM oven/bun:1.3.9 AS builder
 WORKDIR /app
 
@@ -11,13 +13,18 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/logging/package.json packages/logging/package.json
 COPY packages/schemas/package.json packages/schemas/package.json
 COPY packages/ui/package.json packages/ui/package.json
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache,sharing=locked \
+    bun install --frozen-lockfile --filter '@nettiauto/web'
 
-COPY . .
+COPY tsconfig.json tsconfig.base.json ./
+COPY apps/web apps/web
+COPY packages/schemas packages/schemas
+COPY packages/ui packages/ui
 
 WORKDIR /app/apps/web
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN bun run build
+RUN --mount=type=cache,id=next-build-cache,target=/app/apps/web/.next/cache \
+    bun run build
 
 FROM node:24.4.1-slim AS runner
 WORKDIR /app

@@ -1,4 +1,6 @@
-FROM oven/bun:1.3.9 AS deps
+# syntax=docker/dockerfile:1
+
+FROM oven/bun:1.3.9 AS build
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -11,13 +13,26 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/logging/package.json packages/logging/package.json
 COPY packages/schemas/package.json packages/schemas/package.json
 COPY packages/ui/package.json packages/ui/package.json
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache,sharing=locked \
+    bun install --frozen-lockfile --production --filter '@nettiauto/api'
 
-COPY . .
+COPY apps/api/src apps/api/src
+COPY packages/config/src packages/config/src
+COPY packages/db/src packages/db/src
+COPY packages/domain/src packages/domain/src
+COPY packages/logging/src packages/logging/src
+COPY packages/schemas/src packages/schemas/src
+
+RUN bun --cwd apps/api build
+
+FROM oven/bun:1.3.9 AS runner
 
 WORKDIR /app/apps/api
 ENV NODE_ENV=production
 ENV PORT=3001
+
+COPY --from=build /app/apps/api/dist/index.js ./index.js
+
 EXPOSE 3001
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["bun", "./index.js"]

@@ -132,6 +132,7 @@ export interface PublicVehicleDetails {
   sourceUpdatedDate: string | null;
   sourceLocationLabel: string | null;
   registrationNumber: string | null;
+  officeFeeEur: number | null;
   engineSourceLabel: string | null;
   fuelTypeSourceLabel: string | null;
   transmissionSourceLabel: string | null;
@@ -153,8 +154,14 @@ export interface PublicVehicleDetails {
   towingWeightBrakedKg: number | null;
   towingWeightUnbrakedKg: number | null;
   co2GKm: number | null;
+  energyEfficiencyClassSourceLabel: string | null;
   fuelConsumptionSourceLabel: string | null;
+  fuelConsumptionCityL100Km: number | null;
+  fuelConsumptionHighwayL100Km: number | null;
+  fuelConsumptionCombinedL100Km: number | null;
   sellerNotes: string | null;
+  equipmentGroups: Array<{ label: string; items: string[] }>;
+  additionalSourceFields: Array<{ label: string; value: string }>;
 }
 
 export interface PublicListingDetailResponse {

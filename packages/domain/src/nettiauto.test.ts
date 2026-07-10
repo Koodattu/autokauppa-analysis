@@ -138,9 +138,21 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.normalizedData.sourceUpdatedDate).toBe("2026-07-07");
   });
 
+  it("parses the current detail header date and location markup", () => {
+    const page = parseNettiautoDetailPage(
+      '<html><body><div class="details-page-header__item_date-location"><span class="details-page-header__item_date">Päivitetty 05.07.2026</span><span class="details-page-header__item_location">Kurikka, Etelä-Pohjanmaa</span></div></body></html>',
+      { sourceListingId: "15784076" },
+    );
+
+    expect(page.sourceUpdatedDate).toBe("2026-07-05");
+    expect(page.sourceUpdatedDateSource).toBe("detail_header");
+    expect(page.normalizedData.sourceLocationLabel).toBe("Kurikka, Etelä-Pohjanmaa");
+    expect(page.sourceHtmlFragment).toContain("details-page-header__item_location");
+  });
+
   it("parses detail page vehicle fields, JSON-LD, and detail images", () => {
     const box = (label: string, value: string) =>
-      `<div class="vehicle-info-box"><span class="vehicle-info-box__vehicle-det">${label}</span><span class="vehicle-info-box__vehicle-info">${value}</span></div>`;
+      `<div class="vehicle-info-box"><span class="vehicle-info-box__vehicle-info">${label}</span><span class="vehicle-info-box__vehicle-det">${value}</span></div>`;
     const page = parseNettiautoDetailPage(
       `<html><head>
         <title>Volkswagen Transporter 2016 - Vaihtoauto - Nettiauto</title>
@@ -168,6 +180,10 @@ describe("Nettiauto Search Result parser", () => {
           },
         })}</script>
       </head><body>
+        <h1 class="details-page-header__item-title">Volkswagen Transporter</h1>
+        <div class="details-page-header__item-price-main">17 099 €</div>
+        <div class="details-page-header__item-type">Pitkä 2,0 TDI</div>
+        <div class="unique-selling-point">Rahoitus saatavilla</div>
         ${box("Päivitetty 07.07.2026", "Kuopio, Pohjois-Savo")}
         ${box("Rekisterinumero", "GLU-494")}
         ${box("Mittarilukema", "120 000 km")}
@@ -176,10 +192,15 @@ describe("Nettiauto Search Result parser", () => {
         ${box("Käyttöönottopäivä", "16.12.2015")}
         ${box("Vaihteisto", "Manuaali")}
         ${box("Vetotapa", "Etuveto")}
+        ${box("Toimistomaksu", "299 €")}
         ${box("Katsastettu", "9/2025")}
         ${box("Korimalli", "Muu")}
         ${box("Auton tyyppi", "Pakettiauto")}
         ${box("Väri", "Valkoinen")}
+        <div class="vehicle-info-box">
+          <span class="vehicle-info-box__vehicle-info">VIN-numero <span>Ajoneuvon yksilöllinen valmistenumero.</span></span>
+          <span class="vehicle-info-box__vehicle-det">WV1ZZZ7HZGH061848</span>
+        </div>
         ${box("Teho", "75 kW / 102 Hv")}
         ${box("Huippunopeus", "165 km/h")}
         ${box("Kiihtyvyys (0-100)", "14,9 s")}
@@ -191,8 +212,32 @@ describe("Nettiauto Search Result parser", () => {
         ${box("Vetomassa (jarrullinen)", "2 200 kg")}
         ${box("Vetomassa (ei jarruja)", "750 kg")}
         ${box("CO2 -päästöt", "157 g/km")}
-        ${box("Polttoaineen kulutus", "Yhdistetty: 6 l/100 km")}
-        ${box("Lisätiedot", "Siisti paku kahdella rengassarjalla.")}
+        <div class="vehicle-info-box">
+          <span class="vehicle-info-box__vehicle-info">Polttoaineen kulutus</span>
+          <span class="vehicle-info-box__vehicle-det">
+            <div>Kaupunki: 8,2 l/100 km</div>
+            <div>Maantie: 5,5 l/100 km</div>
+            <div>Yhdistetty: 6 l/100 km</div>
+          </span>
+        </div>
+        ${box("Akseliväli", "3 000 mm")}
+        <section id="energyGradeMainSection">
+          <button data-grade-number="D">Avaa</button>
+        </section>
+        <section class="vehicle-all-info__section">
+          <div class="vehicle-all-info__title">Sisätilat ja mukavuudet</div>
+          <div class="vehicle-all-info__details_block">Nahkaverhoilu</div>
+          <div class="vehicle-all-info__details_block">Ohjaustehostin</div>
+          <span class="vehicle-all-info__details_block">Nahkaverhoilu</span>
+        </section>
+        <section class="vehicle-all-info__section">
+          <div class="vehicle-all-info__title">Lisätiedot</div>
+          <div id="shortNote"><p>Lyhyt katkelma.</p></div>
+          <div id="fullNote">
+            <p>Siisti paku kahdella rengassarjalla.</p>
+            <p>Huollettu säännöllisesti.</p>
+          </div>
+        </section>
       </body></html>`,
       { sourceListingId: "15848827" },
     );
@@ -202,6 +247,7 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.normalizedData.sourceLocationLabel).toBe("Kuopio, Pohjois-Savo");
     expect(page.normalizedData.registrationNumber).toBe("GLU-494");
     expect(page.normalizedData.vin).toBe("WV1ZZZ7HZGH061848");
+    expect(page.normalizedData.officeFeeEur).toBe(299);
     expect(page.normalizedData.mileageKm).toBe(120000);
     expect(page.normalizedData.engineSourceLabel).toBe("2,0 l, Diesel");
     expect(page.normalizedData.fuelTypeSourceLabel).toBe("Diesel");
@@ -213,6 +259,29 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.normalizedData.powerHp).toBe(102);
     expect(page.normalizedData.acceleration0To100S).toBe(14.9);
     expect(page.normalizedData.co2GKm).toBe(157);
+    expect(page.normalizedData.energyEfficiencyClassSourceLabel).toBe("D");
+    expect(page.normalizedData.fuelConsumptionSourceLabel).toBe(
+      "Kaupunki: 8,2 l/100 km\nMaantie: 5,5 l/100 km\nYhdistetty: 6 l/100 km",
+    );
+    expect(page.normalizedData.fuelConsumptionCityL100Km).toBe(8.2);
+    expect(page.normalizedData.fuelConsumptionHighwayL100Km).toBe(5.5);
+    expect(page.normalizedData.fuelConsumptionCombinedL100Km).toBe(6);
+    expect(page.normalizedData.detailTitleSourceLabel).toBe("Volkswagen Transporter");
+    expect(page.normalizedData.detailSubtitleSourceLabel).toBe("Pitkä 2,0 TDI");
+    expect(page.normalizedData.detailPriceSourceLabel).toBe("17 099 €");
+    expect(page.normalizedData.uniqueSellingPointSourceLabel).toBe("Rahoitus saatavilla");
+    expect(page.normalizedData.sellerNotes).toBe(
+      "Siisti paku kahdella rengassarjalla.\n\nHuollettu säännöllisesti.",
+    );
+    expect(page.normalizedData.equipmentGroups).toEqual([
+      {
+        label: "Sisätilat ja mukavuudet",
+        items: ["Nahkaverhoilu", "Ohjaustehostin"],
+      },
+    ]);
+    expect(page.normalizedData.additionalSourceFields).toEqual([
+      { label: "Akseliväli", value: "3 000 mm" },
+    ]);
     expect(page.normalizedData.jsonLdPriceEur).toBe(17099);
     expect(page.images.map((image) => image.imageUrl)).toEqual([
       "https://images.nettiauto.com/live/15848827/front-large.jpg",
@@ -222,9 +291,26 @@ describe("Nettiauto Search Result parser", () => {
       label: "Rekisterinumero",
       value: "GLU-494",
     });
+    expect(page.sourcePayload.fields).toContainEqual({
+      label: "VIN-numero",
+      value: "WV1ZZZ7HZGH061848",
+    });
     expect(page.sourcePayload.meta[0]).toEqual({
       key: "description",
       value: "Nyt myynnissä Volkswagen Transporter, 120 000 km, 2016 - Kuopio",
+    });
+  });
+
+  it("keeps parsing the legacy reversed detail field classes", () => {
+    const page = parseNettiautoDetailPage(
+      '<html><body><div class="vehicle-info-box"><span class="vehicle-info-box__vehicle-det">Vaihteisto</span><span class="vehicle-info-box__vehicle-info">Automaatti</span></div></body></html>',
+      { sourceListingId: "123" },
+    );
+
+    expect(page.normalizedData.transmissionSourceLabel).toBe("Automaatti");
+    expect(page.sourcePayload.fields).toContainEqual({
+      label: "Vaihteisto",
+      value: "Automaatti",
     });
   });
 

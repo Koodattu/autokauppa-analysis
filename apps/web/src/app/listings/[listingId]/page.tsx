@@ -150,6 +150,24 @@ export default async function ListingPage({ params }: PageProps) {
         </section>
       ) : null}
 
+      {details?.equipmentGroups?.length ? (
+        <section className="panel equipment-panel">
+          <h2>Equipment</h2>
+          <div className="equipment-groups">
+            {details.equipmentGroups.map((group) => (
+              <section key={group.label}>
+                <h3>{group.label}</h3>
+                <ul>
+                  {group.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {details?.sellerNotes ? (
         <section className="panel seller-notes">
           <h2>Seller notes</h2>
@@ -195,6 +213,7 @@ function vehicleDetailGroups(details: NonNullable<PublicListingDetailResponse["v
         ["Color", details.colorSourceLabel],
         ["First registration", formatOptionalDate(details.firstRegistrationDate)],
         ["Inspection", details.inspectionDateLabel],
+        ["Office fee", details.officeFeeEur === null ? null : formatCurrency(details.officeFeeEur)],
       ]),
     },
     {
@@ -205,7 +224,18 @@ function vehicleDetailGroups(details: NonNullable<PublicListingDetailResponse["v
         ["Transmission", details.transmissionSourceLabel],
         ["Drivetrain", details.drivetrainSourceLabel],
         ["Power", formatPower(details.powerKw, details.powerHp)],
-        ["Consumption", details.fuelConsumptionSourceLabel],
+        ["Energy class", details.energyEfficiencyClassSourceLabel],
+        ["City consumption", formatConsumption(details.fuelConsumptionCityL100Km)],
+        ["Highway consumption", formatConsumption(details.fuelConsumptionHighwayL100Km)],
+        ["Combined consumption", formatConsumption(details.fuelConsumptionCombinedL100Km)],
+        [
+          "Consumption",
+          details.fuelConsumptionCityL100Km === null &&
+          details.fuelConsumptionHighwayL100Km === null &&
+          details.fuelConsumptionCombinedL100Km === null
+            ? details.fuelConsumptionSourceLabel
+            : null,
+        ],
         ["CO₂", formatUnit(details.co2GKm, "g/km")],
         ["Top speed", formatUnit(details.topSpeedKmh, "km/h")],
         ["0–100 km/h", formatUnit(details.acceleration0To100S, "s")],
@@ -223,6 +253,12 @@ function vehicleDetailGroups(details: NonNullable<PublicListingDetailResponse["v
         ["Unbraked towing mass", formatUnit(details.towingWeightUnbrakedKg, "kg")],
       ]),
     },
+    {
+      title: "Other details",
+      rows: compactRows(
+        (details.additionalSourceFields ?? []).map((field) => [field.label, field.value]),
+      ),
+    },
   ].filter((group) => group.rows.length > 0);
 }
 
@@ -234,6 +270,10 @@ function compactRows(rows: Array<[string, string | null]>) {
 
 function formatOptionalDate(value: string | null) {
   return value ? formatDate(`${value}T00:00:00`) : null;
+}
+
+function formatConsumption(value: number | null) {
+  return value === null ? null : `${formatNumber(value)} l/100 km`;
 }
 
 function formatPower(powerKw: number | null, powerHp: number | null) {

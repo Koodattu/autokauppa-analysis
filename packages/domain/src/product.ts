@@ -139,6 +139,7 @@ export interface PublicVehicleDetails {
   sourceUpdatedDate: string | null;
   sourceLocationLabel: string | null;
   registrationNumber: string | null;
+  officeFeeEur: number | null;
   engineSourceLabel: string | null;
   fuelTypeSourceLabel: string | null;
   transmissionSourceLabel: string | null;
@@ -160,8 +161,14 @@ export interface PublicVehicleDetails {
   towingWeightBrakedKg: number | null;
   towingWeightUnbrakedKg: number | null;
   co2GKm: number | null;
+  energyEfficiencyClassSourceLabel: string | null;
   fuelConsumptionSourceLabel: string | null;
+  fuelConsumptionCityL100Km: number | null;
+  fuelConsumptionHighwayL100Km: number | null;
+  fuelConsumptionCombinedL100Km: number | null;
   sellerNotes: string | null;
+  equipmentGroups: Array<{ label: string; items: string[] }>;
+  additionalSourceFields: Array<{ label: string; value: string }>;
 }
 
 export interface PublicListingDetailResponse {
@@ -470,6 +477,10 @@ export async function getPublicListingDetail(
     colorSourceLabel,
     normalizedData,
   });
+  const observedDataLabel =
+    isRecord(normalizedData) && stringValue(normalizedData.detailParserVersion)
+      ? "Search Result and Detail Page Data"
+      : "Search Result Data";
 
   const [history, images] = await Promise.all([
     sql<
@@ -522,7 +533,7 @@ export async function getPublicListingDetail(
         source: "Nettiauto",
         sourceUrl,
         sourceListingId: listing.sourceListingId,
-        observedDataLabel: "Search Result Data",
+        observedDataLabel,
       },
     },
     history,
@@ -544,6 +555,7 @@ function buildPublicVehicleDetails(input: {
     sourceUpdatedDate: stringValue(data.sourceUpdatedDate) ?? input.sourceUpdatedDate,
     sourceLocationLabel: stringValue(data.sourceLocationLabel),
     registrationNumber: stringValue(data.registrationNumber),
+    officeFeeEur: numberValue(data.officeFeeEur),
     engineSourceLabel: stringValue(data.engineSourceLabel),
     fuelTypeSourceLabel: stringValue(data.fuelTypeSourceLabel) ?? input.fuelTypeSourceLabel,
     transmissionSourceLabel: stringValue(data.transmissionSourceLabel) ?? input.transmissionSourceLabel,
@@ -565,11 +577,21 @@ function buildPublicVehicleDetails(input: {
     towingWeightBrakedKg: numberValue(data.towingWeightBrakedKg),
     towingWeightUnbrakedKg: numberValue(data.towingWeightUnbrakedKg),
     co2GKm: numberValue(data.co2GKm),
+    energyEfficiencyClassSourceLabel: stringValue(data.energyEfficiencyClassSourceLabel),
     fuelConsumptionSourceLabel: stringValue(data.fuelConsumptionSourceLabel),
+    fuelConsumptionCityL100Km: numberValue(data.fuelConsumptionCityL100Km),
+    fuelConsumptionHighwayL100Km: numberValue(data.fuelConsumptionHighwayL100Km),
+    fuelConsumptionCombinedL100Km: numberValue(data.fuelConsumptionCombinedL100Km),
     sellerNotes: stringValue(data.sellerNotes),
+    equipmentGroups: equipmentGroupValues(data.equipmentGroups),
+    additionalSourceFields: detailFieldValues(data.additionalSourceFields),
   };
 
-  return Object.values(details).some((value) => value !== null) ? details : null;
+  return Object.values(details).some((value) =>
+    Array.isArray(value) ? value.length > 0 : value !== null,
+  )
+    ? details
+    : null;
 }
 
 export async function getAdminCrawlerStatus(
@@ -1424,4 +1446,41 @@ function stringValue(value: unknown) {
 
 function numberValue(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function equipmentGroupValues(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!isRecord(item)) {
+      return [];
+    }
+
+    const label = stringValue(item.label);
+    const items = Array.isArray(item.items)
+      ? item.items.flatMap((entry) => {
+          const parsed = stringValue(entry);
+          return parsed ? [parsed] : [];
+        })
+      : [];
+    return label && items.length > 0 ? [{ label, items }] : [];
+  });
+}
+
+function detailFieldValues(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!isRecord(item)) {
+      return [];
+    }
+
+    const label = stringValue(item.label);
+    const fieldValue = stringValue(item.value);
+    return label && fieldValue ? [{ label, value: fieldValue }] : [];
+  });
 }

@@ -8,7 +8,7 @@ import {
 
 export const NETTIAUTO_SOURCE = "nettiauto" as const;
 export const NETTIAUTO_PARSER_VERSION = "nettiauto-search-result-v1";
-export const NETTIAUTO_DETAIL_PARSER_VERSION = "nettiauto-detail-v1";
+export const NETTIAUTO_DETAIL_PARSER_VERSION = "nettiauto-detail-v2";
 export const NETTIAUTO_BASE_URL = "https://www.nettiauto.com";
 export const NETTIAUTO_BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
@@ -87,14 +87,24 @@ export interface ParsedNettiautoDetailMeta {
   value: string;
 }
 
+export interface ParsedNettiautoDetailEquipmentGroup {
+  label: string;
+  items: string[];
+}
+
 export interface NettiautoDetailNormalizedData {
   detailParserVersion: typeof NETTIAUTO_DETAIL_PARSER_VERSION;
   sourceUpdatedDate: string | null;
   sourceUpdatedDateLabel: string | null;
   sourceUpdatedDateSource: NettiautoDetailUpdatedDateSource | null;
   sourceLocationLabel: string | null;
+  detailTitleSourceLabel: string | null;
+  detailSubtitleSourceLabel: string | null;
+  detailPriceSourceLabel: string | null;
+  uniqueSellingPointSourceLabel: string | null;
   registrationNumber: string | null;
   vin: string | null;
+  officeFeeEur: number | null;
   mileageKm: number | null;
   engineSourceLabel: string | null;
   fuelTypeSourceLabel: string | null;
@@ -118,8 +128,14 @@ export interface NettiautoDetailNormalizedData {
   towingWeightBrakedKg: number | null;
   towingWeightUnbrakedKg: number | null;
   co2GKm: number | null;
+  energyEfficiencyClassSourceLabel: string | null;
   fuelConsumptionSourceLabel: string | null;
+  fuelConsumptionCityL100Km: number | null;
+  fuelConsumptionHighwayL100Km: number | null;
+  fuelConsumptionCombinedL100Km: number | null;
   sellerNotes: string | null;
+  equipmentGroups: ParsedNettiautoDetailEquipmentGroup[];
+  additionalSourceFields: ParsedNettiautoDetailField[];
   jsonLdAvailability: string | null;
   jsonLdPriceEur: number | null;
   jsonLdSellerName: string | null;
@@ -131,9 +147,15 @@ export interface ParsedNettiautoDetailSourcePayload {
   sourceUpdatedDateLabel: string | null;
   sourceUpdatedDateSource: NettiautoDetailUpdatedDateSource | null;
   sourceLocationLabel: string | null;
+  detailTitleSourceLabel: string | null;
+  detailSubtitleSourceLabel: string | null;
+  detailPriceSourceLabel: string | null;
+  uniqueSellingPointSourceLabel: string | null;
   meta: ParsedNettiautoDetailMeta[];
   jsonLd: Record<string, unknown>[];
   fields: ParsedNettiautoDetailField[];
+  equipmentGroups: ParsedNettiautoDetailEquipmentGroup[];
+  sellerNotes: string | null;
   images: ParsedImageMetadata[];
   normalizedData: NettiautoDetailNormalizedData;
 }
@@ -373,8 +395,20 @@ export function parseNettiautoDetailPage(
   const meta = extractDetailMeta($);
   const images = extractDetailPageImages(carJsonLd);
   const updatedDate = extractSourceUpdatedDate($, fields);
-  const headerDateElement = $(".page-header__item_date-location").first();
-  const normalizedData = normalizeNettiautoDetailData(fields, carJsonLd, updatedDate);
+  const sellerNotes = extractSellerNotes($, fields);
+  const equipmentGroups = extractDetailEquipmentGroups($);
+  const detailHeader = extractDetailHeader($);
+  const headerDateElement = $(
+    ".details-page-header__item_date-location, .page-header__item_date-location",
+  ).first();
+  const normalizedData = normalizeNettiautoDetailData(
+    fields,
+    carJsonLd,
+    updatedDate,
+    sellerNotes,
+    equipmentGroups,
+    detailHeader,
+  );
   const title = squash($("title").first().text()) || null;
   const sourcePayload: ParsedNettiautoDetailSourcePayload = {
     title,
@@ -382,9 +416,15 @@ export function parseNettiautoDetailPage(
     sourceUpdatedDateLabel: normalizedData.sourceUpdatedDateLabel,
     sourceUpdatedDateSource: normalizedData.sourceUpdatedDateSource,
     sourceLocationLabel: normalizedData.sourceLocationLabel,
+    detailTitleSourceLabel: normalizedData.detailTitleSourceLabel,
+    detailSubtitleSourceLabel: normalizedData.detailSubtitleSourceLabel,
+    detailPriceSourceLabel: normalizedData.detailPriceSourceLabel,
+    uniqueSellingPointSourceLabel: normalizedData.uniqueSellingPointSourceLabel,
     meta,
     jsonLd,
     fields,
+    equipmentGroups,
+    sellerNotes,
     images,
     normalizedData,
   };
@@ -406,8 +446,8 @@ export function parseNettiautoDetailPage(
 function extractDetailFields($: ReturnType<typeof load>): ParsedNettiautoDetailField[] {
   const fields: ParsedNettiautoDetailField[] = [];
   const pushField = (label: string, value: string) => {
-    const normalizedLabel = squash(label);
-    const normalizedValue = squash(value);
+    const normalizedLabel = canonicalDetailFieldLabel(label);
+    const normalizedValue = squashMultiline(value);
     if (
       !normalizedLabel ||
       !normalizedValue ||
@@ -421,10 +461,18 @@ function extractDetailFields($: ReturnType<typeof load>): ParsedNettiautoDetailF
   };
 
   $(".vehicle-info-box").each((_, element) => {
-    pushField(
-      $(element).find(".vehicle-info-box__vehicle-det").first().text(),
-      $(element).find(".vehicle-info-box__vehicle-info").first().text(),
-    );
+    const infoText = $(element).find(".vehicle-info-box__vehicle-info").first().text();
+    const detailElement = $(element).find(".vehicle-info-box__vehicle-det").first();
+    const detailText = extractDetailValueText($, detailElement);
+    const infoIsLabel = isKnownDetailFieldLabel(infoText);
+    const detailIsLabel = isKnownDetailFieldLabel(detailText);
+
+    if (detailIsLabel && !infoIsLabel) {
+      pushField(detailText, infoText);
+      return;
+    }
+
+    pushField(infoText, detailText);
   });
 
   $("dt").each((_, element) => {
@@ -432,6 +480,90 @@ function extractDetailFields($: ReturnType<typeof load>): ParsedNettiautoDetailF
   });
 
   return uniqueDetailFields(fields);
+}
+
+function extractDetailValueText($: ReturnType<typeof load>, element: unknown) {
+  const container = $(element as Parameters<typeof $>[0]);
+  const childValues = container
+    .children()
+    .toArray()
+    .map((child) => squash($(child).text()))
+    .filter(Boolean);
+  return childValues.length > 1 ? childValues.join("\n") : container.text();
+}
+
+function extractDetailHeader($: ReturnType<typeof load>) {
+  return {
+    title: squash($(".details-page-header__item-title").first().text()) || null,
+    subtitle: squash($(".details-page-header__item-type").first().text()) || null,
+    priceLabel: squash($(".details-page-header__item-price-main").first().text()) || null,
+    uniqueSellingPoint: squash($(".unique-selling-point").first().text()) || null,
+    energyEfficiencyClass: parseEnergyEfficiencyClass($),
+  };
+}
+
+function extractSellerNotes(
+  $: ReturnType<typeof load>,
+  fields: ParsedNettiautoDetailField[],
+) {
+  return (
+    extractParagraphText($, "#fullNote") ??
+    extractParagraphText($, "#shortNote") ??
+    detailFieldValue(fields, "Lisätiedot")
+  );
+}
+
+function extractParagraphText($: ReturnType<typeof load>, selector: string) {
+  const container = $(selector).first();
+  if (container.length === 0) {
+    return null;
+  }
+
+  const paragraphs = container
+    .find("p")
+    .toArray()
+    .map((element) => squash($(element).text()))
+    .filter(Boolean);
+  const value = paragraphs.length > 0 ? paragraphs.join("\n\n") : squash(container.text());
+  return value || null;
+}
+
+function extractDetailEquipmentGroups(
+  $: ReturnType<typeof load>,
+): ParsedNettiautoDetailEquipmentGroup[] {
+  const groups = new Map<string, ParsedNettiautoDetailEquipmentGroup>();
+
+  $(".vehicle-all-info__section").each((_, element) => {
+    const section = $(element);
+    const label = squash(
+      section.find(".vehicle-all-info__title").first().text() ||
+        section.find(".vehicle-all-info__mobile-title").first().attr("aria-label") ||
+        "",
+    );
+    if (!label || isKnownDetailSectionLabel(label)) {
+      return;
+    }
+
+    const items = uniqueStrings(
+      section
+        .find(".vehicle-all-info__details_block")
+        .toArray()
+        .map((item) => squash($(item).text()))
+        .filter((item) => item.length > 0 && item.length <= 300),
+    );
+    if (items.length === 0) {
+      return;
+    }
+
+    const key = normalizeLabel(label);
+    const existing = groups.get(key);
+    groups.set(key, {
+      label: existing?.label ?? label,
+      items: uniqueStrings([...(existing?.items ?? []), ...items]),
+    });
+  });
+
+  return [...groups.values()];
 }
 
 function extractJsonLdRecords($: ReturnType<typeof load>) {
@@ -516,10 +648,20 @@ function extractSourceUpdatedDate(
   source: NettiautoDetailUpdatedDateSource | null;
   locationLabel: string | null;
 } {
-  const headerText = squash($(".page-header__item_date-location").first().text());
+  const headerElement = $(
+    ".details-page-header__item_date-location, .page-header__item_date-location",
+  ).first();
+  const headerText = squash(
+    headerElement.find(".details-page-header__item_date").first().text() || headerElement.text(),
+  );
   const headerDate = parseUpdatedDateLabel(headerText);
   if (headerDate.date) {
-    return { ...headerDate, source: "detail_header", locationLabel: null };
+    return {
+      ...headerDate,
+      source: "detail_header",
+      locationLabel:
+        squash(headerElement.find(".details-page-header__item_location").first().text()) || null,
+    };
   }
 
   for (const field of fields) {
@@ -557,9 +699,19 @@ function normalizeNettiautoDetailData(
     source: NettiautoDetailUpdatedDateSource | null;
     locationLabel: string | null;
   },
+  sellerNotes: string | null,
+  equipmentGroups: ParsedNettiautoDetailEquipmentGroup[],
+  detailHeader: {
+    title: string | null;
+    subtitle: string | null;
+    priceLabel: string | null;
+    uniqueSellingPoint: string | null;
+    energyEfficiencyClass: string | null;
+  },
 ): NettiautoDetailNormalizedData {
   const engineSourceLabel = detailFieldValue(fields, "Moottori");
   const powerLabel = detailFieldValue(fields, "Teho");
+  const fuelConsumptionSourceLabel = detailFieldValue(fields, "Polttoaineen kulutus");
 
   return {
     detailParserVersion: NETTIAUTO_DETAIL_PARSER_VERSION,
@@ -567,8 +719,15 @@ function normalizeNettiautoDetailData(
     sourceUpdatedDateLabel: updatedDate.label,
     sourceUpdatedDateSource: updatedDate.source,
     sourceLocationLabel: updatedDate.locationLabel,
+    detailTitleSourceLabel: detailHeader.title,
+    detailSubtitleSourceLabel: detailHeader.subtitle,
+    detailPriceSourceLabel: detailHeader.priceLabel,
+    uniqueSellingPointSourceLabel: detailHeader.uniqueSellingPoint,
     registrationNumber: detailFieldValue(fields, "Rekisterinumero"),
-    vin: jsonLdString(carJsonLd, "vehicleIdentificationNumber"),
+    vin:
+      detailFieldValue(fields, "VIN-numero") ??
+      jsonLdString(carJsonLd, "vehicleIdentificationNumber"),
+    officeFeeEur: parseInteger(detailFieldValue(fields, "Toimistomaksu")),
     mileageKm:
       parseInteger(jsonLdValue(carJsonLd, "mileageFromOdometer.value")) ??
       parseInteger(detailFieldValue(fields, "Mittarilukema")),
@@ -596,8 +755,14 @@ function normalizeNettiautoDetailData(
     towingWeightBrakedKg: parseInteger(detailFieldValue(fields, "Vetomassa (jarrullinen)")),
     towingWeightUnbrakedKg: parseInteger(detailFieldValue(fields, "Vetomassa (ei jarruja)")),
     co2GKm: parseInteger(detailFieldValue(fields, "CO2 -päästöt")),
-    fuelConsumptionSourceLabel: detailFieldValue(fields, "Polttoaineen kulutus"),
-    sellerNotes: detailFieldValue(fields, "Lisätiedot"),
+    energyEfficiencyClassSourceLabel: detailHeader.energyEfficiencyClass,
+    fuelConsumptionSourceLabel,
+    fuelConsumptionCityL100Km: parseConsumptionValue(fuelConsumptionSourceLabel, "Kaupunki"),
+    fuelConsumptionHighwayL100Km: parseConsumptionValue(fuelConsumptionSourceLabel, "Maantie"),
+    fuelConsumptionCombinedL100Km: parseConsumptionValue(fuelConsumptionSourceLabel, "Yhdistetty"),
+    sellerNotes,
+    equipmentGroups,
+    additionalSourceFields: fields.filter((field) => !isKnownDetailFieldLabel(field.label)),
     jsonLdAvailability: jsonLdString(carJsonLd, "offers.availability"),
     jsonLdPriceEur: parseInteger(jsonLdValue(carJsonLd, "offers.price")),
     jsonLdSellerName: jsonLdString(carJsonLd, "offers.seller.name"),
@@ -655,6 +820,19 @@ function parseDecimal(value: string | null) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseConsumptionValue(value: string | null, label: string) {
+  const match = value?.match(new RegExp(`${label}:\\s*(-?\\d+(?:[,.]\\d+)?)`, "i"));
+  return match?.[1] ? parseDecimal(match[1]) : null;
+}
+
+function parseEnergyEfficiencyClass($: ReturnType<typeof load>) {
+  const value = $("#energyGradeMainSection [data-grade-number]")
+    .first()
+    .attr("data-grade-number")
+    ?.trim();
+  return value && /^[A-G]$/i.test(value) ? value.toUpperCase() : null;
+}
+
 function parseIntegerFromMatch(value: string | null, pattern: RegExp) {
   const match = value?.match(pattern);
   return parseInteger(match?.[1]);
@@ -672,6 +850,69 @@ function uniqueDetailFields(fields: ParsedNettiautoDetailField[]) {
     result.push(field);
   }
   return result;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
+}
+
+const DETAIL_FIELD_LABELS = [
+  "Rekisterinumero",
+  "Mittarilukema",
+  "Moottori",
+  "Vuosimalli",
+  "Käyttöönottopäivä",
+  "Vaihteisto",
+  "Vetotapa",
+  "Toimistomaksu",
+  "Katsastettu",
+  "Korimalli",
+  "Auton tyyppi",
+  "Väri",
+  "VIN-numero",
+  "Teho",
+  "Huippunopeus",
+  "Kiihtyvyys (0-100)",
+  "Henkilömäärä",
+  "Ovien lkm",
+  "Ohjauslaite",
+  "Omamassa",
+  "Kokonaismassa",
+  "Vetomassa (jarrullinen)",
+  "Vetomassa (ei jarruja)",
+  "CO2 -päästöt",
+  "Polttoaineen kulutus",
+  "Lisätiedot",
+];
+
+const KNOWN_DETAIL_FIELD_LABELS = new Map(
+  DETAIL_FIELD_LABELS.map((label) => [normalizeLabel(label), label]),
+);
+
+const KNOWN_DETAIL_SECTION_LABELS = new Set(
+  ["Perustiedot", "Tekniset tiedot", "Lisätiedot"].map(normalizeLabel),
+);
+
+function isKnownDetailFieldLabel(value: string) {
+  const normalized = normalizeLabel(squash(value));
+  return (
+    KNOWN_DETAIL_FIELD_LABELS.has(normalized) ||
+    [...KNOWN_DETAIL_FIELD_LABELS.keys()].some((label) => normalized.startsWith(`${label} `)) ||
+    normalized.startsWith("paivitetty ")
+  );
+}
+
+function canonicalDetailFieldLabel(value: string) {
+  const squashed = squash(value);
+  const normalized = normalizeLabel(squashed);
+  const canonical =
+    KNOWN_DETAIL_FIELD_LABELS.get(normalized) ??
+    [...KNOWN_DETAIL_FIELD_LABELS].find(([label]) => normalized.startsWith(`${label} `))?.[1];
+  return canonical ?? squashed;
+}
+
+function isKnownDetailSectionLabel(value: string) {
+  return KNOWN_DETAIL_SECTION_LABELS.has(normalizeLabel(value));
 }
 
 function normalizeNettiautoListing(
@@ -809,6 +1050,14 @@ function normalizeImageUrl(value: string | undefined) {
 
 function squash(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function squashMultiline(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map(squash)
+    .filter(Boolean)
+    .join("\n");
 }
 
 function normalizeLabel(value: string | null | undefined) {

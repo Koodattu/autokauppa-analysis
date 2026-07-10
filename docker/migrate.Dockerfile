@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM oven/bun:1.3.9
 WORKDIR /app
 
@@ -11,8 +13,10 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/logging/package.json packages/logging/package.json
 COPY packages/schemas/package.json packages/schemas/package.json
 COPY packages/ui/package.json packages/ui/package.json
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache,sharing=locked \
+    bun install --frozen-lockfile --filter './packages/db'
 
+COPY tsconfig.base.json ./
 COPY packages/db packages/db
 
 WORKDIR /app/packages/db
