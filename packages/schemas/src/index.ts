@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const MAX_LISTING_PAGE = 1_000;
+export const MAX_ANALYTICS_DATE_RANGE_DAYS = 730;
 export const availabilityFilterSchema = z.enum(["current", "sold", "all"]).default("all");
 export const listingSortSchema = z
   .enum([
@@ -161,6 +162,30 @@ function validateRanges(
       path: ["to"],
       message: "End date must be on or after start date.",
     });
+  }
+  if (value.from && value.to) {
+    const fromTime = new Date(`${value.from}T00:00:00Z`).getTime();
+    const toTime = new Date(`${value.to}T00:00:00Z`).getTime();
+    const rangeDays = (toTime - fromTime) / (24 * 60 * 60 * 1_000);
+    if (rangeDays > MAX_ANALYTICS_DATE_RANGE_DAYS) {
+      context.addIssue({
+        code: "custom",
+        path: ["to"],
+        message: `Trend range cannot exceed ${MAX_ANALYTICS_DATE_RANGE_DAYS} days.`,
+      });
+    }
+  } else if (value.from) {
+    const fromTime = new Date(`${value.from}T00:00:00Z`).getTime();
+    const today = new Date();
+    const todayTime = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+    const rangeDays = (todayTime - fromTime) / (24 * 60 * 60 * 1_000);
+    if (rangeDays > MAX_ANALYTICS_DATE_RANGE_DAYS) {
+      context.addIssue({
+        code: "custom",
+        path: ["from"],
+        message: `Trend start cannot be more than ${MAX_ANALYTICS_DATE_RANGE_DAYS} days ago.`,
+      });
+    }
   }
 }
 

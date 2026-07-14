@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   date,
   index,
@@ -220,6 +221,9 @@ export const listings = pgTable(
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
     lastRawListingRecordId: uuid("last_raw_listing_record_id").references(() => rawListingRecords.id),
+    latestSnapshotId: uuid("latest_snapshot_id").references(
+      (): AnyPgColumn => listingSnapshots.id,
+    ),
     createdAt: createdAtColumn(),
     updatedAt: updatedAtColumn(),
   },
@@ -303,7 +307,6 @@ export const listingSnapshots = pgTable(
     createdAt: createdAtColumn(),
   },
   (table) => [
-    uniqueIndex("listing_snapshots_listing_hash_uq").on(table.listingId, table.changeHash),
     index("listing_snapshots_listing_observed_idx").on(table.listingId, table.observedAt),
     index("listing_snapshots_listing_latest_idx").on(
       table.listingId,

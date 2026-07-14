@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ApiError,
   apiGet,
+  filterMetadataQueryString,
   searchParamsToQueryString,
   type FilterMetadata,
   type ListingSearchResponse,
@@ -9,7 +10,6 @@ import {
 } from "@/lib/api";
 import {
   formatCurrency,
-  formatDate,
   formatDateTime,
   formatKm,
   formatNumber,
@@ -48,7 +48,13 @@ export default async function ListingsPage({ searchParams }: PageProps) {
         </Link>
       </section>
 
-      <MarketFilterForm action="/listings" filters={filters} params={params} variant="listings" />
+      <MarketFilterForm
+        key={searchParamsToQueryString(params)}
+        action="/listings"
+        filters={filters}
+        params={params}
+        variant="listings"
+      />
 
       <section className="table-wrap listing-results" aria-label="Listings">
         <div className="section-heading">
@@ -69,13 +75,12 @@ export default async function ListingsPage({ searchParams }: PageProps) {
             <table className="listing-table">
               <thead>
                 <tr>
-                  <th>Listing</th>
-                  <th>Price</th>
-                  <th>Mileage</th>
-                  <th>Availability</th>
-                  <th>Seller</th>
-                  <th>Updated on source</th>
-                  <th>Last observed</th>
+                  <th scope="col">Listing</th>
+                  <th scope="col">Price</th>
+                  <th scope="col">Mileage</th>
+                  <th scope="col">Availability</th>
+                  <th scope="col">Seller</th>
+                  <th scope="col">Last observed</th>
                 </tr>
               </thead>
               <tbody>
@@ -84,15 +89,14 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                     <td>
                       <ListingLink listing={listing} />
                     </td>
-                    <td>{formatCurrency(listing.askingPriceEur ?? listing.observedSoldPriceEur)}</td>
+                    <td><ListingPrice listing={listing} /></td>
                     <td>{formatKm(listing.mileageKm)}</td>
                     <td>
                       <span className={`status-badge status-${statusTone(listing.availability)}`}>
                         {labelAvailability(listing.availability)}
                       </span>
                     </td>
-                    <td>{listing.seller ?? "–"}</td>
-                    <td>{formatDate(listing.sourceUpdatedDate)}</td>
+                    <td><ListingSeller listing={listing} /></td>
                     <td>{formatDateTime(listing.lastSeenAt)}</td>
                   </tr>
                 ))}
@@ -110,19 +114,15 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                   <dl>
                     <div>
                       <dt>Price</dt>
-                      <dd>{formatCurrency(listing.askingPriceEur ?? listing.observedSoldPriceEur)}</dd>
+                      <dd><ListingPrice listing={listing} /></dd>
                     </div>
                     <div>
                       <dt>Mileage</dt>
                       <dd>{formatKm(listing.mileageKm)}</dd>
                     </div>
                     <div>
-                      <dt>Updated</dt>
-                      <dd>{formatDate(listing.sourceUpdatedDate)}</dd>
-                    </div>
-                    <div>
                       <dt>Seller</dt>
-                      <dd>{listing.seller ?? "–"}</dd>
+                      <dd><ListingSeller listing={listing} /></dd>
                     </div>
                   </dl>
                 </article>
@@ -146,6 +146,29 @@ function ListingLink({ listing }: { listing: ListingTableItem }) {
         {listing.yearModel ?? "Year unknown"} · {listing.sourceListingId}
       </span>
     </Link>
+  );
+}
+
+function ListingPrice({ listing }: { listing: ListingTableItem }) {
+  const qualifier = listing.askingPriceEur !== null
+    ? "Asking"
+    : listing.observedSoldPriceEur !== null
+      ? "Observed sold"
+      : null;
+  return (
+    <span className="qualified-value">
+      {formatCurrency(listing.askingPriceEur ?? listing.observedSoldPriceEur)}
+      {qualifier ? <small>{qualifier}</small> : null}
+    </span>
+  );
+}
+
+function ListingSeller({ listing }: { listing: ListingTableItem }) {
+  return (
+    <span className="qualified-value">
+      {listing.seller ?? "–"}
+      {listing.sellerType ? <small>{listing.sellerType}</small> : null}
+    </span>
   );
 }
 
@@ -180,8 +203,10 @@ async function loadListingsData(queryString: string): Promise<
 > {
   try {
     const query = queryString ? `?${queryString}` : "";
+    const filterQueryString = filterMetadataQueryString(queryString);
+    const filterQuery = filterQueryString ? `?${filterQueryString}` : "";
     const [filters, listings] = await Promise.all([
-      apiGet<FilterMetadata>(`/filters${query}`, { next: { revalidate: 300 } }),
+      apiGet<FilterMetadata>(`/filters${filterQuery}`, { next: { revalidate: 300 } }),
       apiGet<ListingSearchResponse>(`/listings${query}`, { next: { revalidate: 60 } }),
     ]);
     return { ok: true, data: { filters, listings } };

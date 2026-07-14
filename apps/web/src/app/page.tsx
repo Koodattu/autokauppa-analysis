@@ -1,14 +1,22 @@
 import Link from "next/link";
+import { cache, Suspense } from "react";
 import {
   ApiError,
   apiGet,
+  filterMetadataQueryString,
   searchParamsToQueryString,
   singleSearchParam as single,
-  type AnalyticsTrendResponse,
+  type AnalyticsSnapshotResponse,
+  type AnalyticsTimeSeriesResponse,
   type FilterMetadata,
 } from "@/lib/api";
 import { formatCurrency, formatDateTime, formatKm, formatNumber } from "@/lib/format";
-import { AnalyticsCharts } from "./analytics-charts";
+import {
+  ChartPlaceholder,
+  LazyAnalyticsSnapshotCharts,
+  LazyHistoricalPriceChart,
+  LazyMarketActivityChart,
+} from "./lazy-analytics-charts";
 import { MarketFilterForm, type PageSearchParams } from "./market-filter-form";
 import { SiteHeader } from "./site-header";
 
@@ -36,39 +44,67 @@ export default async function Home({ searchParams }: PageProps) {
         <div>
           <p className="eyebrow">Market analysis</p>
           <h1>{title}</h1>
+          <p className="heading-meta">Compare the typical price range, then open the matching listings.</p>
         </div>
         <Link className="button-link secondary-button" href={listingsHref}>
           View {formatNumber(analytics.summary.listingCount)} listings
         </Link>
       </section>
 
-      <MarketFilterForm action="/" filters={filters} params={params} variant="analytics" />
+      <MarketFilterForm
+        key={searchParamsToQueryString(params)}
+        action="/"
+        filters={filters}
+        params={params}
+        variant="analytics"
+      />
 
       <section className="metrics analytics-metrics" aria-label="Market summary">
         <Metric
           label="Listings"
           value={formatNumber(analytics.summary.listingCount)}
-          detail={`${formatNumber(analytics.summary.activeCount)} current · ${formatNumber(analytics.summary.soldCount)} sold`}
+          detail={`${formatNumber(analytics.summary.activeCount)} last observed as current · ${formatNumber(analytics.summary.soldCount)} observed sold`}
         />
         <Metric
           label="Median asking price"
           value={formatCurrency(analytics.summary.medianAskingPriceEur)}
-          detail={`n=${formatNumber(analytics.summary.askingPriceSampleSize)}`}
+          detail={`${formatNumber(analytics.summary.askingPriceSampleSize)} listings with an asking price`}
         />
         <Metric
           label="Median mileage"
           value={formatKm(analytics.summary.medianMileageKm)}
-          detail={`n=${formatNumber(analytics.summary.mileageSampleSize)}`}
+          detail={`${formatNumber(analytics.summary.mileageSampleSize)} listings with mileage data`}
         />
         <Metric
           label="Median observed sold price"
           value={formatCurrency(analytics.summary.medianObservedSoldPriceEur)}
-          detail={`n=${formatNumber(analytics.summary.observedSoldPriceSampleSize)}`}
+          detail={`${formatNumber(analytics.summary.observedSoldPriceSampleSize)} sold listings with a shown price`}
         />
       </section>
 
       <CoverageBar analytics={analytics} />
-      <AnalyticsCharts analytics={analytics} />
+
+      <AnalyticsSectionHeading
+        title="Price direction"
+        description="Use the trend to see whether observed market prices are moving, not to value one car on its own."
+      />
+      <Suspense fallback={<ChartPlaceholder title="Price over observed time" />}>
+        <HistoricalPriceSection queryString={searchParamsToQueryString(params)} />
+      </Suspense>
+
+      <AnalyticsSectionHeading
+        title="What shapes the price"
+        description="Compare model year and mileage first; both usually explain more than transmission alone."
+      />
+      <LazyAnalyticsSnapshotCharts analytics={analytics} />
+
+      <AnalyticsSectionHeading
+        title="Market activity"
+        description="These are listings captured in complete crawls, not sales or point-in-time inventory."
+      />
+      <Suspense fallback={<ChartPlaceholder title="Listings captured per period" />}>
+        <MarketActivitySection queryString={searchParamsToQueryString(params)} />
+      </Suspense>
     </main>
   );
 }
@@ -83,7 +119,7 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-function CoverageBar({ analytics }: { analytics: AnalyticsTrendResponse }) {
+function CoverageBar({ analytics }: { analytics: AnalyticsSnapshotResponse }) {
   const coverage = analytics.coverage;
   const included = coverage.includesCurrent && coverage.includesSold
     ? "Current + sold"
@@ -94,12 +130,16 @@ function CoverageBar({ analytics }: { analytics: AnalyticsTrendResponse }) {
         : "No listings";
 
   return (
-    <section className="coverage" aria-label="Data coverage">
+    <section
+      className={`coverage coverage-${coverage.completeness}`}
+      aria-label="Data coverage"
+      role={coverage.completeness === "complete" ? undefined : "status"}
+    >
       <span>
         <strong>Freshness</strong> {formatDateTime(coverage.lastRelevantCrawlAt)}
       </span>
       <span>
-        <strong>Coverage</strong> {coverage.completeness}
+        <strong>Crawl</strong> {coverage.completeness}
       </span>
       <span>
         <strong>Listings</strong> {included}
@@ -116,19 +156,52 @@ function CoverageBar({ analytics }: { analytics: AnalyticsTrendResponse }) {
 }
 
 async function loadHomeData(queryString: string): Promise<
-  | { ok: true; data: { filters: FilterMetadata; analytics: AnalyticsTrendResponse } }
+  | { ok: true; data: { filters: FilterMetadata; analytics: AnalyticsSnapshotResponse } }
   | { ok: false; error: unknown }
 > {
   try {
-    const query = queryString ? `?${queryString}` : "";
+    const snapshotParams = new URLSearchParams(queryString);
+    for (const key of ["from", "to", "interval"]) {
+      snapshotParams.delete(key);
+    }
+    const snapshotQueryString = snapshotParams.toString();
+    const query = snapshotQueryString ? `?${snapshotQueryString}` : "";
+    const filterQueryString = filterMetadataQueryString(queryString);
+    const filterQuery = filterQueryString ? `?${filterQueryString}` : "";
     const [filters, analytics] = await Promise.all([
-      apiGet<FilterMetadata>(`/filters${query}`, { next: { revalidate: 300 } }),
-      apiGet<AnalyticsTrendResponse>(`/analytics/trends${query}`, { next: { revalidate: 60 } }),
+      apiGet<FilterMetadata>(`/filters${filterQuery}`, { next: { revalidate: 300 } }),
+      apiGet<AnalyticsSnapshotResponse>(`/analytics/snapshot${query}`, { next: { revalidate: 60 } }),
     ]);
     return { ok: true, data: { filters, analytics } };
   } catch (error) {
     return { ok: false, error };
   }
+}
+
+const loadTimeSeries = cache(async (queryString: string) => {
+  const query = queryString ? `?${queryString}` : "";
+  return apiGet<AnalyticsTimeSeriesResponse>(`/analytics/time-series${query}`, {
+    next: { revalidate: 60 },
+  });
+});
+
+async function HistoricalPriceSection({ queryString }: { queryString: string }) {
+  const timeSeries = await loadTimeSeries(queryString);
+  return <LazyHistoricalPriceChart data={timeSeries.marketOverTime} />;
+}
+
+async function MarketActivitySection({ queryString }: { queryString: string }) {
+  const timeSeries = await loadTimeSeries(queryString);
+  return <LazyMarketActivityChart data={timeSeries.marketOverTime} />;
+}
+
+function AnalyticsSectionHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="analytics-section-heading">
+      <h2>{title}</h2>
+      <p>{description}</p>
+    </div>
+  );
 }
 
 function HomeError({ error }: { error: unknown }) {

@@ -1,10 +1,10 @@
-import type { AnalyticsTrendResponse } from "@nettiauto/domain";
+import type { AnalyticsTimeSeriesResponse } from "@nettiauto/domain";
 import type { AppLogger } from "@nettiauto/logging";
 import type { ListingFiltersQuery } from "@nettiauto/schemas";
 
 type AnalyticsCacheStatus = "hit" | "miss" | "stale";
 
-type AnalyticsTrendLoader = (query: ListingFiltersQuery) => Promise<AnalyticsTrendResponse>;
+type AnalyticsTrendLoader = (query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>;
 
 interface AnalyticsTrendCacheOptions {
   ttlMs: number;
@@ -16,16 +16,16 @@ interface AnalyticsTrendCacheOptions {
 
 interface AnalyticsTrendCacheEntry {
   query: ListingFiltersQuery;
-  value?: AnalyticsTrendResponse;
+  value?: AnalyticsTimeSeriesResponse;
   refreshedAt: number;
   expiresAt: number;
   lastAccessedAt: number;
-  refreshPromise?: Promise<AnalyticsTrendResponse>;
+  refreshPromise?: Promise<AnalyticsTimeSeriesResponse>;
   lastError?: string;
 }
 
 export interface AnalyticsTrendCacheResult {
-  value: AnalyticsTrendResponse;
+  value: AnalyticsTimeSeriesResponse;
   status: AnalyticsCacheStatus;
   ageMs: number;
 }
@@ -86,7 +86,7 @@ export class AnalyticsTrendCache {
     });
   }
 
-  private refresh(key: string, query: ListingFiltersQuery): Promise<AnalyticsTrendResponse> {
+  private refresh(key: string, query: ListingFiltersQuery): Promise<AnalyticsTimeSeriesResponse> {
     const now = this.now();
     const entry = this.ensureEntry(key, query, now);
     if (entry.refreshPromise) {

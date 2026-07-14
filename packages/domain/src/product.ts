@@ -101,6 +101,15 @@ export interface AnalyticsTrendResponse {
   };
 }
 
+export interface AnalyticsSnapshotResponse extends Omit<AnalyticsTrendResponse, "charts"> {
+  charts: Omit<AnalyticsTrendResponse["charts"], "marketOverTime">;
+}
+
+export interface AnalyticsTimeSeriesResponse {
+  appliedFilters: ListingFiltersQuery;
+  marketOverTime: MarketOverTimePoint[];
+}
+
 export interface ListingSearchResponse {
   items: ListingTableItem[];
   pagination: {
@@ -284,19 +293,31 @@ export async function getAnalyticsTrend(
   sql: Sql,
   filters: ListingFiltersQuery,
 ): Promise<AnalyticsTrendResponse> {
-  const [
-    summaryAndCoverage,
-    marketOverTime,
-    priceByYear,
-    priceByMileageBucket,
-    priceByTransmission,
-  ] = await Promise.all([
-    getSummaryAndCoverage(sql, filters),
-    getMarketOverTime(sql, filters),
-    getPriceByYear(sql, filters),
-    getPriceByMileageBucket(sql, filters),
-    getPriceByTransmission(sql, filters),
+  const [snapshot, timeSeries] = await Promise.all([
+    getAnalyticsSnapshot(sql, filters),
+    getAnalyticsTimeSeries(sql, filters),
   ]);
+
+  return {
+    ...snapshot,
+    charts: {
+      marketOverTime: timeSeries.marketOverTime,
+      ...snapshot.charts,
+    },
+  };
+}
+
+export async function getAnalyticsSnapshot(
+  sql: Sql,
+  filters: ListingFiltersQuery,
+): Promise<AnalyticsSnapshotResponse> {
+  const [summaryAndCoverage, priceByYear, priceByMileageBucket, priceByTransmission] =
+    await Promise.all([
+      getSummaryAndCoverage(sql, filters),
+      getPriceByYear(sql, filters),
+      getPriceByMileageBucket(sql, filters),
+      getPriceByTransmission(sql, filters),
+    ]);
   const { summary, coverage } = summaryAndCoverage;
   const analyticsCoverage: CoverageMetadata = {
     ...coverage,
@@ -309,11 +330,20 @@ export async function getAnalyticsTrend(
     coverage: analyticsCoverage,
     summary,
     charts: {
-      marketOverTime,
       priceByYear,
       priceByMileageBucket,
       priceByTransmission,
     },
+  };
+}
+
+export async function getAnalyticsTimeSeries(
+  sql: Sql,
+  filters: ListingFiltersQuery,
+): Promise<AnalyticsTimeSeriesResponse> {
+  return {
+    appliedFilters: filters,
+    marketOverTime: await getMarketOverTime(sql, filters),
   };
 }
 
@@ -348,7 +378,15 @@ export async function searchListings(
   const { whereSql, params } = buildFilterWhere(query);
   const orderBy = sortToOrderBy(query.sort);
   const offset = (query.page - 1) * query.pageSize;
-  const rows = await sql.unsafe<Array<ListingTableItem & { totalItems: number }>>(
+  const rows = await sql.unsafe<
+    Array<
+      ListingTableItem & {
+        totalItems: number;
+        includesCurrent: boolean | null;
+        includesSold: boolean | null;
+      }
+    >
+  >(
     `
       with latest_snapshots as (${latestSnapshotSql()})
       select
@@ -365,7 +403,9 @@ export async function searchListings(
         s.seller_type_source_label as "sellerType",
         s.source_updated_date::text as "sourceUpdatedDate",
         l.last_seen_at::text as "lastSeenAt",
-        count(*) over()::int as "totalItems"
+        count(*) over()::int as "totalItems",
+        bool_or(s.availability = 'active') over() as "includesCurrent",
+        bool_or(s.availability = 'sold') over() as "includesSold"
       from latest_snapshots s
       join listings l on l.id = s.listing_id
       ${whereSql}
@@ -375,9 +415,15 @@ export async function searchListings(
     `,
     [...params, query.pageSize, offset],
   );
-  const totalItems =
-    rows[0]?.totalItems ?? (offset > 0 ? await countListingMatches(sql, whereSql, params) : 0);
-  const items = rows.map(({ totalItems: _totalItems, ...row }) => row);
+  const matchSummary = rows[0] ??
+    (offset > 0
+      ? await countListingMatches(sql, whereSql, params)
+      : { totalItems: 0, includesCurrent: false, includesSold: false });
+  const totalItems = matchSummary.totalItems;
+  const items = rows.map(
+    ({ totalItems: _totalItems, includesCurrent: _includesCurrent, includesSold: _includesSold, ...row }) =>
+      row,
+  );
 
   return {
     items,
@@ -388,15 +434,26 @@ export async function searchListings(
       totalPages: Math.min(MAX_LISTING_PAGE, Math.max(1, Math.ceil(totalItems / query.pageSize))),
     },
     sort: query.sort,
-    coverage: options.coverage ?? (await getCoverage(sql, query)),
+    coverage:
+      options.coverage ??
+      (await getSearchCoverage(sql, query, {
+        sampleSize: totalItems,
+        includesCurrent: matchSummary.includesCurrent ?? false,
+        includesSold: matchSummary.includesSold ?? false,
+      })),
   };
 }
 
 async function countListingMatches(sql: Sql, whereSql: string, params: SqlParameter[]) {
-  const [{ totalItems } = { totalItems: 0 }] = await sql.unsafe<{ totalItems: number }[]>(
+  const [row] = await sql.unsafe<
+    { totalItems: number; includesCurrent: boolean | null; includesSold: boolean | null }[]
+  >(
     `
       with latest_snapshots as (${latestSnapshotSql()})
-      select count(*)::int as "totalItems"
+      select
+        count(*)::int as "totalItems",
+        bool_or(s.availability = 'active') as "includesCurrent",
+        bool_or(s.availability = 'sold') as "includesSold"
       from latest_snapshots s
       join listings l on l.id = s.listing_id
       ${whereSql}
@@ -404,7 +461,7 @@ async function countListingMatches(sql: Sql, whereSql: string, params: SqlParame
     params,
   );
 
-  return totalItems;
+  return row ?? { totalItems: 0, includesCurrent: false, includesSold: false };
 }
 
 export async function getPublicListingDetail(
@@ -447,10 +504,8 @@ export async function getPublicListingDetail(
         l.last_seen_at::text as "lastSeenAt",
         l.canonical_source_url as "sourceUrl"
       from listings l
-      join listing_snapshots s on s.listing_id = l.id
+      join listing_snapshots s on s.id = l.latest_snapshot_id
       where l.id = $1
-      order by s.observed_at desc, s.created_at desc
-      limit 1
     `,
     [listingId],
   );
@@ -709,7 +764,7 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
         array_remove(array_agg(distinct make_source_label order by make_source_label), null) as makes,
         array_remove(
           array_agg(distinct model_source_label order by model_source_label)
-            filter (where $1::text is null or make_source_label = $1),
+            filter (where $1::text is not null and make_source_label = $1),
           null
         ) as models,
         min(year_model) filter (
@@ -817,16 +872,17 @@ async function getSummaryAndCoverage(
 async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promise<MarketOverTimePoint[]> {
   const interval = filters.interval;
   const bucketStep = intervalToSqlInterval(interval);
-  const sightingTimeFilter = buildSightingTimeWhere(filters);
+  const runTimeFilter = buildCompletedRunTimeWhere(filters);
+  const requiredRunKindCount = filters.availability === "all" ? 2 : 1;
   const { whereSql, params: snapshotParams } = buildFilterWhere(
     {
       ...filters,
       from: undefined,
       to: undefined,
     },
-    { startIndex: sightingTimeFilter.params.length },
+    { startIndex: runTimeFilter.params.length },
   );
-  const params = [...sightingTimeFilter.params, ...snapshotParams];
+  const params = [...runTimeFilter.params, ...snapshotParams];
   const rows = await sql.unsafe<
     {
       bucket: string;
@@ -842,14 +898,31 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
     }[]
   >(
     `
-      with sighting_buckets as (
-        select distinct on (date_trunc('${interval}', ls.seen_at), ls.listing_id)
-          date_trunc('${interval}', ls.seen_at) as bucket_start,
-          ls.listing_id,
-          ls.seen_at
-        from listing_sightings ls
-        ${sightingTimeFilter.whereSql}
-        order by date_trunc('${interval}', ls.seen_at), ls.listing_id, ls.seen_at desc
+      with selected_runs as (
+        select distinct on (date_trunc('${interval}', cr.finished_at), cr.search_query_id)
+          cr.id,
+          cr.search_query_id,
+          cr.crawl_kind,
+          date_trunc('${interval}', cr.finished_at) as bucket_start
+        from crawl_runs cr
+        ${runTimeFilter.whereSql}
+        order by date_trunc('${interval}', cr.finished_at), cr.search_query_id, cr.finished_at desc
+      ),
+      complete_buckets as (
+        select bucket_start
+        from selected_runs
+        group by bucket_start
+        having count(distinct crawl_kind) = ${requiredRunKindCount}
+      ),
+      sighting_buckets as (
+        select
+          run.bucket_start,
+          sighting.listing_id,
+          max(sighting.seen_at) as seen_at
+        from selected_runs run
+        join complete_buckets complete_bucket on complete_bucket.bucket_start = run.bucket_start
+        join listing_sightings sighting on sighting.crawl_run_id = run.id
+        group by run.bucket_start, sighting.listing_id
       ),
       bucketed_snapshots as (
         select
@@ -1105,34 +1178,16 @@ async function getPriceByTransmission(
   }));
 }
 
-async function getCoverage(sql: Sql, filters: Partial<ListingFiltersQuery>): Promise<CoverageMetadata> {
-  const { whereSql, params } = buildFilterWhere(filters);
-  const [row] = await sql.unsafe<
-    {
-      sampleSize: number;
-      includesCurrent: boolean | null;
-      includesSold: boolean | null;
-    }[]
-  >(
-    `
-      with latest_snapshots as (${latestSnapshotSql()})
-      select
-        count(*)::int as "sampleSize",
-        bool_or(s.availability = 'active') as "includesCurrent",
-        bool_or(s.availability = 'sold') as "includesSold"
-      from latest_snapshots s
-      join listings l on l.id = s.listing_id
-      ${whereSql}
-    `,
-    params,
-  );
+async function getSearchCoverage(
+  sql: Sql,
+  filters: Partial<ListingFiltersQuery>,
+  matches: Pick<CoverageMetadata, "sampleSize" | "includesCurrent" | "includesSold">,
+): Promise<CoverageMetadata> {
   const coverageState = await getCoverageState(sql, filters.availability);
 
   return {
     lastRelevantCrawlAt: coverageState.lastRelevantCrawlAt,
-    sampleSize: row?.sampleSize ?? 0,
-    includesCurrent: row?.includesCurrent ?? false,
-    includesSold: row?.includesSold ?? false,
+    ...matches,
     dataSource: filters.transmission ? "search_and_detail_data" : "search_result_data",
     completeness: coverageState.completeness,
   };
@@ -1277,26 +1332,9 @@ async function getLatestFailedJobs(
 
 function latestSnapshotSql() {
   return `
-    select distinct on (listing_id)
-      listing_id,
-      observed_at,
-      created_at,
-      availability,
-      source_updated_date,
-      asking_price_eur,
-      observed_sold_price_eur,
-      mileage_km,
-      year_model,
-      make_source_label,
-      model_source_label,
-      fuel_type_source_label,
-      transmission_source_label,
-      body_type_source_label,
-      color_source_label,
-      seller_source_label,
-      seller_type_source_label
-    from listing_snapshots
-    order by listing_id, observed_at desc, created_at desc
+    select snapshot.*
+    from listings current_listing
+    join listing_snapshots snapshot on snapshot.id = current_listing.latest_snapshot_id
   `;
 }
 
@@ -1368,7 +1406,9 @@ function buildFilterWhere(
   };
 }
 
-function buildSightingTimeWhere(filters: Pick<ListingFiltersQuery, "from" | "to">) {
+function buildCompletedRunTimeWhere(
+  filters: Pick<ListingFiltersQuery, "availability" | "from" | "to">,
+) {
   const conditions: string[] = [];
   const params: SqlParameter[] = [];
   const add = (condition: string, value: SqlParameter) => {
@@ -1376,14 +1416,31 @@ function buildSightingTimeWhere(filters: Pick<ListingFiltersQuery, "from" | "to"
     conditions.push(condition.replace("?", `$${params.length}`));
   };
 
+  conditions.push("cr.status = 'completed'");
+  conditions.push("cr.is_complete = true");
+  conditions.push("cr.finished_at is not null");
+  if (filters.availability === "current") {
+    conditions.push("cr.crawl_kind = 'current'");
+  }
+  if (filters.availability === "sold") {
+    conditions.push("cr.crawl_kind = 'sold'");
+  }
+
   if (filters.from) {
-    add("ls.seen_at >= ?::date", filters.from);
+    add("cr.finished_at >= ?::date", filters.from);
+  } else if (filters.to) {
+    add(
+      `cr.finished_at >= (?::date - interval '${ANALYTICS_DEFAULT_TREND_LOOKBACK_DAYS} days')`,
+      filters.to,
+    );
   }
   if (filters.to) {
-    add("ls.seen_at < (?::date + interval '1 day')", filters.to);
+    add("cr.finished_at < (?::date + interval '1 day')", filters.to);
   }
   if (!filters.from && !filters.to) {
-    conditions.push(`ls.seen_at >= now() - interval '${ANALYTICS_DEFAULT_TREND_LOOKBACK_DAYS} days'`);
+    conditions.push(
+      `cr.finished_at >= now() - interval '${ANALYTICS_DEFAULT_TREND_LOOKBACK_DAYS} days'`,
+    );
   }
 
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AnalyticsTrendResponse } from "@nettiauto/domain";
+import type { AnalyticsTimeSeriesResponse } from "@nettiauto/domain";
 import type { AppLogger } from "@nettiauto/logging";
 import type { ListingFiltersQuery } from "@nettiauto/schemas";
 import { AnalyticsTrendCache } from "./analytics-cache";
@@ -11,10 +11,10 @@ const query: ListingFiltersQuery = {
 
 describe("AnalyticsTrendCache", () => {
   it("deduplicates concurrent cold loads for the same query", async () => {
-    let resolveLoad: (value: AnalyticsTrendResponse) => void = () => {};
-    const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTrendResponse>>(
+    let resolveLoad: (value: AnalyticsTimeSeriesResponse) => void = () => {};
+    const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>>(
       () =>
-        new Promise<AnalyticsTrendResponse>((resolve) => {
+        new Promise<AnalyticsTimeSeriesResponse>((resolve) => {
           resolveLoad = resolve;
         }),
     );
@@ -31,13 +31,13 @@ describe("AnalyticsTrendCache", () => {
 
   it("serves stale data while refreshing an expired entry", async () => {
     let now = 0;
-    let resolveRefresh: (value: AnalyticsTrendResponse) => void = () => {};
+    let resolveRefresh: (value: AnalyticsTimeSeriesResponse) => void = () => {};
     const loader = vi
-      .fn<(query: ListingFiltersQuery) => Promise<AnalyticsTrendResponse>>()
+      .fn<(query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>>()
       .mockResolvedValueOnce(responseWithCount(10))
       .mockImplementationOnce(
         () =>
-          new Promise<AnalyticsTrendResponse>((resolve) => {
+          new Promise<AnalyticsTimeSeriesResponse>((resolve) => {
             resolveRefresh = resolve;
           }),
       );
@@ -66,7 +66,7 @@ describe("AnalyticsTrendCache", () => {
   });
 
   it("keeps exact year and transmission filters in separate entries", async () => {
-    const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTrendResponse>>(
+    const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>>(
       (input) => Promise.resolve(responseWithCount((input.modelYear ?? 0) + (input.transmission ? 1 : 0))),
     );
     const cache = createCache(loader);
@@ -80,7 +80,7 @@ describe("AnalyticsTrendCache", () => {
 });
 
 function createCache(
-  loader: (query: ListingFiltersQuery) => Promise<AnalyticsTrendResponse>,
+  loader: (query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>,
   now?: () => number,
 ) {
   return new AnalyticsTrendCache({
@@ -95,33 +95,22 @@ function createCache(
   });
 }
 
-function responseWithCount(listingCount: number): AnalyticsTrendResponse {
+function responseWithCount(listingCount: number): AnalyticsTimeSeriesResponse {
   return {
     appliedFilters: query,
-    coverage: {
-      lastRelevantCrawlAt: null,
-      sampleSize: listingCount,
-      includesCurrent: false,
-      includesSold: false,
-      dataSource: "search_result_data",
-      completeness: "unknown",
-    },
-    summary: {
-      listingCount,
-      activeCount: 0,
-      soldCount: 0,
-      medianAskingPriceEur: null,
-      medianObservedSoldPriceEur: null,
-      medianMileageKm: null,
-      askingPriceSampleSize: 0,
-      observedSoldPriceSampleSize: 0,
-      mileageSampleSize: 0,
-    },
-    charts: {
-      marketOverTime: [],
-      priceByYear: [],
-      priceByMileageBucket: [],
-      priceByTransmission: [],
-    },
+    marketOverTime: [
+      {
+        bucket: "2026-01-01",
+        listingCount,
+        activeCount: listingCount,
+        soldCount: 0,
+        newListingCount: 0,
+        medianAskingPriceEur: null,
+        medianObservedSoldPriceEur: null,
+        sampleSize: listingCount,
+        askingPriceSampleSize: 0,
+        observedSoldPriceSampleSize: 0,
+      },
+    ],
   };
 }

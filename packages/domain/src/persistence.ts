@@ -750,58 +750,102 @@ async function persistListingCard(
       source_status_label = excluded.source_status_label
   `;
 
+  const snapshotRows = (await tx`
+    with current_snapshot as (
+      select snapshot.id, snapshot.change_hash
+      from listings current_listing
+      join listing_snapshots snapshot on snapshot.id = current_listing.latest_snapshot_id
+      where current_listing.id = ${listing.id}
+    ),
+    inserted_snapshot as (
+      insert into listing_snapshots (
+        listing_id,
+        raw_listing_record_id,
+        parser_version,
+        observed_at,
+        availability,
+        source_status_label,
+        asking_price_eur,
+        observed_sold_price_eur,
+        price_source_label,
+        mileage_km,
+        mileage_source_label,
+        year_model,
+        make_source_label,
+        model_source_label,
+        fuel_type_source_label,
+        transmission_source_label,
+        body_type_source_label,
+        color_source_label,
+        seller_source_label,
+        seller_type_source_label,
+        normalized_data,
+        change_hash,
+        created_at
+      )
+      select
+        ${listing.id},
+        ${rawRecord.id},
+        ${input.listing.parserVersion},
+        ${input.fetchedAt},
+        ${normalized.availability},
+        ${normalized.sourceStatusLabel},
+        ${normalized.askingPriceEur},
+        ${normalized.observedSoldPriceEur},
+        ${normalized.priceSourceLabel},
+        ${normalized.mileageKm},
+        ${normalized.mileageSourceLabel},
+        ${normalized.yearModel},
+        ${normalized.makeSourceLabel},
+        ${normalized.modelSourceLabel},
+        ${normalized.fuelTypeSourceLabel},
+        ${normalized.transmissionSourceLabel},
+        ${normalized.bodyTypeSourceLabel},
+        ${normalized.colorSourceLabel},
+        ${normalized.sellerSourceLabel},
+        ${normalized.sellerTypeSourceLabel},
+        ${tx.json(jsonValue(normalized))},
+        ${input.listing.changeHash},
+        now()
+      where not exists (select 1 from current_snapshot)
+        or (select change_hash from current_snapshot) <> ${input.listing.changeHash}
+      returning id
+    )
+    select id
+    from (
+      select id, 0 as priority
+      from inserted_snapshot
+      union all
+      select id, 1 as priority
+      from current_snapshot
+    ) snapshot_candidates
+    order by priority
+    limit 1
+  `) as unknown as Array<{ id: string }>;
+  const [snapshot] = snapshotRows;
+
+  if (!snapshot) {
+    throw new Error("Failed to resolve latest listing snapshot.");
+  }
+
   await tx`
-    insert into listing_snapshots (
-      listing_id,
-      raw_listing_record_id,
-      parser_version,
-      observed_at,
-      availability,
-      source_status_label,
-      asking_price_eur,
-      observed_sold_price_eur,
-      price_source_label,
-      mileage_km,
-      mileage_source_label,
-      year_model,
-      make_source_label,
-      model_source_label,
-      fuel_type_source_label,
-      transmission_source_label,
-      body_type_source_label,
-      color_source_label,
-      seller_source_label,
-      seller_type_source_label,
-      normalized_data,
-      change_hash,
-      created_at
-    )
-    values (
-      ${listing.id},
-      ${rawRecord.id},
-      ${input.listing.parserVersion},
-      ${input.fetchedAt},
-      ${normalized.availability},
-      ${normalized.sourceStatusLabel},
-      ${normalized.askingPriceEur},
-      ${normalized.observedSoldPriceEur},
-      ${normalized.priceSourceLabel},
-      ${normalized.mileageKm},
-      ${normalized.mileageSourceLabel},
-      ${normalized.yearModel},
-      ${normalized.makeSourceLabel},
-      ${normalized.modelSourceLabel},
-      ${normalized.fuelTypeSourceLabel},
-      ${normalized.transmissionSourceLabel},
-      ${normalized.bodyTypeSourceLabel},
-      ${normalized.colorSourceLabel},
-      ${normalized.sellerSourceLabel},
-      ${normalized.sellerTypeSourceLabel},
-      ${tx.json(jsonValue(normalized))},
-      ${input.listing.changeHash},
-      now()
-    )
-    on conflict (listing_id, change_hash) do nothing
+    update listings listing
+    set latest_snapshot_id = candidate.id
+    from listing_snapshots candidate
+    where listing.id = ${listing.id}
+      and candidate.id = ${snapshot.id}
+      and not exists (
+        select 1
+        from listing_snapshots current_snapshot
+        where current_snapshot.id = listing.latest_snapshot_id
+          and (
+            current_snapshot.observed_at > candidate.observed_at
+            or (
+              current_snapshot.observed_at = candidate.observed_at
+              and current_snapshot.created_at > candidate.created_at
+            )
+          )
+      )
   `;
 
   for (const image of input.listing.images) {
@@ -891,13 +935,7 @@ async function updateListingFromDetailPage(
       body_type_source_label = coalesce(${detailData.bodyTypeSourceLabel}, body_type_source_label),
       color_source_label = coalesce(${detailData.colorSourceLabel}, color_source_label),
       normalized_data = normalized_data || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb)
-    where id = (
-      select id
-      from listing_snapshots
-      where listing_id = ${listing.id}
-      order by observed_at desc, created_at desc
-      limit 1
-    )
+    where id = (select latest_snapshot_id from listings where id = ${listing.id})
   `;
 
   return listing.id;

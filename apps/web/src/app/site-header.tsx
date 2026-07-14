@@ -10,14 +10,26 @@ export function SiteHeader({ active }: { active?: "analyze" | "listings" | "admi
         <span>Nettiauto Analytics</span>
       </Link>
       <nav className="site-nav" aria-label="Main navigation">
-        <Link className={active === "analyze" ? "active" : undefined} href="/">
+        <Link
+          className={active === "analyze" ? "active" : undefined}
+          href="/"
+          aria-current={active === "analyze" ? "page" : undefined}
+        >
           Analyze
         </Link>
-        <Link className={active === "listings" ? "active" : undefined} href="/listings">
+        <Link
+          className={active === "listings" ? "active" : undefined}
+          href="/listings"
+          aria-current={active === "listings" ? "page" : undefined}
+        >
           Listings
         </Link>
       </nav>
-      <Link className={`admin-link ${active === "admin" ? "active" : ""}`} href="/admin/crawler">
+      <Link
+        className={`admin-link ${active === "admin" ? "active" : ""}`}
+        href="/admin/crawler"
+        aria-current={active === "admin" ? "page" : undefined}
+      >
         Admin
       </Link>
     </header>

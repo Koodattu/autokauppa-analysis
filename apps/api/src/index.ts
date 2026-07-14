@@ -11,7 +11,8 @@ import {
   verifyAdminSessionCookieValue,
   getAdminCrawlerDiagnostics,
   getAdminCrawlerStatus,
-  getAnalyticsTrend,
+  getAnalyticsSnapshot,
+  getAnalyticsTimeSeries,
   getFilterMetadata,
   getMarketOverview,
   getPublicListingDetail,
@@ -37,7 +38,7 @@ const sql = createSqlClient(config.DATABASE_URL);
 const analyticsTrendCache = new AnalyticsTrendCache({
   ttlMs: ANALYTICS_CACHE_TTL_MS,
   maxEntries: ANALYTICS_CACHE_MAX_ENTRIES,
-  loader: (query) => getAnalyticsTrend(sql, query),
+  loader: (query) => getAnalyticsTimeSeries(sql, query),
   logger,
 });
 const defaultAnalyticsFilters = listingFiltersQuerySchema.parse({});
@@ -93,11 +94,43 @@ app.get("/analytics/trends", async (c) => {
     return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
   }
 
+  const [snapshot, cached] = await Promise.all([
+    getAnalyticsSnapshot(sql, result.data),
+    analyticsTrendCache.get(result.data),
+  ]);
+  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  c.header("X-Analytics-Cache", cached.status);
+  c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
+  return c.json({
+    ...snapshot,
+    charts: {
+      marketOverTime: cached.value.marketOverTime,
+      ...snapshot.charts,
+    },
+  });
+});
+
+app.get("/analytics/time-series", async (c) => {
+  const result = listingFiltersQuerySchema.safeParse(c.req.query());
+  if (!result.success) {
+    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  }
+
   const cached = await analyticsTrendCache.get(result.data);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   c.header("X-Analytics-Cache", cached.status);
   c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
   return c.json(cached.value);
+});
+
+app.get("/analytics/snapshot", async (c) => {
+  const result = listingFiltersQuerySchema.safeParse(c.req.query());
+  if (!result.success) {
+    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  }
+
+  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  return c.json(await getAnalyticsSnapshot(sql, result.data));
 });
 
 app.get("/market/overview", async (c) => {

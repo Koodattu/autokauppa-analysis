@@ -94,6 +94,14 @@ export interface AnalyticsTrendResponse {
   };
 }
 
+export type AnalyticsSnapshotResponse = Omit<AnalyticsTrendResponse, "charts"> & {
+  charts: Omit<AnalyticsTrendResponse["charts"], "marketOverTime">;
+};
+
+export interface AnalyticsTimeSeriesResponse {
+  marketOverTime: AnalyticsTrendResponse["charts"]["marketOverTime"];
+}
+
 export interface ListingTableItem {
   listingId: string;
   sourceListingId: string;
@@ -300,6 +308,18 @@ export function searchParamsToQueryString(searchParams: Record<string, string | 
   }
 
   return params.toString();
+}
+
+export function filterMetadataQueryString(queryString: string) {
+  const source = new URLSearchParams(queryString);
+  const result = new URLSearchParams();
+  for (const key of ["make", "model"]) {
+    const value = source.get(key);
+    if (value) {
+      result.set(key, value);
+    }
+  }
+  return result.toString();
 }
 
 export function singleSearchParam(value: string | string[] | undefined) {

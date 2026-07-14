@@ -52,13 +52,7 @@ const task: Task = async (payload, helpers) => {
         select latest_snapshot.source_updated_date::text as "sourceUpdatedDate"
              , latest_snapshot.normalized_data->>'detailParserVersion' as "detailParserVersion"
         from listings
-        left join lateral (
-          select source_updated_date, normalized_data
-          from listing_snapshots
-          where listing_id = listings.id
-          order by observed_at desc, created_at desc
-          limit 1
-        ) latest_snapshot on true
+        left join listing_snapshots latest_snapshot on latest_snapshot.id = listings.latest_snapshot_id
         where listings.source = 'nettiauto'
           and listings.source_listing_id = ${taskPayload.sourceListingId}
         limit 1

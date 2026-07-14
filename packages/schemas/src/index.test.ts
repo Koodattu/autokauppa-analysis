@@ -26,6 +26,9 @@ describe("listing query schemas", () => {
     ).toBe(false);
     expect(listingFiltersQuerySchema.safeParse({ mileageMax: "3000000" }).success).toBe(false);
     expect(listingFiltersQuerySchema.safeParse({ from: "2026-99-99" }).success).toBe(false);
+    expect(
+      listingFiltersQuerySchema.safeParse({ from: "2020-01-01", to: "2023-01-01" }).success,
+    ).toBe(false);
     expect(listingSearchQuerySchema.safeParse({ page: "1001" }).success).toBe(false);
   });
 
