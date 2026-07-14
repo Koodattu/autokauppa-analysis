@@ -232,6 +232,9 @@ export const listings = pgTable(
     index("listings_availability_last_seen_idx").on(table.currentAvailability, table.lastSeenAt),
     index("listings_category_availability_idx").on(table.vehicleCategory, table.currentAvailability),
     index("listings_last_seen_id_idx").on(table.lastSeenAt.desc(), table.id),
+    uniqueIndex("listings_latest_snapshot_id_uq")
+      .on(table.latestSnapshotId)
+      .where(sql`${table.latestSnapshotId} is not null`),
   ],
 );
 

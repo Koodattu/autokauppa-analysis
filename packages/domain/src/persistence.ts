@@ -700,8 +700,16 @@ async function persistListingCard(
     do update set
       vehicle_category = excluded.vehicle_category,
       canonical_source_url = coalesce(excluded.canonical_source_url, listings.canonical_source_url),
-      current_availability = excluded.current_availability,
-      availability_last_confirmed_at = excluded.availability_last_confirmed_at,
+      current_availability = case
+        when listings.availability_last_confirmed_at is null
+          or excluded.availability_last_confirmed_at >= listings.availability_last_confirmed_at
+          then excluded.current_availability
+        else listings.current_availability
+      end,
+      availability_last_confirmed_at = greatest(
+        listings.availability_last_confirmed_at,
+        excluded.availability_last_confirmed_at
+      ),
       last_seen_at = greatest(listings.last_seen_at, excluded.last_seen_at),
       last_raw_listing_record_id = excluded.last_raw_listing_record_id,
       updated_at = now()

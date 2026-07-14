@@ -1,49 +1,47 @@
-import type { AnalyticsTimeSeriesResponse } from "@nettiauto/domain";
 import type { AppLogger } from "@nettiauto/logging";
-import type { ListingFiltersQuery } from "@nettiauto/schemas";
 
-type AnalyticsCacheStatus = "hit" | "miss" | "stale";
+type ResponseCacheStatus = "hit" | "miss" | "stale";
 
-type AnalyticsTrendLoader = (query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>;
-
-interface AnalyticsTrendCacheOptions {
+interface ResponseCacheOptions<Query, Value> {
+  name: string;
   ttlMs: number;
   maxEntries: number;
-  loader: AnalyticsTrendLoader;
+  key: (query: Query) => string;
+  loader: (query: Query) => Promise<Value>;
   logger: AppLogger;
   now?: () => number;
 }
 
-interface AnalyticsTrendCacheEntry {
-  query: ListingFiltersQuery;
-  value?: AnalyticsTimeSeriesResponse;
+interface ResponseCacheEntry<Query, Value> {
+  query: Query;
+  value?: Value;
   refreshedAt: number;
   expiresAt: number;
   lastAccessedAt: number;
-  refreshPromise?: Promise<AnalyticsTimeSeriesResponse>;
+  refreshPromise?: Promise<Value>;
   lastError?: string;
 }
 
-export interface AnalyticsTrendCacheResult {
-  value: AnalyticsTimeSeriesResponse;
-  status: AnalyticsCacheStatus;
+export interface ResponseCacheResult<Value> {
+  value: Value;
+  status: ResponseCacheStatus;
   ageMs: number;
 }
 
-export class AnalyticsTrendCache {
-  private readonly entries = new Map<string, AnalyticsTrendCacheEntry>();
+export class ResponseCache<Query, Value> {
+  private readonly entries = new Map<string, ResponseCacheEntry<Query, Value>>();
   private readonly now: () => number;
 
-  constructor(private readonly options: AnalyticsTrendCacheOptions) {
+  constructor(private readonly options: ResponseCacheOptions<Query, Value>) {
     this.now = options.now ?? Date.now;
   }
 
-  async get(query: ListingFiltersQuery): Promise<AnalyticsTrendCacheResult> {
-    const key = analyticsTrendCacheKey(query);
+  async get(query: Query): Promise<ResponseCacheResult<Value>> {
+    const key = this.options.key(query);
     const now = this.now();
     const entry = this.entries.get(key);
 
-    if (entry?.value) {
+    if (entry?.value !== undefined) {
       entry.lastAccessedAt = now;
       if (entry.expiresAt <= now) {
         this.refreshInBackground(key, query);
@@ -70,23 +68,27 @@ export class AnalyticsTrendCache {
     };
   }
 
-  prewarm(query: ListingFiltersQuery) {
-    const key = analyticsTrendCacheKey(query);
+  async prewarm(query: Query): Promise<void> {
+    const key = this.options.key(query);
     const entry = this.entries.get(key);
-    if (entry?.value && entry.expiresAt > this.now()) {
+    if (entry?.value !== undefined && entry.expiresAt > this.now()) {
       return;
     }
 
-    this.refreshInBackground(key, query);
+    try {
+      await this.refresh(key, query);
+    } catch {
+      // The refresh path logs failures and keeps the previous value when one exists.
+    }
   }
 
-  private refreshInBackground(key: string, query: ListingFiltersQuery) {
+  private refreshInBackground(key: string, query: Query) {
     void this.refresh(key, query).catch(() => {
       // The refresh path logs failures and keeps the previous value when one exists.
     });
   }
 
-  private refresh(key: string, query: ListingFiltersQuery): Promise<AnalyticsTimeSeriesResponse> {
+  private refresh(key: string, query: Query): Promise<Value> {
     const now = this.now();
     const entry = this.ensureEntry(key, query, now);
     if (entry.refreshPromise) {
@@ -107,11 +109,12 @@ export class AnalyticsTrendCache {
         this.prune(key);
         this.options.logger.info(
           {
+            cacheName: this.options.name,
             cacheKey: key,
             durationMs: completedAt - startedAt,
             ttlMs: this.options.ttlMs,
           },
-          "Analytics cache refreshed",
+          "API response cache refreshed",
         );
         return value;
       })
@@ -120,10 +123,11 @@ export class AnalyticsTrendCache {
         this.options.logger.error(
           {
             error,
+            cacheName: this.options.name,
             cacheKey: key,
             hadCachedValue: entry.value !== undefined,
           },
-          "Analytics cache refresh failed",
+          "API response cache refresh failed",
         );
         if (entry.value === undefined) {
           this.entries.delete(key);
@@ -140,7 +144,7 @@ export class AnalyticsTrendCache {
     return entry.refreshPromise;
   }
 
-  private ensureEntry(key: string, query: ListingFiltersQuery, now: number) {
+  private ensureEntry(key: string, query: Query, now: number) {
     const existing = this.entries.get(key);
     if (existing) {
       existing.query = query;
@@ -148,7 +152,7 @@ export class AnalyticsTrendCache {
       return existing;
     }
 
-    const entry: AnalyticsTrendCacheEntry = {
+    const entry: ResponseCacheEntry<Query, Value> = {
       query,
       refreshedAt: 0,
       expiresAt: 0,
@@ -174,24 +178,4 @@ export class AnalyticsTrendCache {
       this.entries.delete(key);
     }
   }
-}
-
-function analyticsTrendCacheKey(query: ListingFiltersQuery) {
-  return JSON.stringify({
-    make: query.make ?? null,
-    model: query.model ?? null,
-    modelYear: query.modelYear ?? null,
-    modelYearFrom: query.modelYearFrom ?? null,
-    modelYearTo: query.modelYearTo ?? null,
-    priceMin: query.priceMin ?? null,
-    priceMax: query.priceMax ?? null,
-    mileageMin: query.mileageMin ?? null,
-    mileageMax: query.mileageMax ?? null,
-    availability: query.availability,
-    sellerType: query.sellerType ?? null,
-    transmission: query.transmission ?? null,
-    from: query.from ?? null,
-    to: query.to ?? null,
-    interval: query.interval,
-  });
 }

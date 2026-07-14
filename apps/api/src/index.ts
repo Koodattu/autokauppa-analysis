@@ -25,19 +25,38 @@ import {
   listingIdSchema,
   listingFiltersQuerySchema,
   listingSearchQuerySchema,
+  type ListingFiltersQuery,
 } from "@nettiauto/schemas";
-import { AnalyticsTrendCache } from "./analytics-cache";
+import { ResponseCache } from "./analytics-cache";
 
-const ANALYTICS_CACHE_TTL_MS = 5 * 60 * 1000;
-const ANALYTICS_CACHE_MAX_ENTRIES = 32;
-const ANALYTICS_CACHE_REFRESH_SWEEP_MS = 30 * 1000;
+const RESPONSE_CACHE_TTL_MS = 5 * 60 * 1000;
+const RESPONSE_CACHE_MAX_ENTRIES = 32;
+const RESPONSE_CACHE_REFRESH_SWEEP_MS = 30 * 1000;
 
 const config = parseApiConfig();
 const logger = createLogger({ service: "api", env: config.APP_ENV });
 const sql = createSqlClient(config.DATABASE_URL);
-const analyticsTrendCache = new AnalyticsTrendCache({
-  ttlMs: ANALYTICS_CACHE_TTL_MS,
-  maxEntries: ANALYTICS_CACHE_MAX_ENTRIES,
+const filterMetadataCache = new ResponseCache({
+  name: "filter-metadata",
+  ttlMs: RESPONSE_CACHE_TTL_MS,
+  maxEntries: RESPONSE_CACHE_MAX_ENTRIES,
+  key: filterMetadataCacheKey,
+  loader: (query) => getFilterMetadata(sql, query),
+  logger,
+});
+const analyticsSnapshotCache = new ResponseCache({
+  name: "analytics-snapshot",
+  ttlMs: RESPONSE_CACHE_TTL_MS,
+  maxEntries: RESPONSE_CACHE_MAX_ENTRIES,
+  key: analyticsSnapshotCacheKey,
+  loader: (query) => getAnalyticsSnapshot(sql, query),
+  logger,
+});
+const analyticsTimeSeriesCache = new ResponseCache({
+  name: "analytics-time-series",
+  ttlMs: RESPONSE_CACHE_TTL_MS,
+  maxEntries: RESPONSE_CACHE_MAX_ENTRIES,
+  key: analyticsTimeSeriesCacheKey,
   loader: (query) => getAnalyticsTimeSeries(sql, query),
   logger,
 });
@@ -45,10 +64,10 @@ const defaultAnalyticsFilters = listingFiltersQuerySchema.parse({});
 
 const app = new Hono();
 
-analyticsTrendCache.prewarm(defaultAnalyticsFilters);
+void prewarmDefaultResponses();
 setInterval(() => {
-  analyticsTrendCache.prewarm(defaultAnalyticsFilters);
-}, ANALYTICS_CACHE_REFRESH_SWEEP_MS);
+  void prewarmDefaultResponses();
+}, RESPONSE_CACHE_REFRESH_SWEEP_MS);
 
 const adminOnly = createMiddleware(async (c, next) => {
   const session = verifyAdminSessionCookieValue(
@@ -84,8 +103,11 @@ app.get("/filters", async (c) => {
     return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
   }
 
+  const cached = await filterMetadataCache.get(result.data);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-  return c.json(await getFilterMetadata(sql, result.data));
+  c.header("X-Filter-Cache", cached.status);
+  c.header("X-Filter-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
+  return c.json(cached.value);
 });
 
 app.get("/analytics/trends", async (c) => {
@@ -94,18 +116,17 @@ app.get("/analytics/trends", async (c) => {
     return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
   }
 
-  const [snapshot, cached] = await Promise.all([
-    getAnalyticsSnapshot(sql, result.data),
-    analyticsTrendCache.get(result.data),
-  ]);
+  const snapshot = await analyticsSnapshotCache.get(result.data);
+  const timeSeries = await analyticsTimeSeriesCache.get(result.data);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-  c.header("X-Analytics-Cache", cached.status);
-  c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
+  c.header("X-Analytics-Cache", timeSeries.status);
+  c.header("X-Analytics-Cache-Age", String(Math.floor(timeSeries.ageMs / 1000)));
   return c.json({
-    ...snapshot,
+    ...snapshot.value,
+    appliedFilters: result.data,
     charts: {
-      marketOverTime: cached.value.marketOverTime,
-      ...snapshot.charts,
+      marketOverTime: timeSeries.value.marketOverTime,
+      ...snapshot.value.charts,
     },
   });
 });
@@ -116,11 +137,11 @@ app.get("/analytics/time-series", async (c) => {
     return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
   }
 
-  const cached = await analyticsTrendCache.get(result.data);
+  const cached = await analyticsTimeSeriesCache.get(result.data);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   c.header("X-Analytics-Cache", cached.status);
   c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
-  return c.json(cached.value);
+  return c.json({ ...cached.value, appliedFilters: result.data });
 });
 
 app.get("/analytics/snapshot", async (c) => {
@@ -129,8 +150,11 @@ app.get("/analytics/snapshot", async (c) => {
     return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
   }
 
+  const cached = await analyticsSnapshotCache.get(result.data);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-  return c.json(await getAnalyticsSnapshot(sql, result.data));
+  c.header("X-Analytics-Cache", cached.status);
+  c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
+  return c.json({ ...cached.value, appliedFilters: result.data });
 });
 
 app.get("/market/overview", async (c) => {
@@ -301,6 +325,45 @@ async function readOptionalJsonBody(req: {
 
 function wantsJson(acceptHeader: string | undefined) {
   return acceptHeader?.includes("application/json") ?? false;
+}
+
+async function prewarmDefaultResponses() {
+  await filterMetadataCache.prewarm(defaultAnalyticsFilters);
+  await analyticsSnapshotCache.prewarm(defaultAnalyticsFilters);
+  await analyticsTimeSeriesCache.prewarm(defaultAnalyticsFilters);
+}
+
+function filterMetadataCacheKey(query: ListingFiltersQuery) {
+  return JSON.stringify({
+    make: query.make ?? null,
+    model: query.model ?? null,
+  });
+}
+
+function analyticsSnapshotCacheKey(query: ListingFiltersQuery) {
+  return JSON.stringify({
+    make: query.make ?? null,
+    model: query.model ?? null,
+    modelYear: query.modelYear ?? null,
+    modelYearFrom: query.modelYearFrom ?? null,
+    modelYearTo: query.modelYearTo ?? null,
+    priceMin: query.priceMin ?? null,
+    priceMax: query.priceMax ?? null,
+    mileageMin: query.mileageMin ?? null,
+    mileageMax: query.mileageMax ?? null,
+    availability: query.availability,
+    sellerType: query.sellerType ?? null,
+    transmission: query.transmission ?? null,
+  });
+}
+
+function analyticsTimeSeriesCacheKey(query: ListingFiltersQuery) {
+  return JSON.stringify({
+    snapshot: analyticsSnapshotCacheKey(query),
+    from: query.from ?? null,
+    to: query.to ?? null,
+    interval: query.interval,
+  });
 }
 
 export default {

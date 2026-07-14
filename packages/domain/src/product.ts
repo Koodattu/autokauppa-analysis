@@ -311,13 +311,10 @@ export async function getAnalyticsSnapshot(
   sql: Sql,
   filters: ListingFiltersQuery,
 ): Promise<AnalyticsSnapshotResponse> {
-  const [summaryAndCoverage, priceByYear, priceByMileageBucket, priceByTransmission] =
-    await Promise.all([
-      getSummaryAndCoverage(sql, filters),
-      getPriceByYear(sql, filters),
-      getPriceByMileageBucket(sql, filters),
-      getPriceByTransmission(sql, filters),
-    ]);
+  const summaryAndCoverage = await getSummaryAndCoverage(sql, filters);
+  const priceByYear = await getPriceByYear(sql, filters);
+  const priceByMileageBucket = await getPriceByMileageBucket(sql, filters);
+  const priceByTransmission = await getPriceByTransmission(sql, filters);
   const { summary, coverage } = summaryAndCoverage;
   const analyticsCoverage: CoverageMetadata = {
     ...coverage,
@@ -378,17 +375,8 @@ export async function searchListings(
   const { whereSql, params } = buildFilterWhere(query);
   const orderBy = sortToOrderBy(query.sort);
   const offset = (query.page - 1) * query.pageSize;
-  const rows = await sql.unsafe<
-    Array<
-      ListingTableItem & {
-        totalItems: number;
-        includesCurrent: boolean | null;
-        includesSold: boolean | null;
-      }
-    >
-  >(
+  const rows = await sql.unsafe<ListingTableItem[]>(
     `
-      with latest_snapshots as (${latestSnapshotSql()})
       select
         l.id as "listingId",
         l.source_listing_id as "sourceListingId",
@@ -402,12 +390,9 @@ export async function searchListings(
         s.seller_source_label as "seller",
         s.seller_type_source_label as "sellerType",
         s.source_updated_date::text as "sourceUpdatedDate",
-        l.last_seen_at::text as "lastSeenAt",
-        count(*) over()::int as "totalItems",
-        bool_or(s.availability = 'active') over() as "includesCurrent",
-        bool_or(s.availability = 'sold') over() as "includesSold"
-      from latest_snapshots s
-      join listings l on l.id = s.listing_id
+        l.last_seen_at::text as "lastSeenAt"
+      from listings l
+      join listing_snapshots s on s.id = l.latest_snapshot_id
       ${whereSql}
       order by ${orderBy}
       limit $${params.length + 1}
@@ -415,18 +400,11 @@ export async function searchListings(
     `,
     [...params, query.pageSize, offset],
   );
-  const matchSummary = rows[0] ??
-    (offset > 0
-      ? await countListingMatches(sql, whereSql, params)
-      : { totalItems: 0, includesCurrent: false, includesSold: false });
+  const matchSummary = await countListingMatches(sql, query, whereSql, params);
   const totalItems = matchSummary.totalItems;
-  const items = rows.map(
-    ({ totalItems: _totalItems, includesCurrent: _includesCurrent, includesSold: _includesSold, ...row }) =>
-      row,
-  );
 
   return {
-    items,
+    items: rows,
     pagination: {
       page: query.page,
       pageSize: query.pageSize,
@@ -444,7 +422,34 @@ export async function searchListings(
   };
 }
 
-async function countListingMatches(sql: Sql, whereSql: string, params: SqlParameter[]) {
+async function countListingMatches(
+  sql: Sql,
+  query: ListingSearchQuery,
+  whereSql: string,
+  params: SqlParameter[],
+) {
+  if (!hasSnapshotFilters(query)) {
+    const availabilityWhere =
+      query.availability === "current"
+        ? "and current_availability = 'active'"
+        : query.availability === "sold"
+          ? "and current_availability = 'sold'"
+          : "and current_availability in ('active', 'sold')";
+    const [row] = await sql.unsafe<
+      { totalItems: number; includesCurrent: boolean | null; includesSold: boolean | null }[]
+    >(`
+      select
+        count(*)::int as "totalItems",
+        bool_or(current_availability = 'active') as "includesCurrent",
+        bool_or(current_availability = 'sold') as "includesSold"
+      from listings
+      where latest_snapshot_id is not null
+        ${availabilityWhere}
+    `);
+
+    return row ?? { totalItems: 0, includesCurrent: false, includesSold: false };
+  }
+
   const [row] = await sql.unsafe<
     { totalItems: number; includesCurrent: boolean | null; includesSold: boolean | null }[]
   >(
@@ -455,7 +460,6 @@ async function countListingMatches(sql: Sql, whereSql: string, params: SqlParame
         bool_or(s.availability = 'active') as "includesCurrent",
         bool_or(s.availability = 'sold') as "includesSold"
       from latest_snapshots s
-      join listings l on l.id = s.listing_id
       ${whereSql}
     `,
     params,
@@ -839,7 +843,6 @@ async function getSummaryAndCoverage(
         bool_or(s.availability = 'active') as "includesCurrent",
         bool_or(s.availability = 'sold') as "includesSold"
       from latest_snapshots s
-      join listings l on l.id = s.listing_id
       ${whereSql}
     `,
     params,
@@ -1022,7 +1025,6 @@ async function getPriceByYear(sql: Sql, filters: ListingFiltersQuery): Promise<P
         (percentile_cont(0.75) within group (order by s.observed_sold_price_eur)
           filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP75Eur"
       from latest_snapshots s
-      join listings l on l.id = s.listing_id
       ${appendWhereCondition(whereSql, "s.year_model is not null")}
       group by s.year_model
       order by s.year_model asc
@@ -1088,7 +1090,6 @@ async function getPriceByMileageBucket(
         (percentile_cont(0.75) within group (order by s.observed_sold_price_eur)
           filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP75Eur"
       from latest_snapshots s
-      join listings l on l.id = s.listing_id
       ${appendWhereCondition(
         whereSql,
         `s.mileage_km between 0 and ${ANALYTICS_MAX_MILEAGE_KM}`,
@@ -1157,7 +1158,6 @@ async function getPriceByTransmission(
         (percentile_cont(0.75) within group (order by s.observed_sold_price_eur)
           filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP75Eur"
       from latest_snapshots s
-      join listings l on l.id = s.listing_id
       ${appendWhereCondition(whereSql, "s.transmission_source_label is not null")}
       group by s.transmission_source_label
       order by "listingCount" desc, transmission asc
@@ -1453,6 +1453,22 @@ function appendWhereCondition(whereSql: string, condition: string) {
   return whereSql ? `${whereSql} and ${condition}` : `where ${condition}`;
 }
 
+function hasSnapshotFilters(filters: ListingSearchQuery) {
+  return (
+    filters.make !== undefined ||
+    filters.model !== undefined ||
+    filters.modelYear !== undefined ||
+    filters.modelYearFrom !== undefined ||
+    filters.modelYearTo !== undefined ||
+    filters.priceMin !== undefined ||
+    filters.priceMax !== undefined ||
+    filters.mileageMin !== undefined ||
+    filters.mileageMax !== undefined ||
+    filters.sellerType !== undefined ||
+    filters.transmission !== undefined
+  );
+}
+
 function intervalToSqlInterval(interval: ListingFiltersQuery["interval"]) {
   switch (interval) {
     case "day":
@@ -1478,10 +1494,10 @@ function sortToOrderBy(sort: string) {
     case "yearDesc":
       return "s.year_model desc nulls last, l.id asc";
     case "sourceUpdatedDesc":
-      return "s.source_updated_date desc nulls last, l.last_seen_at desc, l.id asc";
+      return "s.source_updated_date desc nulls last, l.last_seen_at desc nulls last, l.id asc";
     case "lastSeenDesc":
     default:
-      return "l.last_seen_at desc, l.id asc";
+      return "l.last_seen_at desc nulls last, l.id asc";
   }
 }
 

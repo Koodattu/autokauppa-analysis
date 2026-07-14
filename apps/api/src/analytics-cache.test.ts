@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnalyticsTimeSeriesResponse } from "@nettiauto/domain";
 import type { AppLogger } from "@nettiauto/logging";
 import type { ListingFiltersQuery } from "@nettiauto/schemas";
-import { AnalyticsTrendCache } from "./analytics-cache";
+import { ResponseCache } from "./analytics-cache";
 
 const query: ListingFiltersQuery = {
   availability: "all",
   interval: "week",
 };
 
-describe("AnalyticsTrendCache", () => {
+describe("ResponseCache", () => {
   it("deduplicates concurrent cold loads for the same query", async () => {
     let resolveLoad: (value: AnalyticsTimeSeriesResponse) => void = () => {};
     const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>>(
@@ -83,9 +83,11 @@ function createCache(
   loader: (query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>,
   now?: () => number,
 ) {
-  return new AnalyticsTrendCache({
+  return new ResponseCache<ListingFiltersQuery, AnalyticsTimeSeriesResponse>({
+    name: "test",
     ttlMs: 100,
     maxEntries: 4,
+    key: (input) => JSON.stringify(input),
     loader,
     logger: {
       info: vi.fn(),
