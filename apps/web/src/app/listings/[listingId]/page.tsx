@@ -41,7 +41,7 @@ export default async function ListingPage({ params }: PageProps) {
   const sourceUpdatedDate = details?.sourceUpdatedDate ?? data.listing.sourceUpdatedDate;
 
   return (
-    <main className="shell">
+    <main className="shell public-shell">
       <SiteHeader active="listings" />
 
       <nav className="breadcrumb" aria-label="Breadcrumb">
@@ -51,7 +51,7 @@ export default async function ListingPage({ params }: PageProps) {
       </nav>
 
       <section className="listing-heading">
-        <div>
+        <div className="heading-copy">
           <div className="heading-status">
             <span className={`status-badge status-${statusTone(data.listing.availability)}`}>
               {labelAvailability(data.listing.availability)}
@@ -59,7 +59,9 @@ export default async function ListingPage({ params }: PageProps) {
             <span>#{data.listing.sourceListingId}</span>
           </div>
           <h1>{title}</h1>
-          <p>{[data.listing.seller, data.listing.sellerType].filter(Boolean).join(" · ") || "Seller unknown"}</p>
+          <p className="heading-meta">
+            {[data.listing.seller, data.listing.sellerType].filter(Boolean).join(" · ") || "Seller unknown"}
+          </p>
         </div>
         {data.listing.sourceAttribution.sourceUrl ? (
           <a
@@ -68,7 +70,8 @@ export default async function ListingPage({ params }: PageProps) {
             rel="nofollow noreferrer"
             target="_blank"
           >
-            Open on Nettiauto
+            Open on Nettiauto <span aria-hidden="true">↗</span>
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
         ) : null}
       </section>
@@ -77,8 +80,11 @@ export default async function ListingPage({ params }: PageProps) {
         <ListingGallery images={data.imageMetadata} title={title} />
         <aside className="listing-summary panel">
           <div className="listing-price">
-            <span>{data.listing.askingPriceEur !== null ? "Asking price" : "Observed sold price"}</span>
+            <span>{data.listing.askingPriceEur !== null ? "Asking price" : "Price shown on observed-sold listing"}</span>
             <strong>{formatCurrency(data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur)}</strong>
+            <p>
+              Observed listing evidence—not a confirmed completed transaction price.
+            </p>
           </div>
           <dl className="summary-list">
             <SummaryRow label="Mileage" value={formatKm(data.listing.mileageKm)} />
@@ -97,22 +103,23 @@ export default async function ListingPage({ params }: PageProps) {
             <h2>History</h2>
             <p>Dates are observations unless “updated on source” is shown separately.</p>
           </div>
-          <span>{data.history.length} changes</span>
+          <span>{formatNumber(data.history.length)} observations</span>
         </div>
         {data.history.length === 0 ? (
           <p className="muted">No history recorded.</p>
         ) : (
           <>
+            <HistoryInsight history={data.history} />
             <ListingHistoryChart history={data.history} />
             <div className="history-table-wrap">
               <table className="history-table">
                 <thead>
                   <tr>
-                    <th>Observed</th>
-                    <th>Availability</th>
-                    <th>Price</th>
-                    <th>Mileage</th>
-                    <th>Updated on source</th>
+                    <th scope="col">Observed</th>
+                    <th scope="col">Availability</th>
+                    <th scope="col">Price</th>
+                    <th scope="col">Mileage</th>
+                    <th scope="col">Updated on source</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -133,9 +140,9 @@ export default async function ListingPage({ params }: PageProps) {
       </section>
 
       {detailGroups.length > 0 ? (
-        <section className="spec-grid" aria-label="Vehicle details">
+        <section className="panel spec-workspace" aria-label="Vehicle details">
           {detailGroups.map((group) => (
-            <section className="panel spec-panel" key={group.title}>
+            <section className="spec-group" key={group.title}>
               <h2>{group.title}</h2>
               <dl className="details">
                 {group.rows.map((row) => (
@@ -176,7 +183,12 @@ export default async function ListingPage({ params }: PageProps) {
       ) : null}
 
       <section className="panel source-panel">
-        <h2>Source</h2>
+        <div className="panel-heading">
+          <div>
+            <h2>Source and interpretation</h2>
+            <p>Values were observed from the source listing and may change after the last observation.</p>
+          </div>
+        </div>
         <dl className="details compact-details">
           <dt>Source</dt>
           <dd>{data.listing.sourceAttribution.source}</dd>
@@ -189,6 +201,44 @@ export default async function ListingPage({ params }: PageProps) {
         </dl>
       </section>
     </main>
+  );
+}
+
+function HistoryInsight({ history }: { history: PublicListingDetailResponse["history"] }) {
+  const prices = history
+    .map((row) => ({
+      value: row.askingPriceEur ?? row.observedSoldPriceEur,
+      observedAt: row.observedAt,
+    }))
+    .filter((row): row is { value: number; observedAt: string } => row.value !== null)
+    .sort((left, right) => left.observedAt.localeCompare(right.observedAt));
+
+  if (prices.length === 0) {
+    return <p className="history-insight">No price observations are available for this listing.</p>;
+  }
+
+  if (prices.length === 1) {
+    return <p className="history-insight">Only one price observation is available for this listing.</p>;
+  }
+
+  const first = prices[0];
+  const last = prices[prices.length - 1];
+  const difference = last.value - first.value;
+  if (difference === 0) {
+    const allPricesMatch = prices.every((price) => price.value === first.value);
+    return (
+      <p className="history-insight">
+        {allPricesMatch
+          ? `No price change was recorded across ${formatNumber(prices.length)} price observations.`
+          : "The latest recorded price matches the first observation, with changes recorded in between."}
+      </p>
+    );
+  }
+
+  return (
+    <p className="history-insight">
+      The latest recorded price is <strong>{formatCurrency(Math.abs(difference))} {difference > 0 ? "higher" : "lower"}</strong> than the first price observation.
+    </p>
   );
 }
 

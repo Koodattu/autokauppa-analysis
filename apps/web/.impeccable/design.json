@@ -1,0 +1,318 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-16T01:10:04.7543729+03:00",
+  "title": "Design System: Nettiauto Analytics",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Evidence Teal",
+        "canonical": "#0f766e",
+        "tonalRamp": ["oklch(15% 0.09 176)", "oklch(27% 0.09 176)", "oklch(39% 0.09 176)", "oklch(51% 0.09 176)", "oklch(63% 0.09 176)", "oklch(75% 0.09 176)", "oklch(87% 0.09 176)", "oklch(95% 0.09 176)"]
+      },
+      "primary-strong": {
+        "role": "primary",
+        "displayName": "Deep Evidence Teal",
+        "canonical": "#0b5f59",
+        "tonalRamp": ["oklch(15% 0.075 177)", "oklch(27% 0.075 177)", "oklch(39% 0.075 177)", "oklch(51% 0.075 177)", "oklch(63% 0.075 177)", "oklch(75% 0.075 177)", "oklch(87% 0.075 177)", "oklch(95% 0.075 177)"]
+      },
+      "primary-soft": {
+        "role": "primary",
+        "displayName": "Evidence Wash",
+        "canonical": "#e8f5f3",
+        "tonalRamp": ["oklch(15% 0.02 178)", "oklch(27% 0.02 178)", "oklch(39% 0.02 178)", "oklch(51% 0.02 178)", "oklch(63% 0.02 178)", "oklch(75% 0.02 178)", "oklch(87% 0.02 178)", "oklch(95% 0.02 178)"]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Data Canvas",
+        "canonical": "#f5f6f7",
+        "tonalRamp": ["oklch(15% 0.003 250)", "oklch(27% 0.003 250)", "oklch(39% 0.003 250)", "oklch(51% 0.003 250)", "oklch(63% 0.003 250)", "oklch(75% 0.003 250)", "oklch(87% 0.003 250)", "oklch(95% 0.003 250)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Working Surface",
+        "canonical": "#ffffff",
+        "tonalRamp": ["oklch(15% 0 0)", "oklch(27% 0 0)", "oklch(39% 0 0)", "oklch(51% 0 0)", "oklch(63% 0 0)", "oklch(75% 0 0)", "oklch(87% 0 0)", "oklch(95% 0 0)"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Market Ink",
+        "canonical": "#18201f",
+        "tonalRamp": ["oklch(15% 0.012 174)", "oklch(27% 0.012 174)", "oklch(39% 0.012 174)", "oklch(51% 0.012 174)", "oklch(63% 0.012 174)", "oklch(75% 0.012 174)", "oklch(87% 0.012 174)", "oklch(95% 0.012 174)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Quiet Slate",
+        "canonical": "#667085",
+        "tonalRamp": ["oklch(15% 0.035 260)", "oklch(27% 0.035 260)", "oklch(39% 0.035 260)", "oklch(51% 0.035 260)", "oklch(63% 0.035 260)", "oklch(75% 0.035 260)", "oklch(87% 0.035 260)", "oklch(95% 0.035 260)"]
+      },
+      "soft": {
+        "role": "neutral",
+        "displayName": "Soft Field",
+        "canonical": "#eef1f2",
+        "tonalRamp": ["oklch(15% 0.006 220)", "oklch(27% 0.006 220)", "oklch(39% 0.006 220)", "oklch(51% 0.006 220)", "oklch(63% 0.006 220)", "oklch(75% 0.006 220)", "oklch(87% 0.006 220)", "oklch(95% 0.006 220)"]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Structure Line",
+        "canonical": "#dfe3e5",
+        "tonalRamp": ["oklch(15% 0.008 220)", "oklch(27% 0.008 220)", "oklch(39% 0.008 220)", "oklch(51% 0.008 220)", "oklch(63% 0.008 220)", "oklch(75% 0.008 220)", "oklch(87% 0.008 220)", "oklch(95% 0.008 220)"]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "Coverage Amber",
+        "canonical": "#a15c07",
+        "tonalRamp": ["oklch(15% 0.125 65)", "oklch(27% 0.125 65)", "oklch(39% 0.125 65)", "oklch(51% 0.125 65)", "oklch(63% 0.125 65)", "oklch(75% 0.125 65)", "oklch(87% 0.125 65)", "oklch(95% 0.125 65)"]
+      },
+      "warning-soft": {
+        "role": "secondary",
+        "displayName": "Coverage Wash",
+        "canonical": "#fff5e7",
+        "tonalRamp": ["oklch(15% 0.025 75)", "oklch(27% 0.025 75)", "oklch(39% 0.025 75)", "oklch(51% 0.025 75)", "oklch(63% 0.025 75)", "oklch(75% 0.025 75)", "oklch(87% 0.025 75)", "oklch(95% 0.025 75)"]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Failure Red",
+        "canonical": "#b42318",
+        "tonalRamp": ["oklch(15% 0.175 30)", "oklch(27% 0.175 30)", "oklch(39% 0.175 30)", "oklch(51% 0.175 30)", "oklch(63% 0.175 30)", "oklch(75% 0.175 30)", "oklch(87% 0.175 30)", "oklch(95% 0.175 30)"]
+      },
+      "danger-soft": {
+        "role": "tertiary",
+        "displayName": "Failure Wash",
+        "canonical": "#fff0ee",
+        "tonalRamp": ["oklch(15% 0.022 25)", "oklch(27% 0.022 25)", "oklch(39% 0.022 25)", "oklch(51% 0.022 25)", "oklch(63% 0.022 25)", "oklch(75% 0.022 25)", "oklch(87% 0.022 25)", "oklch(95% 0.022 25)"]
+      },
+      "chart-sold": {
+        "role": "secondary",
+        "displayName": "Observed-Sold Orange",
+        "canonical": "#b45309",
+        "tonalRamp": ["oklch(15% 0.15 50)", "oklch(27% 0.15 50)", "oklch(39% 0.15 50)", "oklch(51% 0.15 50)", "oklch(63% 0.15 50)", "oklch(75% 0.15 50)", "oklch(87% 0.15 50)", "oklch(95% 0.15 50)"]
+      },
+      "chart-count": {
+        "role": "neutral",
+        "displayName": "Count Slate",
+        "canonical": "#334155",
+        "tonalRamp": ["oklch(15% 0.038 252)", "oklch(27% 0.038 252)", "oklch(39% 0.038 252)", "oklch(51% 0.038 252)", "oklch(63% 0.038 252)", "oklch(75% 0.038 252)", "oklch(87% 0.038 252)", "oklch(95% 0.038 252)"]
+      },
+      "chart-history-neutral": {
+        "role": "neutral",
+        "displayName": "History Slate",
+        "canonical": "#475467",
+        "tonalRamp": ["oklch(15% 0.035 250)", "oklch(27% 0.035 250)", "oklch(39% 0.035 250)", "oklch(51% 0.035 250)", "oklch(63% 0.035 250)", "oklch(75% 0.035 250)", "oklch(87% 0.035 250)", "oklch(95% 0.035 250)"]
+      },
+      "chart-grid": {
+        "role": "neutral",
+        "displayName": "Chart Grid",
+        "canonical": "#e5e7eb",
+        "tonalRamp": ["oklch(15% 0.007 257)", "oklch(27% 0.007 257)", "oklch(39% 0.007 257)", "oklch(51% 0.007 257)", "oklch(63% 0.007 257)", "oklch(75% 0.007 257)", "oklch(87% 0.007 257)", "oklch(95% 0.007 257)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Page Display",
+        "purpose": "Fixed 36px desktop and 30px mobile page headings with balanced wrapping."
+      },
+      "headline": {
+        "displayName": "Section Headline",
+        "purpose": "Section and panel headings."
+      },
+      "data-title": {
+        "displayName": "Data Title",
+        "purpose": "Primary metric values with tabular numerals."
+      },
+      "body": {
+        "displayName": "Product Body",
+        "purpose": "Explanations, controls, and general content."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Buttons and compact navigation."
+      },
+      "field-label": {
+        "displayName": "Field Label",
+        "purpose": "Sentence-case form labels and compact metadata."
+      },
+      "data-label": {
+        "displayName": "Data Label",
+        "purpose": "Existing metric, badge, and table labels used sparingly."
+      }
+    },
+    "shadows": [
+      {
+        "name": "surface-boundary",
+        "value": "0 0 0 1px rgb(0 0 0 / 6%), 0 1px 2px -1px rgb(0 0 0 / 6%), 0 2px 5px rgb(0 0 0 / 4%)",
+        "purpose": "Default structural boundary for filters, metrics, charts, tables, login, and panels."
+      },
+      {
+        "name": "surface-hover",
+        "value": "0 0 0 1px rgb(0 0 0 / 9%), 0 1px 2px -1px rgb(0 0 0 / 8%), 0 4px 10px rgb(0 0 0 / 6%)",
+        "purpose": "Small interactive lift for secondary surfaces."
+      },
+      {
+        "name": "active-navigation",
+        "value": "0 1px 3px rgb(0 0 0 / 10%)",
+        "purpose": "Selected item inside segmented navigation."
+      },
+      {
+        "name": "dialog-overlay",
+        "value": "0 24px 80px rgb(0 0 0 / 45%)",
+        "purpose": "True modal gallery overlay only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-state",
+        "value": "150ms cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Primary button background, shadow, and pressed-state feedback."
+      },
+      {
+        "name": "field-state",
+        "value": "150ms ease-out",
+        "purpose": "Field borders, focus rings, and small interactive state changes."
+      },
+      {
+        "name": "skeleton-shimmer",
+        "value": "1.5s ease-in-out",
+        "purpose": "Loading skeleton only; reduced-motion mode short-circuits the animation."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-desktop",
+        "value": "1120px"
+      },
+      {
+        "name": "tablet",
+        "value": "860px"
+      },
+      {
+        "name": "mobile",
+        "value": "760px"
+      },
+      {
+        "name": "compact-mobile",
+        "value": "500px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single strongest action in a working area.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Analyze</button>",
+      "css": ".ds-btn-primary { min-height: 44px; border: 1px solid var(--accent-strong, #0b5f59); border-radius: 8px; background: var(--accent, #0f766e); color: #fff; padding: 0 16px; font: 700 15px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn-primary:hover { background: var(--accent-strong, #0b5f59); } .ds-btn-primary:active { transform: scale(0.96); } .ds-btn-primary:focus-visible { outline: 3px solid rgb(15 118 110 / 24%); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A visible but subordinate action such as opening matching Listings.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">View listings</button>",
+      "css": ".ds-btn-secondary { min-height: 44px; border: 0; border-radius: 8px; background: var(--panel, #fff); color: var(--foreground, #18201f); box-shadow: var(--shadow-border, 0 0 0 1px rgb(0 0 0 / 6%), 0 1px 2px -1px rgb(0 0 0 / 6%), 0 2px 5px rgb(0 0 0 / 4%)); padding: 0 16px; font: 700 15px/1 Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; transition: background-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-btn-secondary:hover { background: #f8faf9; box-shadow: var(--shadow-border-hover, 0 0 0 1px rgb(0 0 0 / 9%), 0 1px 2px -1px rgb(0 0 0 / 8%), 0 4px 10px rgb(0 0 0 / 6%)); } .ds-btn-secondary:focus-visible { outline: 3px solid rgb(15 118 110 / 24%); outline-offset: 2px; }"
+    },
+    {
+      "name": "Filter Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A compact labeled field for narrowing the Analysis Query.",
+      "html": "<label class=\"ds-field\"><span>Make</span><select><option>All makes</option><option>Honda</option></select></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: #53605f; font: 750 12px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.02em; } .ds-field select { width: 100%; min-height: 42px; border: 1px solid #cfd5d8; border-radius: 7px; background: var(--panel, #fff); color: var(--foreground, #18201f); padding: 8px 10px; font: 400 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; transition: border-color 150ms ease-out, box-shadow 150ms ease-out; } .ds-field select:focus { border-color: var(--accent, #0f766e); box-shadow: 0 0 0 3px rgb(15 118 110 / 13%); outline: none; }"
+    },
+    {
+      "name": "Segmented Navigation",
+      "kind": "nav",
+      "refersTo": "nav-active",
+      "description": "The compact switch between the public Analyze and Listings workflows.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main navigation\"><a class=\"ds-nav-link ds-nav-active\" href=\"#\">Analyze</a><a class=\"ds-nav-link\" href=\"#\">Listings</a></nav>",
+      "css": ".ds-nav { display: inline-flex; align-items: center; gap: 4px; border-radius: 10px; background: #e9ecec; padding: 3px; } .ds-nav-link { display: inline-flex; min-height: 40px; align-items: center; border-radius: 7px; color: #53605f; padding: 0 14px; font: 700 14px/1 Inter, ui-sans-serif, system-ui, sans-serif; text-decoration: none; } .ds-nav-link:hover { color: var(--foreground, #18201f); } .ds-nav-active { background: var(--panel, #fff); box-shadow: 0 1px 3px rgb(0 0 0 / 10%); color: var(--foreground, #18201f); } .ds-nav-link:focus-visible { outline: 3px solid rgb(15 118 110 / 24%); outline-offset: 2px; }"
+    },
+    {
+      "name": "Current Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-default",
+      "description": "A text-backed semantic state label for Listing Availability.",
+      "html": "<span class=\"ds-status\">Current</span>",
+      "css": ".ds-status { display: inline-flex; min-height: 25px; align-items: center; border-radius: 999px; background: var(--accent-soft, #e8f5f3); color: var(--accent-strong, #0b5f59); padding: 2px 9px; font: 800 11px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.01em; white-space: nowrap; }"
+    },
+    {
+      "name": "Working Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "A structurally bounded surface for one coherent analytical task.",
+      "html": "<section class=\"ds-panel\"><h3>Listing activity</h3><p>Listings captured in complete observation periods.</p></section>",
+      "css": ".ds-panel { max-width: 360px; border-radius: 12px; background: var(--panel, #fff); color: var(--foreground, #18201f); box-shadow: var(--shadow-border, 0 0 0 1px rgb(0 0 0 / 6%), 0 1px 2px -1px rgb(0 0 0 / 6%), 0 2px 5px rgb(0 0 0 / 4%)); padding: 18px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-panel h3 { margin: 0; font-size: 18px; line-height: 1.3; letter-spacing: -0.02em; } .ds-panel p { margin: 4px 0 0; color: var(--muted, #667085); font-size: 12px; line-height: 1.5; }"
+    },
+    {
+      "name": "Market Metric",
+      "kind": "custom",
+      "refersTo": "panel",
+      "description": "One value inside the integrated Market Snapshot strip, qualified by its sample and meaning.",
+      "html": "<div class=\"ds-metric\"><dt>Median asking price</dt><dd><span>14,900 €</span><small>1,284 listings with an asking price</small></dd></div>",
+      "css": ".ds-metric { display: grid; min-height: 130px; align-content: start; gap: 7px; background: var(--panel, #fff); color: var(--foreground, #18201f); border-left: 1px solid var(--line, #dfe3e5); padding: 20px 18px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-metric dt { color: var(--muted, #667085); font-size: 12px; font-weight: 700; } .ds-metric dd { display: grid; gap: 7px; margin: 2px 0 0; } .ds-metric dd > span { font-size: 23px; font-variant-numeric: tabular-nums; font-weight: 750; letter-spacing: -0.025em; line-height: 1.15; } .ds-metric small { color: var(--muted, #667085); font-size: 12px; font-variant-numeric: tabular-nums; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Market Lens",
+    "overview": "The interface is a calm analytical workspace that brings a broad vehicle market into progressively sharper focus. Filters, charts, coverage signals, and Listings form one continuous investigation: start wide, narrow deliberately, understand the pattern, then inspect the evidence beneath it.\n\nInformation density is welcome when it earns its place. The system uses cool neutral surfaces, one restrained teal interaction color, compact type, tabular numerals, and familiar controls so the interface disappears into the task. It rejects marketplace clutter and advertising, intimidating financial-terminal density, decorative SaaS-dashboard styling, and charts that hide uncertainty or demand statistical expertise.\n\nDesktop and mobile are equally real product surfaces. Layout changes structurally at 1120px, 860px, 760px, and 500px: filter and evidence grids regroup, dense tables become cards or scroll safely, and controls remain reachable. Motion is brief state feedback, normally 150ms, with reduced-motion preferences honored globally.",
+    "keyCharacteristics": [
+      "Calm, trustworthy analysis rather than decorative dashboard theater.",
+      "Dense but legible information with clear comparison paths.",
+      "Visible freshness, Sample Size, completeness, and source context.",
+      "Familiar controls and restrained state-driven motion.",
+      "A continuous path from aggregate insight to underlying Listings."
+    ],
+    "rules": [
+      {
+        "name": "The Evidence Teal Rule",
+        "body": "Evidence Teal identifies action, selection, or meaningful state. It is never ambient decoration and should remain visually scarce.",
+        "section": "colors"
+      },
+      {
+        "name": "The Coverage Is Content Rule",
+        "body": "Warning and danger colors communicate data quality or failure, never visual variety. Every semantic color must be paired with explicit text or structure so meaning never depends on hue alone.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Voice Rule",
+        "body": "Use one sans family across the product. Hierarchy comes from weight, size, spacing, and numeric treatment—not a decorative display face.",
+        "section": "typography"
+      },
+      {
+        "name": "The Numbers Hold Still Rule",
+        "body": "Prices, counts, mileage, timestamps, and axis values always use tabular numerals so comparisons do not jitter.",
+        "section": "typography"
+      },
+      {
+        "name": "The Structural Lift Rule",
+        "body": "Elevation explains containment or overlay state. If a shadow exists only to make a surface look expensive, remove it.",
+        "section": "elevation"
+      },
+      {
+        "name": "The One Boundary Rule",
+        "body": "Do not combine a visible border or ring with a wide decorative drop shadow. Choose the boundary that communicates the state most clearly.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** make the primary comparison or trend understandable before exposing secondary detail.",
+      "**Do** keep freshness, Sample Size, completeness, and data source visible near the result they qualify.",
+      "**Do** use Evidence Teal for action, selection, or asking-price evidence—not decoration.",
+      "**Do** pair color with labels, line styles, position, or table values so charts remain understandable without color perception.",
+      "**Do** preserve the broad-to-specific path from market overview to make, model, segment, and underlying Listings.",
+      "**Do** use semantic HTML, visible focus, adequate touch targets, reduced-motion handling, and chart summaries or data tables as the lightweight accessibility baseline."
+    ],
+    "donts": [
+      "**Don't** introduce marketplace clutter and advertising or turn the product into a marketplace clone.",
+      "**Don't** create intimidating financial-terminal density; progressive detail must keep the first reading approachable.",
+      "**Don't** use decorative SaaS-dashboard styling, gratuitous cards, glass effects, gradient text, or ornamental motion.",
+      "**Don't** hide uncertainty, omit coverage context, or make incomplete observations feel more authoritative than they are.",
+      "**Don't** make statistical expertise a prerequisite for understanding a chart; explain the comparison in plain language.",
+      "**Don't** use colored side-stripe borders greater than 1px on coverage, notices, cards, or callouts.",
+      "**Don't** pair a visible border or ring with a soft shadow wider than 8px on ordinary controls or panels.",
+      "**Don't** repeat tiny uppercase tracked eyebrows above every section or use numbered markers as decorative scaffolding.",
+      "**Don't** introduce new chart colors as one-off literals; assign a named semantic role and keep the same meaning across views."
+    ]
+  }
+}

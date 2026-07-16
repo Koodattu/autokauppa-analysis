@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   Area,
   Bar,
@@ -31,7 +31,7 @@ export function AnalyticsSnapshotCharts({ analytics }: { analytics: AnalyticsSna
     <section className="analytics-grid" aria-label="Market charts">
       <PriceByYearChart data={analytics.charts.priceByYear} />
       <PriceByMileageChart data={analytics.charts.priceByMileageBucket} />
-      <PriceByTransmissionTable
+      <PriceByTransmissionComparison
         data={analytics.charts.priceByTransmission}
         totalListings={analytics.summary.listingCount}
       />
@@ -65,7 +65,7 @@ function PriceOverTimeChart({ data }: { data: Charts["marketOverTime"] }) {
   return (
     <ChartPanel
       title="Price over observed time"
-      meta="Median price in each observed period"
+      meta="Median price in each observed period · observed-sold values are listing evidence, not confirmed transactions"
       full
       legend
     >
@@ -74,7 +74,7 @@ function PriceOverTimeChart({ data }: { data: Charts["marketOverTime"] }) {
           data={rows}
           margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
           title="Price over observed time"
-          desc="Median asking and observed sold prices by observation period"
+          desc="Median asking prices and prices shown on observed-sold listings by observation period"
         >
           <ChartGrid />
           <XAxis
@@ -102,7 +102,7 @@ function PriceOverTimeChart({ data }: { data: Charts["marketOverTime"] }) {
           <Line
             type="monotone"
             dataKey="medianObservedSoldPriceEur"
-            name="Median observed sold price"
+            name="Observed-sold listing price"
             stroke={SOLD_COLOR}
             strokeWidth={2.5}
             strokeDasharray="5 4"
@@ -128,7 +128,11 @@ function PriceByYearChart({ data }: { data: Charts["priceByYear"] }) {
   }
 
   return (
-    <ChartPanel title="Price by model year" meta="Asking-price middle 50% shown as a band" legend>
+    <ChartPanel
+      title="Price by model year"
+      meta="Asking-price middle 50% shown as a band · compare similar mileage where possible"
+      legend
+    >
       <ChartCanvas>
         <ComposedChart
           data={rows}
@@ -171,7 +175,7 @@ function PriceByYearChart({ data }: { data: Charts["priceByYear"] }) {
           <Line
             type="monotone"
             dataKey="medianObservedSoldPriceEur"
-            name="Median observed sold price"
+            name="Observed-sold listing price"
             stroke={SOLD_COLOR}
             strokeWidth={2}
             strokeDasharray="5 4"
@@ -197,7 +201,7 @@ function PriceByMileageChart({ data }: { data: Charts["priceByMileageBucket"] })
   }
 
   return (
-    <ChartPanel title="Price by mileage" meta="25,000 km buckets · model year can affect the result" legend>
+    <ChartPanel title="Price by mileage" meta="25,000 km groups · model year can affect the result" legend>
       <ChartCanvas>
         <ComposedChart
           data={rows}
@@ -240,7 +244,7 @@ function PriceByMileageChart({ data }: { data: Charts["priceByMileageBucket"] })
           <Line
             type="monotone"
             dataKey="medianObservedSoldPriceEur"
-            name="Median observed sold price"
+            name="Observed-sold listing price"
             stroke={SOLD_COLOR}
             strokeWidth={2}
             strokeDasharray="5 4"
@@ -255,7 +259,7 @@ function PriceByMileageChart({ data }: { data: Charts["priceByMileageBucket"] })
   );
 }
 
-function PriceByTransmissionTable({
+function PriceByTransmissionComparison({
   data,
   totalListings,
 }: {
@@ -269,6 +273,10 @@ function PriceByTransmissionTable({
     return <EmptyChart title="Transmission comparison" message="No transmission price data for these filters." full />;
   }
   const knownCount = data.reduce((sum, point) => sum + point.listingCount, 0);
+  const maxAskingPrice = Math.max(
+    1,
+    ...rows.map((row) => row.medianAskingPriceEur ?? 0),
+  );
 
   return (
     <ChartPanel
@@ -276,32 +284,60 @@ function PriceByTransmissionTable({
       meta={`${formatNumber(knownCount)} of ${formatNumber(totalListings)} listings include transmission data · vehicle mix can affect prices`}
       full
     >
-      <div className="chart-table-wrap">
-        <table className="chart-table">
-          <thead>
-            <tr>
-              <th scope="col">Transmission</th>
-              <th scope="col">Listings</th>
-              <th scope="col">Median asking</th>
-              <th scope="col">Middle 50%</th>
-              <th scope="col">Median mileage</th>
-              <th scope="col">Observed sold</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.transmission}>
-                <th scope="row">{row.transmission}</th>
-                <td>{formatNumber(row.listingCount)}</td>
-                <td>{formatCurrency(row.medianAskingPriceEur)}</td>
-                <td>{formatPriceRange(row.askingPriceP25Eur, row.askingPriceP75Eur)}</td>
-                <td>{formatKm(row.medianMileageKm)}</td>
-                <td>{formatCurrency(row.medianObservedSoldPriceEur)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="transmission-comparison" aria-label="Median asking price by transmission">
+        {rows.map((row) => {
+          const width = ((row.medianAskingPriceEur ?? 0) / maxAskingPrice) * 100;
+          const style = { "--comparison-width": `${width}%` } as CSSProperties;
+          return (
+            <div className="transmission-row" key={row.transmission}>
+              <div className="transmission-label">
+                <strong>{row.transmission}</strong>
+                <span>{formatNumber(row.listingCount)} listings</span>
+              </div>
+              <div className="transmission-value">
+                <span className="comparison-track" aria-hidden="true" style={style}>
+                  <span />
+                </span>
+                <strong>{formatCurrency(row.medianAskingPriceEur)}</strong>
+                <small>
+                  {row.medianObservedSoldPriceEur === null
+                    ? "No observed-sold price"
+                    : `${formatCurrency(row.medianObservedSoldPriceEur)} on observed-sold listings`}
+                </small>
+              </div>
+            </div>
+          );
+        })}
       </div>
+      <details className="chart-data">
+        <summary>View exact transmission data</summary>
+        <div className="chart-table-wrap">
+          <table className="chart-table">
+            <thead>
+              <tr>
+                <th scope="col">Transmission</th>
+                <th scope="col">Listings</th>
+                <th scope="col">Median asking</th>
+                <th scope="col">Middle 50%</th>
+                <th scope="col">Median mileage</th>
+                <th scope="col">Observed-sold price</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.transmission}>
+                  <th scope="row">{row.transmission}</th>
+                  <td>{formatNumber(row.listingCount)}</td>
+                  <td>{formatCurrency(row.medianAskingPriceEur)}</td>
+                  <td>{formatPriceRange(row.askingPriceP25Eur, row.askingPriceP75Eur)}</td>
+                  <td>{formatKm(row.medianMileageKm)}</td>
+                  <td>{formatCurrency(row.medianObservedSoldPriceEur)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </ChartPanel>
   );
 }
@@ -318,7 +354,7 @@ function PriceByYearTable({ data }: { data: Charts["priceByYear"] }) {
               <th scope="col">Listings</th>
               <th scope="col">Median asking</th>
               <th scope="col">Middle 50%</th>
-              <th scope="col">Observed sold</th>
+              <th scope="col">Observed-sold price</th>
               <th scope="col">Median mileage</th>
             </tr>
           </thead>
@@ -359,7 +395,7 @@ function PriceByMileageTable({ data }: { data: Charts["priceByMileageBucket"] })
               <th scope="col">Listings</th>
               <th scope="col">Median asking</th>
               <th scope="col">Middle 50%</th>
-              <th scope="col">Observed sold</th>
+              <th scope="col">Observed-sold price</th>
               <th scope="col">Median model year</th>
             </tr>
           </thead>
@@ -399,21 +435,22 @@ function SampledValue({ value, sample }: { value: string; sample: number }) {
 
 function ObservedListingsChart({ data }: { data: Charts["marketOverTime"] }) {
   if (data.length === 0) {
-    return <EmptyChart title="Listings captured per period" message="No complete crawl periods for these filters." full />;
+    return <EmptyChart title="Listings captured per period" message="No complete observation periods for these filters." full />;
   }
 
   return (
     <ChartPanel
       title="Listings captured per period"
-      meta="Latest complete current and sold crawls in each period · repeat sold observations are not sales"
+      meta="Latest complete current and observed-sold listing set in each period · repeated observations are not sales"
       full
+      activityLegend
     >
       <ChartCanvas>
         <ComposedChart
           data={withBucketTime(data)}
           margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
           title="Listings captured per period"
-          desc="Current, sold, and first-observed listing counts from the latest complete crawls in each period"
+          desc="Current, observed-sold, and first-observed listing counts from the latest complete observation set in each period"
         >
           <ChartGrid />
           <XAxis
@@ -437,7 +474,7 @@ function ObservedListingsChart({ data }: { data: Charts["marketOverTime"] }) {
           />
           <Bar
             dataKey="soldCount"
-            name="Sold"
+            name="Observed-sold listings"
             stackId="availability"
             fill={SOLD_COLOR}
             radius={[4, 4, 0, 0]}
@@ -456,6 +493,7 @@ function ObservedListingsChart({ data }: { data: Charts["marketOverTime"] }) {
           />
         </ComposedChart>
       </ChartCanvas>
+      <ActivityTable data={data} />
     </ChartPanel>
   );
 }
@@ -464,12 +502,14 @@ function ChartPanel({
   title,
   meta,
   legend = false,
+  activityLegend = false,
   full = false,
   children,
 }: {
   title: string;
   meta?: string;
   legend?: boolean;
+  activityLegend?: boolean;
   full?: boolean;
   children: ReactNode;
 }) {
@@ -477,10 +517,10 @@ function ChartPanel({
     <section className={`chart-panel ${full ? "chart-panel-full" : ""}`}>
       <div className="chart-heading">
         <div>
-          <h2>{title}</h2>
+          <h3>{title}</h3>
           {meta ? <p>{meta}</p> : null}
         </div>
-        {legend ? <PriceLegend /> : null}
+        {activityLegend ? <ActivityLegend /> : legend ? <PriceLegend /> : null}
       </div>
       {children}
     </section>
@@ -491,12 +531,60 @@ function PriceLegend() {
   return (
     <div className="chart-legend" aria-label="Chart legend">
       <span>
-        <i style={{ background: ASKING_COLOR }} /> Asking
+        <i className="legend-line legend-asking" /> Asking
       </span>
       <span>
-        <i style={{ background: SOLD_COLOR }} /> Observed sold
+        <i className="legend-line legend-sold" /> Observed-sold listing
       </span>
     </div>
+  );
+}
+
+function ActivityLegend() {
+  return (
+    <div className="chart-legend" aria-label="Chart legend">
+      <span>
+        <i className="legend-bar legend-current" /> Current
+      </span>
+      <span>
+        <i className="legend-bar legend-observed-sold" /> Observed-sold
+      </span>
+      <span>
+        <i className="legend-line legend-first-observed" /> First observed
+      </span>
+    </div>
+  );
+}
+
+function ActivityTable({ data }: { data: Charts["marketOverTime"] }) {
+  return (
+    <details className="chart-data">
+      <summary>View exact listing-activity data</summary>
+      <div className="chart-table-wrap">
+        <table className="chart-table">
+          <thead>
+            <tr>
+              <th scope="col">Period</th>
+              <th scope="col">Current</th>
+              <th scope="col">Observed-sold</th>
+              <th scope="col">First observed</th>
+              <th scope="col">Total observed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.bucket}>
+                <th scope="row">{formatObservedDate(row.bucket)}</th>
+                <td>{formatNumber(row.activeCount)}</td>
+                <td>{formatNumber(row.soldCount)}</td>
+                <td>{formatNumber(row.newListingCount)}</td>
+                <td>{formatNumber(row.listingCount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   );
 }
 

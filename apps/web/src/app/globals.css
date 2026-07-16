@@ -163,10 +163,6 @@ select {
   transition-timing-function: ease-out;
 }
 
-input::placeholder {
-  color: #98a2ad;
-}
-
 input:focus,
 select:focus {
   border-color: var(--accent);
@@ -201,6 +197,16 @@ label:not(:has(> span)) {
   font-size: 12px;
   font-weight: 750;
   letter-spacing: 0.02em;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .shell {

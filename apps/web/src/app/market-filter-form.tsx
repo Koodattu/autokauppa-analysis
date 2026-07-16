@@ -22,15 +22,25 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
   const [selectedModel, setSelectedModel] = useState(initialModel);
   const [models, setModels] = useState(filters.models);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [invalidFields, setInvalidFields] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
   const modelRequest = useRef(0);
   const advancedCount = countAdvancedFilters(params, variant);
+  const selectedCount = countSelectedFilters(params, variant);
+  const selectedFilters = selectedFilterLabels(params, variant);
+  const validationProps = (name: string) =>
+    invalidFields.includes(name)
+      ? { "aria-invalid": true as const, "aria-describedby": "filter-validation-error" }
+      : {};
 
   async function selectMake(make: string) {
     const request = modelRequest.current + 1;
     modelRequest.current = request;
     setSelectedMake(make);
     setSelectedModel("");
+    setModelsError("");
 
     if (!make) {
       setModels([]);
@@ -60,6 +70,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
     } catch {
       if (modelRequest.current === request) {
         setModels([]);
+        setModelsError("Models couldn’t be loaded. Analyze the make as a whole or retry.");
       }
     } finally {
       if (modelRequest.current === request) {
@@ -74,11 +85,61 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
       action={action}
       method="get"
       aria-busy={isPending}
+      onChange={() => {
+        if (formError) {
+          setFormError("");
+        }
+        if (invalidFields.length > 0) {
+          setInvalidFields([]);
+        }
+      }}
       onSubmit={(event) => {
+        const validation = validateFilterRanges(event.currentTarget);
+        if (validation) {
+          event.preventDefault();
+          setFormError(validation.message);
+          setInvalidFields(validation.fields);
+          const firstInvalidField = event.currentTarget.elements.namedItem(validation.fields[0]);
+          if (firstInvalidField instanceof HTMLElement) {
+            firstInvalidField.focus();
+          }
+          return;
+        }
+        setFormError("");
+        setInvalidFields([]);
         const href = cleanFilterHref(event, action);
         startTransition(() => router.push(href));
       }}
     >
+      <div className="filter-surface-header">
+        <div>
+          <h2>{variant === "analytics" ? "Define the market" : "Narrow the listings"}</h2>
+          <p>
+            {variant === "analytics"
+              ? "Start broad, then add only the details needed for your question."
+              : "Use the same market scope as the analysis, then sort the evidence."}
+          </p>
+        </div>
+        {selectedCount > 0 ? (
+          <Link className="filter-reset" href={action}>
+            Reset {selectedCount} {selectedCount === 1 ? "filter" : "filters"}
+          </Link>
+        ) : (
+          <span className="filter-scope">All passenger cars</span>
+        )}
+      </div>
+
+      {selectedFilters.length > 0 ? (
+        <div className="applied-filter-row" aria-label="Applied market scope">
+          <span>Applied scope</span>
+          <ul>
+            {selectedFilters.map((filter) => (
+              <li key={filter}>{filter}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div className={`primary-filters ${variant === "listings" ? "with-sort" : ""}`}>
         <FilterField label="Make">
           <select name="make" value={selectedMake} onChange={(event) => void selectMake(event.target.value)}>
@@ -107,7 +168,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
             ))}
           </select>
         </FilterField>
-        <FilterField label="Model year">
+        <FilterField label="Exact model year">
           <input
             name="modelYear"
             type="number"
@@ -116,6 +177,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
             max={filters.yearRange.max ?? 2100}
             defaultValue={single(params.modelYear)}
             placeholder="Any year"
+            {...validationProps("modelYear")}
           />
         </FilterField>
         <FilterField label="Availability">
@@ -138,103 +200,172 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
             </select>
           </FilterField>
         ) : null}
-        <button type="submit" disabled={isPending}>
-          {isPending ? "Updating…" : variant === "analytics" ? "Analyze" : "Apply"}
-        </button>
+        <div className="filter-submit">
+          <button type="submit" disabled={isPending}>
+            {isPending ? "Updating…" : variant === "analytics" ? "Analyze market" : "Show listings"}
+          </button>
+          <span className="sr-only" role="status" aria-live="polite">
+            {isPending ? "Updating the selected market" : ""}
+          </span>
+        </div>
       </div>
+
+      {modelsError ? (
+        <p className="filter-error" role="status">
+          <span>{modelsError}</span>
+          <button type="button" onClick={() => void selectMake(selectedMake)}>
+            Retry
+          </button>
+        </p>
+      ) : null}
+
+      {formError ? (
+        <p className="filter-error" id="filter-validation-error" role="alert">
+          <span>{formError}</span>
+        </p>
+      ) : null}
 
       <details className="advanced-filters" open={advancedCount > 0}>
         <summary>
-          <span>Advanced filters</span>
+          <span>More ways to narrow</span>
           {advancedCount > 0 ? <span className="filter-count">{advancedCount}</span> : null}
         </summary>
-        <div className="advanced-filter-grid">
-          <FilterField label="Year from">
-            <input
-              name="modelYearFrom"
-              type="number"
-              inputMode="numeric"
-              defaultValue={single(params.modelYearFrom)}
-            />
-          </FilterField>
-          <FilterField label="Year to">
-            <input
-              name="modelYearTo"
-              type="number"
-              inputMode="numeric"
-              defaultValue={single(params.modelYearTo)}
-            />
-          </FilterField>
-          <FilterField label="Price from (€)">
-            <input name="priceMin" type="number" inputMode="numeric" defaultValue={single(params.priceMin)} />
-          </FilterField>
-          <FilterField label="Price to (€)">
-            <input name="priceMax" type="number" inputMode="numeric" defaultValue={single(params.priceMax)} />
-          </FilterField>
-          <FilterField label="Mileage from (km)">
-            <input
-              name="mileageMin"
-              type="number"
-              inputMode="numeric"
-              defaultValue={single(params.mileageMin)}
-            />
-          </FilterField>
-          <FilterField label="Mileage to (km)">
-            <input
-              name="mileageMax"
-              type="number"
-              inputMode="numeric"
-              defaultValue={single(params.mileageMax)}
-            />
-          </FilterField>
-          <FilterField label="Transmission">
-            <select name="transmission" defaultValue={single(params.transmission)}>
-              <option value="">Any transmission</option>
-              {filters.transmissions.map((transmission) => (
-                <option key={transmission} value={transmission}>
-                  {transmission}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-          <FilterField label="Seller">
-            <select name="sellerType" defaultValue={single(params.sellerType)}>
-              <option value="">Any seller</option>
-              {filters.sellerTypes.map((sellerType) => (
-                <option key={sellerType} value={sellerType}>
-                  {sellerType}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-          {variant === "analytics" ? (
-            <>
-              <FilterField label="Trend from">
-                <input name="from" type="date" defaultValue={single(params.from)} />
+        <div className="advanced-filter-groups">
+          <fieldset className="filter-group">
+            <legend>Vehicle range</legend>
+            <p>Leave the year range empty when using an exact model year above.</p>
+            <div className="filter-group-grid">
+              <FilterField label="Year from">
+                <input
+                  name="modelYearFrom"
+                  type="number"
+                  inputMode="numeric"
+                  min={filters.yearRange.min ?? 1886}
+                  max={filters.yearRange.max ?? 2100}
+                  defaultValue={single(params.modelYearFrom)}
+                  {...validationProps("modelYearFrom")}
+                />
               </FilterField>
-              <FilterField label="Trend to">
-                <input name="to" type="date" defaultValue={single(params.to)} />
+              <FilterField label="Year to">
+                <input
+                  name="modelYearTo"
+                  type="number"
+                  inputMode="numeric"
+                  min={filters.yearRange.min ?? 1886}
+                  max={filters.yearRange.max ?? 2100}
+                  defaultValue={single(params.modelYearTo)}
+                  {...validationProps("modelYearTo")}
+                />
               </FilterField>
-              <FilterField label="Time interval">
-                <select name="interval" defaultValue={single(params.interval) || "week"}>
-                  <option value="day">Day</option>
-                  <option value="week">Week</option>
-                  <option value="month">Month</option>
+              <FilterField label="Transmission">
+                <select name="transmission" defaultValue={single(params.transmission)}>
+                  <option value="">Any transmission</option>
+                  {filters.transmissions.map((transmission) => (
+                    <option key={transmission} value={transmission}>
+                      {transmission}
+                    </option>
+                  ))}
                 </select>
               </FilterField>
-            </>
-          ) : null}
-        </div>
-        <div className="advanced-actions">
-          {variant === "analytics" ? (
-            <span className="filter-help">Observed dates apply to time charts.</span>
-          ) : null}
-          <Link className="text-link" href={action}>
-            Clear filters
-          </Link>
+            </div>
+          </fieldset>
+
+          <fieldset className="filter-group">
+            <legend>Price and mileage</legend>
+            <p>Use a minimum, maximum, or both.</p>
+            <div className="filter-group-grid">
+              <FilterField label="Price from (€)">
+                <input
+                  name="priceMin"
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  defaultValue={single(params.priceMin)}
+                  {...validationProps("priceMin")}
+                />
+              </FilterField>
+              <FilterField label="Price to (€)">
+                <input
+                  name="priceMax"
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  defaultValue={single(params.priceMax)}
+                  {...validationProps("priceMax")}
+                />
+              </FilterField>
+              <FilterField label="Mileage from (km)">
+                <input
+                  name="mileageMin"
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  defaultValue={single(params.mileageMin)}
+                  {...validationProps("mileageMin")}
+                />
+              </FilterField>
+              <FilterField label="Mileage to (km)">
+                <input
+                  name="mileageMax"
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  defaultValue={single(params.mileageMax)}
+                  {...validationProps("mileageMax")}
+                />
+              </FilterField>
+            </div>
+          </fieldset>
+
+          <fieldset className="filter-group">
+            <legend>{variant === "analytics" ? "Observation window" : "Listing source"}</legend>
+            <p>
+              {variant === "analytics"
+                ? "Dates apply to trend charts, not the current snapshot."
+                : "Narrow by seller type when that distinction matters."}
+            </p>
+            <div className="filter-group-grid">
+              <FilterField label="Seller">
+                <select name="sellerType" defaultValue={single(params.sellerType)}>
+                  <option value="">Any seller</option>
+                  {filters.sellerTypes.map((sellerType) => (
+                    <option key={sellerType} value={sellerType}>
+                      {sellerType}
+                    </option>
+                  ))}
+                </select>
+              </FilterField>
+              {variant === "analytics" ? (
+                <>
+                  <FilterField label="Trend from">
+                    <input
+                      name="from"
+                      type="date"
+                      defaultValue={single(params.from)}
+                      {...validationProps("from")}
+                    />
+                  </FilterField>
+                  <FilterField label="Trend to">
+                    <input
+                      name="to"
+                      type="date"
+                      defaultValue={single(params.to)}
+                      {...validationProps("to")}
+                    />
+                  </FilterField>
+                  <FilterField label="Time interval">
+                    <select name="interval" defaultValue={single(params.interval) || "week"}>
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month">Month</option>
+                    </select>
+                  </FilterField>
+                </>
+              ) : null}
+            </div>
+          </fieldset>
         </div>
       </details>
-
     </form>
   );
 }
@@ -264,6 +395,132 @@ function countAdvancedFilters(params: PageSearchParams, variant: MarketFilterFor
     const value = single(params[key]);
     return value && value !== "all" && value !== "week";
   }).length;
+}
+
+function countSelectedFilters(params: PageSearchParams, variant: MarketFilterFormProps["variant"]) {
+  const keys = [
+    "make",
+    "model",
+    "modelYear",
+    "availability",
+    "modelYearFrom",
+    "modelYearTo",
+    "priceMin",
+    "priceMax",
+    "mileageMin",
+    "mileageMax",
+    "transmission",
+    "sellerType",
+    ...(variant === "analytics" ? ["from", "to", "interval"] : ["sort"]),
+  ];
+  return keys.filter((key) => {
+    const value = single(params[key]);
+    return value && value !== "all" && value !== "week" && value !== "lastSeenDesc";
+  }).length;
+}
+
+function selectedFilterLabels(params: PageSearchParams, variant: MarketFilterFormProps["variant"]) {
+  const entries: Array<[string, string]> = [
+    ["Make", single(params.make)],
+    ["Model", single(params.model)],
+    ["Exact year", single(params.modelYear)],
+    ["Availability", availabilityLabel(single(params.availability))],
+    ["Year from", single(params.modelYearFrom)],
+    ["Year to", single(params.modelYearTo)],
+    ["Price from", currencyFilterLabel(single(params.priceMin))],
+    ["Price to", currencyFilterLabel(single(params.priceMax))],
+    ["Mileage from", distanceFilterLabel(single(params.mileageMin))],
+    ["Mileage to", distanceFilterLabel(single(params.mileageMax))],
+    ["Transmission", single(params.transmission)],
+    ["Seller", single(params.sellerType)],
+    ...(variant === "analytics"
+      ? ([
+          ["Trend from", single(params.from)],
+          ["Trend to", single(params.to)],
+          ["Interval", intervalLabel(single(params.interval))],
+        ] as Array<[string, string]>)
+      : ([
+          ["Sort", sortLabel(single(params.sort))],
+        ] as Array<[string, string]>)),
+  ];
+  return entries.filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`);
+}
+
+function availabilityLabel(value: string) {
+  if (value === "current") {
+    return "Current";
+  }
+  if (value === "sold") {
+    return "Sold listings";
+  }
+  return "";
+}
+
+function intervalLabel(value: string) {
+  if (!value || value === "week") {
+    return "";
+  }
+  return value === "day" ? "Daily" : "Monthly";
+}
+
+function sortLabel(value: string) {
+  const labels: Record<string, string> = {
+    sourceUpdatedDesc: "Recently updated",
+    priceAsc: "Lowest price",
+    priceDesc: "Highest price",
+    mileageAsc: "Lowest mileage",
+    mileageDesc: "Highest mileage",
+    yearDesc: "Newest model year",
+  };
+  return labels[value] ?? "";
+}
+
+function currencyFilterLabel(value: string) {
+  return value ? `${value} €` : "";
+}
+
+function distanceFilterLabel(value: string) {
+  return value ? `${value} km` : "";
+}
+
+function validateFilterRanges(form: HTMLFormElement) {
+  const data = new FormData(form);
+  const value = (name: string) => String(data.get(name) ?? "").trim();
+  const exactYear = value("modelYear");
+  const yearFrom = value("modelYearFrom");
+  const yearTo = value("modelYearTo");
+
+  if (exactYear && (yearFrom || yearTo)) {
+    return {
+      message: "Use either an exact model year or a year range, not both.",
+      fields: ["modelYear", ...(yearFrom ? ["modelYearFrom"] : []), ...(yearTo ? ["modelYearTo"] : [])],
+    };
+  }
+
+  const numericPairs = [
+    [yearFrom, yearTo, "model year", "modelYearFrom", "modelYearTo"],
+    [value("priceMin"), value("priceMax"), "price", "priceMin", "priceMax"],
+    [value("mileageMin"), value("mileageMax"), "mileage", "mileageMin", "mileageMax"],
+  ];
+  for (const [from, to, label, fromName, toName] of numericPairs) {
+    if (from && to && Number(from) > Number(to)) {
+      return {
+        message: `The ${label} minimum must not be greater than the maximum.`,
+        fields: [fromName, toName],
+      };
+    }
+  }
+
+  const dateFrom = value("from");
+  const dateTo = value("to");
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    return {
+      message: "The trend start date must not be after the end date.",
+      fields: ["from", "to"],
+    };
+  }
+
+  return null;
 }
 
 function cleanFilterHref(event: FormEvent<HTMLFormElement>, action: string) {

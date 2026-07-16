@@ -16,6 +16,7 @@ import {
   labelAvailability,
 } from "@/lib/format";
 import { MarketFilterForm, type PageSearchParams } from "../market-filter-form";
+import { MarketCoverage } from "../market-coverage";
 import { SiteHeader } from "../site-header";
 
 type PageProps = {
@@ -33,18 +34,18 @@ export default async function ListingsPage({ searchParams }: PageProps) {
   const { filters, listings } = result.data;
 
   return (
-    <main className="shell">
+    <main className="shell public-shell">
       <SiteHeader active="listings" />
       <section className="page-heading compact-heading">
-        <div>
-          <p className="eyebrow">Market data</p>
-          <h1>Listings</h1>
+        <div className="heading-copy">
+          <span className="heading-context">Listing evidence</span>
+          <h1>Matching listings</h1>
           <p className="heading-meta">
-            {formatNumber(listings.pagination.totalItems)} results · observed through {formatDateTime(listings.coverage.lastRelevantCrawlAt)}
+            {formatNumber(listings.pagination.totalItems)} results in this market scope · observed through {formatDateTime(listings.coverage.lastRelevantCrawlAt)}
           </p>
         </div>
         <Link className="button-link secondary-button" href={analyticsHref(params)}>
-          Analyze results
+          Analyze this market
         </Link>
       </section>
 
@@ -56,19 +57,30 @@ export default async function ListingsPage({ searchParams }: PageProps) {
         variant="listings"
       />
 
+      <MarketCoverage coverage={listings.coverage} title="Result coverage" />
+
       <section className="table-wrap listing-results" aria-label="Listings">
         <div className="section-heading">
-          <h2>Results</h2>
+          <div>
+            <h2>Listings</h2>
+            <p>Observed asking prices and availability—not completed transactions.</p>
+          </div>
           <span>
-            Page {listings.pagination.page} of {listings.pagination.totalPages}
+            {formatNumber(listings.pagination.totalItems)} total · page {listings.pagination.page} of {listings.pagination.totalPages}
           </span>
         </div>
         {listings.items.length === 0 ? (
           <div className="empty-state">
             <h2>No matching listings</h2>
-            <Link className="text-link" href="/listings">
-              Clear filters
-            </Link>
+            <p>Widen the year, price, or mileage range to bring more evidence into view.</p>
+            <div className="empty-actions">
+              <Link className="button-link" href="/listings">
+                Reset filters
+              </Link>
+              <Link className="button-link secondary-button" href={analyticsHref(params)}>
+                Return to analysis
+              </Link>
+            </div>
           </div>
         ) : (
           <>
@@ -124,6 +136,10 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                       <dt>Seller</dt>
                       <dd><ListingSeller listing={listing} /></dd>
                     </div>
+                    <div>
+                      <dt>Last observed</dt>
+                      <dd>{formatDateTime(listing.lastSeenAt)}</dd>
+                    </div>
                   </dl>
                 </article>
               ))}
@@ -153,7 +169,7 @@ function ListingPrice({ listing }: { listing: ListingTableItem }) {
   const qualifier = listing.askingPriceEur !== null
     ? "Asking"
     : listing.observedSoldPriceEur !== null
-      ? "Observed sold"
+      ? "Price shown on observed-sold listing"
       : null;
   return (
     <span className="qualified-value">
@@ -174,24 +190,27 @@ function ListingSeller({ listing }: { listing: ListingTableItem }) {
 
 function Pagination({ listings, params }: { listings: ListingSearchResponse; params: PageSearchParams }) {
   const { page, totalPages } = listings.pagination;
+  if (totalPages <= 1) {
+    return null;
+  }
   return (
     <nav className="pagination" aria-label="Listings pagination">
       {page > 1 ? (
-        <Link className="button-link secondary-button" href={pageHref(params, page - 1)}>
+        <Link className="button-link secondary-button" href={pageHref(params, page - 1)} rel="prev">
           Previous
         </Link>
       ) : (
-        <span className="button-link secondary-button disabled">Previous</span>
+        <span className="button-link secondary-button disabled" aria-disabled="true">Previous</span>
       )}
       <span>
         {page} / {totalPages}
       </span>
       {page < totalPages ? (
-        <Link className="button-link secondary-button" href={pageHref(params, page + 1)}>
+        <Link className="button-link secondary-button" href={pageHref(params, page + 1)} rel="next">
           Next
         </Link>
       ) : (
-        <span className="button-link secondary-button disabled">Next</span>
+        <span className="button-link secondary-button disabled" aria-disabled="true">Next</span>
       )}
     </nav>
   );
@@ -236,13 +255,14 @@ function ListingsError({ error }: { error: unknown }) {
       ? "Check the selected filters and try again."
       : "Listings are temporarily unavailable.";
   return (
-    <main className="shell">
+    <main className="shell public-shell">
       <SiteHeader active="listings" />
       <section className="panel error-state page-error">
         <h1>Listings unavailable</h1>
         <p>{message}</p>
+        <p className="state-guidance">Reset the scope to rule out an invalid combination, or try again shortly.</p>
         <Link className="button-link" href="/listings">
-          Clear filters
+          Reset listing scope
         </Link>
       </section>
     </main>

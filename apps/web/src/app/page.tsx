@@ -10,7 +10,7 @@ import {
   type AnalyticsTimeSeriesResponse,
   type FilterMetadata,
 } from "@/lib/api";
-import { formatCurrency, formatDateTime, formatKm, formatNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatKm, formatNumber } from "@/lib/format";
 import {
   ChartPlaceholder,
   LazyAnalyticsSnapshotCharts,
@@ -18,6 +18,7 @@ import {
   LazyMarketActivityChart,
 } from "./lazy-analytics-charts";
 import { MarketFilterForm, type PageSearchParams } from "./market-filter-form";
+import { MarketCoverage } from "./market-coverage";
 import { SiteHeader } from "./site-header";
 
 type PageProps = {
@@ -37,17 +38,19 @@ export default async function Home({ searchParams }: PageProps) {
   const listingsHref = filteredListingsHref(params);
 
   return (
-    <main className="shell">
+    <main className="shell public-shell">
       <SiteHeader active="analyze" />
 
-      <section className="page-heading">
-        <div>
-          <p className="eyebrow">Market analysis</p>
+      <section className="page-heading analysis-heading">
+        <div className="heading-copy">
+          <span className="heading-context">Finnish used-car market</span>
           <h1>{title}</h1>
-          <p className="heading-meta">Compare the typical price range, then open the matching listings.</p>
+          <p className="heading-meta">
+            See typical asking prices, market movement, and listing availability for this exact scope.
+          </p>
         </div>
         <Link className="button-link secondary-button" href={listingsHref}>
-          View {formatNumber(analytics.summary.listingCount)} listings
+          Open {formatNumber(analytics.summary.listingCount)} matching listings
         </Link>
       </section>
 
@@ -59,11 +62,16 @@ export default async function Home({ searchParams }: PageProps) {
         variant="analytics"
       />
 
-      <section className="metrics analytics-metrics" aria-label="Market summary">
+      <section className="market-snapshot" aria-labelledby="market-snapshot-title">
+        <div className="snapshot-intro">
+          <h2 id="market-snapshot-title">Market snapshot</h2>
+          <p>Typical values across the currently selected listings.</p>
+        </div>
+        <dl className="snapshot-values">
         <Metric
           label="Listings"
           value={formatNumber(analytics.summary.listingCount)}
-          detail={`${formatNumber(analytics.summary.activeCount)} last observed as current · ${formatNumber(analytics.summary.soldCount)} observed sold`}
+          detail={`${formatNumber(analytics.summary.activeCount)} current · ${formatNumber(analytics.summary.soldCount)} observed-sold`}
         />
         <Metric
           label="Median asking price"
@@ -76,35 +84,52 @@ export default async function Home({ searchParams }: PageProps) {
           detail={`${formatNumber(analytics.summary.mileageSampleSize)} listings with mileage data`}
         />
         <Metric
-          label="Median observed sold price"
+          label="Median observed-sold listing price"
           value={formatCurrency(analytics.summary.medianObservedSoldPriceEur)}
-          detail={`${formatNumber(analytics.summary.observedSoldPriceSampleSize)} sold listings with a shown price`}
+          detail={`${formatNumber(analytics.summary.observedSoldPriceSampleSize)} observations · not a confirmed transaction price`}
         />
+        </dl>
       </section>
 
-      <CoverageBar analytics={analytics} />
+      <MarketCoverage coverage={analytics.coverage} />
 
-      <AnalyticsSectionHeading
-        title="Price direction"
-        description="Use the trend to see whether observed market prices are moving, not to value one car on its own."
-      />
-      <Suspense fallback={<ChartPlaceholder title="Price over observed time" />}>
-        <HistoricalPriceSection queryString={searchParamsToQueryString(params)} />
-      </Suspense>
+      <section className="analysis-chapter">
+        <AnalyticsSectionHeading
+          title="Price direction"
+          description="Read the market’s direction across observed periods. This is segment evidence, not a valuation for one car."
+        />
+        <Suspense fallback={<ChartPlaceholder title="Price over observed time" />}>
+          <HistoricalPriceSection queryString={searchParamsToQueryString(params)} />
+        </Suspense>
+      </section>
 
-      <AnalyticsSectionHeading
-        title="What shapes the price"
-        description="Compare model year and mileage first; both usually explain more than transmission alone."
-      />
-      <LazyAnalyticsSnapshotCharts analytics={analytics} />
+      <section className="analysis-chapter">
+        <AnalyticsSectionHeading
+          title="What shapes the price"
+          description="Compare model year and mileage first, then use transmission to check whether the pattern still holds."
+        />
+        <LazyAnalyticsSnapshotCharts analytics={analytics} />
+      </section>
 
-      <AnalyticsSectionHeading
-        title="Market activity"
-        description="These are listings captured in complete crawls, not sales or point-in-time inventory."
-      />
-      <Suspense fallback={<ChartPlaceholder title="Listings captured per period" />}>
-        <MarketActivitySection queryString={searchParamsToQueryString(params)} />
-      </Suspense>
+      <section className="analysis-chapter">
+        <AnalyticsSectionHeading
+          title="Listing activity"
+          description="Counts show listings captured in complete observation periods—not completed sales or exact point-in-time inventory."
+        />
+        <Suspense fallback={<ChartPlaceholder title="Listings captured per period" />}>
+          <MarketActivitySection queryString={searchParamsToQueryString(params)} />
+        </Suspense>
+      </section>
+
+      <section className="evidence-cta">
+        <div>
+          <h2>Inspect the evidence behind this view</h2>
+          <p>Open the underlying listings to compare individual prices, mileage, sellers, and observation dates.</p>
+        </div>
+        <Link className="button-link" href={listingsHref}>
+          View {formatNumber(analytics.summary.listingCount)} listings
+        </Link>
+      </section>
     </main>
   );
 }
@@ -112,46 +137,12 @@ export default async function Home({ searchParams }: PageProps) {
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
+      <dt>{label}</dt>
+      <dd>
+        <span className="metric-value">{value}</span>
+        <small>{detail}</small>
+      </dd>
     </div>
-  );
-}
-
-function CoverageBar({ analytics }: { analytics: AnalyticsSnapshotResponse }) {
-  const coverage = analytics.coverage;
-  const included = coverage.includesCurrent && coverage.includesSold
-    ? "Current + sold"
-    : coverage.includesCurrent
-      ? "Current"
-      : coverage.includesSold
-        ? "Sold"
-        : "No listings";
-
-  return (
-    <section
-      className={`coverage coverage-${coverage.completeness}`}
-      aria-label="Data coverage"
-      role={coverage.completeness === "complete" ? undefined : "status"}
-    >
-      <span>
-        <strong>Freshness</strong> {formatDateTime(coverage.lastRelevantCrawlAt)}
-      </span>
-      <span>
-        <strong>Crawl</strong> {coverage.completeness}
-      </span>
-      <span>
-        <strong>Listings</strong> {included}
-      </span>
-      <span>
-        <strong>Basis</strong>{" "}
-        {coverage.dataSource === "search_and_detail_data" ? "Search + detail data" : "Search result data"}
-      </span>
-      <span>
-        <strong>Sample</strong> {formatNumber(coverage.sampleSize)} listings
-      </span>
-    </section>
   );
 }
 
@@ -187,7 +178,12 @@ const loadTimeSeries = cache(async (queryString: string) => {
 
 async function HistoricalPriceSection({ queryString }: { queryString: string }) {
   const timeSeries = await loadTimeSeries(queryString);
-  return <LazyHistoricalPriceChart data={timeSeries.marketOverTime} />;
+  return (
+    <>
+      <PriceTrendInsight data={timeSeries.marketOverTime} />
+      <LazyHistoricalPriceChart data={timeSeries.marketOverTime} />
+    </>
+  );
 }
 
 async function MarketActivitySection({ queryString }: { queryString: string }) {
@@ -197,10 +193,46 @@ async function MarketActivitySection({ queryString }: { queryString: string }) {
 
 function AnalyticsSectionHeading({ title, description }: { title: string; description: string }) {
   return (
-    <div className="analytics-section-heading">
+    <header className="analytics-section-heading">
       <h2>{title}</h2>
       <p>{description}</p>
-    </div>
+    </header>
+  );
+}
+
+function PriceTrendInsight({ data }: { data: AnalyticsTimeSeriesResponse["marketOverTime"] }) {
+  const points = [...data]
+    .filter((point) => point.medianAskingPriceEur !== null)
+    .sort((left, right) => left.bucket.localeCompare(right.bucket));
+  if (points.length < 2) {
+    return null;
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const firstPrice = first.medianAskingPriceEur;
+  const lastPrice = last.medianAskingPriceEur;
+  if (firstPrice === null || lastPrice === null || firstPrice === 0) {
+    return null;
+  }
+
+  const change = ((lastPrice - firstPrice) / firstPrice) * 100;
+  const stable = Math.abs(change) < 0.5;
+  const direction = stable ? "broadly flat" : change > 0 ? "higher" : "lower";
+  const symbol = stable ? "→" : change > 0 ? "↗" : "↘";
+
+  return (
+    <aside className={`market-signal ${stable ? "signal-neutral" : change > 0 ? "signal-up" : "signal-down"}`}>
+      <span className="signal-symbol" aria-hidden="true">{symbol}</span>
+      <div>
+        <strong>
+          Median asking prices are {stable ? direction : `${formatNumber(Math.abs(Number(change.toFixed(1))))}% ${direction}`} across the observed window.
+        </strong>
+        <p>
+          {formatCurrency(firstPrice)} on {formatDate(`${first.bucket}T00:00:00`)} to {formatCurrency(lastPrice)} on {formatDate(`${last.bucket}T00:00:00`)} · latest period includes {formatNumber(last.askingPriceSampleSize)} asking-price observations. Vehicle mix can change between periods.
+        </p>
+      </div>
+    </aside>
   );
 }
 
@@ -211,13 +243,14 @@ function HomeError({ error }: { error: unknown }) {
       : "Market data is temporarily unavailable.";
 
   return (
-    <main className="shell">
+    <main className="shell public-shell">
       <SiteHeader active="analyze" />
       <section className="panel error-state page-error">
         <h1>Data unavailable</h1>
         <p>{message}</p>
+        <p className="state-guidance">Reset the scope to rule out an invalid combination, or try again shortly.</p>
         <Link className="button-link" href="/">
-          Clear filters
+          Reset market scope
         </Link>
       </section>
     </main>

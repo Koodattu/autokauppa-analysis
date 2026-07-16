@@ -33,7 +33,7 @@ export function LazyMarketActivityChart({ data }: { data: AnalyticsTimeSeriesRes
 export function ChartPlaceholder({ title, full = true }: { title: string; full?: boolean }) {
   return (
     <section className={`chart-panel chart-loading ${full ? "chart-panel-full" : ""}`} aria-busy="true">
-      <h2>{title}</h2>
+      <h3>{title}</h3>
       <div className="skeleton-block" />
     </section>
   );

@@ -24,14 +24,21 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
   }
 
   return (
-    <div className="history-chart" aria-label="Listing price and mileage history">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={history}
-          margin={{ top: 8, right: 8, bottom: 4, left: 8 }}
-          title="Listing history"
-          desc="Asking price, observed sold price, and mileage by observation date"
-        >
+    <div className="history-visual">
+      <div className="history-legend" aria-label="History chart legend">
+        <span><i className="history-line history-asking" aria-hidden="true" /> Asking price</span>
+        <span><i className="history-line history-sold" aria-hidden="true" /> Observed-sold listing price</span>
+        <span><i className="history-line history-mileage" aria-hidden="true" /> Mileage</span>
+        <small>Left axis: price · right axis: mileage</small>
+      </div>
+      <div className="history-chart" aria-label="Listing price on the left axis and mileage on the right axis by observation date">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart
+            data={history}
+            margin={{ top: 8, right: 8, bottom: 4, left: 8 }}
+            title="Listing history"
+            desc="Asking price, price shown on an observed-sold listing, and mileage by observation date"
+          >
           <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="observedAt"
@@ -75,7 +82,7 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             yAxisId="price"
             type="stepAfter"
             dataKey="observedSoldPriceEur"
-            name="Observed sold price"
+            name="Observed-sold listing price"
             stroke="#b45309"
             strokeWidth={2.5}
             dot={{ r: 3, fill: "white", strokeWidth: 2 }}
@@ -94,8 +101,9 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             connectNulls
             isAnimationActive={false}
           />
-        </LineChart>
-      </ResponsiveContainer>
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

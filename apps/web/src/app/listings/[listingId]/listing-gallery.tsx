@@ -44,7 +44,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
             <button type="button" onClick={() => move(-1)} aria-label="Previous image">
               <Chevron direction="left" />
             </button>
-            <span>
+            <span aria-live="polite">
               {selectedIndex + 1} / {images.length}
             </span>
             <button type="button" onClick={() => move(1)} aria-label="Next image">
@@ -89,6 +89,19 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
             event.currentTarget.close();
           }
         }}
+        onKeyDown={(event) => {
+          if (images.length < 2) {
+            return;
+          }
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            move(-1);
+          }
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            move(1);
+          }
+        }}
       >
         <button className="gallery-dialog-close" type="button" onClick={() => dialogRef.current?.close()}>
           Close
@@ -106,13 +119,13 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
         </div>
         {images.length > 1 ? (
           <div className="gallery-dialog-controls">
-            <button type="button" onClick={() => move(-1)}>
+            <button type="button" onClick={() => move(-1)} aria-label="Previous image">
               Previous
             </button>
-            <span>
+            <span aria-live="polite">
               {selectedIndex + 1} / {images.length}
             </span>
-            <button type="button" onClick={() => move(1)}>
+            <button type="button" onClick={() => move(1)} aria-label="Next image">
               Next
             </button>
           </div>

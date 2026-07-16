@@ -5,9 +5,21 @@ export function SiteHeader({ active }: { active?: "analyze" | "listings" | "admi
     <header className="site-header">
       <Link className="brand" href="/" aria-label="Nettiauto Analytics home">
         <span className="brand-mark" aria-hidden="true">
-          NA
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.8"
+          >
+            <circle cx="10" cy="10" r="5.25" />
+            <path d="m14 14 4.5 4.5" />
+          </svg>
         </span>
-        <span>Nettiauto Analytics</span>
+        <span className="brand-name">Nettiauto Analytics</span>
       </Link>
       <nav className="site-nav" aria-label="Main navigation">
         <Link
@@ -25,13 +37,13 @@ export function SiteHeader({ active }: { active?: "analyze" | "listings" | "admi
           Listings
         </Link>
       </nav>
-      <Link
-        className={`admin-link ${active === "admin" ? "active" : ""}`}
-        href="/admin/crawler"
-        aria-current={active === "admin" ? "page" : undefined}
-      >
-        Admin
-      </Link>
+      {active === "admin" ? (
+        <Link className="admin-link active" href="/admin/crawler" aria-current="page">
+          Admin
+        </Link>
+      ) : (
+        <span className="header-context">Observed Finnish market data</span>
+      )}
     </header>
   );
 }
