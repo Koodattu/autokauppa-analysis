@@ -23,6 +23,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
   const [models, setModels] = useState(filters.models);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState("");
+  const [modelStatus, setModelStatus] = useState("");
   const [formError, setFormError] = useState("");
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -41,6 +42,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
     setSelectedMake(make);
     setSelectedModel("");
     setModelsError("");
+    setModelStatus(make ? `Loading models for ${make}.` : "");
 
     if (!make) {
       setModels([]);
@@ -50,6 +52,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
     if (make === initialMake) {
       setModels(filters.models);
       setModelsLoading(false);
+      setModelStatus(`${filters.models.length} models available for ${make}.`);
       return;
     }
 
@@ -66,11 +69,14 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
       const metadata = (await response.json()) as FilterMetadata;
       if (modelRequest.current === request) {
         setModels(metadata.models);
+        setModelStatus(`${metadata.models.length} models available for ${make}.`);
       }
     } catch {
       if (modelRequest.current === request) {
         setModels([]);
-        setModelsError("Models couldn’t be loaded. Analyze the make as a whole or retry.");
+        const message = "Models couldn’t be loaded. Analyze the make as a whole or retry.";
+        setModelsError(message);
+        setModelStatus(message);
       }
     } finally {
       if (modelRequest.current === request) {
@@ -156,6 +162,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
             name="model"
             value={selectedModel}
             disabled={!selectedMake || modelsLoading}
+            aria-busy={modelsLoading}
             onChange={(event) => setSelectedModel(event.target.value)}
           >
             <option value="">
@@ -210,14 +217,20 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
         </div>
       </div>
 
-      {modelsError ? (
-        <p className="filter-error" role="status">
-          <span>{modelsError}</span>
+      <div
+        className={modelsError ? "filter-error" : "sr-only"}
+        id="model-options-status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span>{modelStatus}</span>
+        {modelsError ? (
           <button type="button" onClick={() => void selectMake(selectedMake)}>
             Retry
           </button>
-        </p>
-      ) : null}
+        ) : null}
+      </div>
 
       {formError ? (
         <p className="filter-error" id="filter-validation-error" role="alert">

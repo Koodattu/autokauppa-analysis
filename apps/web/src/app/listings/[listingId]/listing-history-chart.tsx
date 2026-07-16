@@ -11,7 +11,7 @@ import {
   type TooltipContentProps,
 } from "recharts";
 import type { PublicListingDetailResponse } from "@/lib/api";
-import { formatCurrency, formatDate, formatKm } from "@/lib/format";
+import { formatCompactNumber, formatCurrency, formatDate, formatKm, formatMonthDay } from "@/lib/format";
 
 type HistoryRow = PublicListingDetailResponse["history"][number];
 
@@ -39,14 +39,14 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             title="Listing history"
             desc="Asking price, price shown on an observed-sold listing, and mileage by observation date"
           >
-          <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid stroke="var(--public-chart-grid)" strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="observedAt"
             tickFormatter={formatShortDate}
             axisLine={false}
             tickLine={false}
             minTickGap={28}
-            tick={{ fill: "#667085", fontSize: 11 }}
+            tick={{ fill: "var(--public-chart-axis)", fontSize: 11 }}
           />
           <YAxis
             yAxisId="price"
@@ -55,7 +55,7 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             axisLine={false}
             tickLine={false}
             width={68}
-            tick={{ fill: "#667085", fontSize: 11 }}
+            tick={{ fill: "var(--public-chart-axis)", fontSize: 11 }}
           />
           <YAxis
             yAxisId="mileage"
@@ -64,7 +64,7 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             axisLine={false}
             tickLine={false}
             width={62}
-            tick={{ fill: "#667085", fontSize: 11 }}
+            tick={{ fill: "var(--public-chart-axis)", fontSize: 11 }}
           />
           <Tooltip content={(props) => <HistoryTooltip {...props} />} />
           <Line
@@ -72,9 +72,9 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             type="stepAfter"
             dataKey="askingPriceEur"
             name="Asking price"
-            stroke="#0f766e"
+            stroke="var(--public-chart-asking)"
             strokeWidth={2.5}
-            dot={{ r: 3, fill: "white", strokeWidth: 2 }}
+            dot={{ r: 3, fill: "white", stroke: "var(--public-chart-asking)", strokeWidth: 2 }}
             connectNulls={false}
             isAnimationActive={false}
           />
@@ -83,9 +83,10 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             type="stepAfter"
             dataKey="observedSoldPriceEur"
             name="Observed-sold listing price"
-            stroke="#b45309"
+            stroke="var(--public-chart-sold)"
             strokeWidth={2.5}
-            dot={{ r: 3, fill: "white", strokeWidth: 2 }}
+            strokeDasharray="6 4"
+            dot={{ r: 3, fill: "var(--public-chart-sold)", stroke: "var(--public-chart-sold)", strokeWidth: 1 }}
             connectNulls={false}
             isAnimationActive={false}
           />
@@ -94,9 +95,9 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
             type="stepAfter"
             dataKey="mileageKm"
             name="Mileage"
-            stroke="#475467"
+            stroke="var(--public-chart-history)"
             strokeWidth={1.8}
-            strokeDasharray="5 4"
+            strokeDasharray="2 4"
             dot={false}
             connectNulls
             isAnimationActive={false}
@@ -130,13 +131,13 @@ function HistoryTooltip({ active, payload, label }: TooltipContentProps) {
             </b>
           </div>
         ))}
-      {row.sourceUpdatedDate ? <p>Updated on source: {formatDate(`${row.sourceUpdatedDate}T00:00:00`)}</p> : null}
+      {row.sourceUpdatedDate ? <p>Updated on source: {formatDate(row.sourceUpdatedDate)}</p> : null}
     </div>
   );
 }
 
 function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat("fi-FI", { month: "short", day: "numeric" }).format(new Date(value));
+  return formatMonthDay(value);
 }
 
 function formatCompactCurrency(value: number) {
@@ -148,5 +149,5 @@ function formatCompactKm(value: number) {
 }
 
 function compact(value: number) {
-  return new Intl.NumberFormat("fi-FI", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return formatCompactNumber(value);
 }

@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { notFound } from "next/navigation";
-import { ApiError, apiGet, type PublicListingDetailResponse } from "@/lib/api";
+import {
+  ApiError,
+  apiGet,
+  safeListingsReturnHref,
+  type PublicListingDetailResponse,
+} from "@/lib/api";
 import {
   formatCurrency,
   formatDate,
@@ -13,14 +18,15 @@ import {
 } from "@/lib/format";
 import { SiteHeader } from "../../site-header";
 import { ListingGallery } from "./listing-gallery";
-import { ListingHistoryChart } from "./listing-history-chart";
+import { LazyListingHistoryChart } from "./lazy-listing-history-chart";
 
 type PageProps = {
   params: Promise<{ listingId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function ListingPage({ params }: PageProps) {
-  const { listingId } = await params;
+export default async function ListingPage({ params, searchParams }: PageProps) {
+  const [{ listingId }, query] = await Promise.all([params, searchParams]);
   let data: PublicListingDetailResponse;
   try {
     data = await apiGet<PublicListingDetailResponse>(`/listings/${listingId}`, {
@@ -39,13 +45,17 @@ export default async function ListingPage({ params }: PageProps) {
   const details = data.vehicleDetails;
   const detailGroups = details ? vehicleDetailGroups(details) : [];
   const sourceUpdatedDate = details?.sourceUpdatedDate ?? data.listing.sourceUpdatedDate;
+  const listingsHref = safeListingsReturnHref(query.returnTo);
+  const hasHistoryChart = data.history.length >= 2 && data.history.some(
+    (row) => row.askingPriceEur !== null || row.observedSoldPriceEur !== null || row.mileageKm !== null,
+  );
 
   return (
     <main className="shell public-shell">
       <SiteHeader active="listings" />
 
       <nav className="breadcrumb" aria-label="Breadcrumb">
-        <Link href="/listings">Listings</Link>
+        <Link href={listingsHref}>{listingsHref === "/listings" ? "Listings" : "Matching listings"}</Link>
         <span aria-hidden="true">/</span>
         <span>{data.listing.sourceListingId}</span>
       </nav>
@@ -110,7 +120,7 @@ export default async function ListingPage({ params }: PageProps) {
         ) : (
           <>
             <HistoryInsight history={data.history} />
-            <ListingHistoryChart history={data.history} />
+            {hasHistoryChart ? <LazyListingHistoryChart history={data.history} /> : null}
             <div className="history-table-wrap">
               <table className="history-table">
                 <thead>
@@ -319,7 +329,7 @@ function compactRows(rows: Array<[string, string | null]>) {
 }
 
 function formatOptionalDate(value: string | null) {
-  return value ? formatDate(`${value}T00:00:00`) : null;
+  return value ? formatDate(value) : null;
 }
 
 function formatConsumption(value: number | null) {

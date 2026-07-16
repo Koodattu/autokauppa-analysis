@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-16T01:10:04.7543729+03:00",
+  "generatedAt": "2026-07-16T15:15:00+03:00",
   "title": "Design System: Nettiauto Analytics",
   "extensions": {
     "colorMeta": {
@@ -82,6 +82,12 @@
         "canonical": "#fff0ee",
         "tonalRamp": ["oklch(15% 0.022 25)", "oklch(27% 0.022 25)", "oklch(39% 0.022 25)", "oklch(51% 0.022 25)", "oklch(63% 0.022 25)", "oklch(75% 0.022 25)", "oklch(87% 0.022 25)", "oklch(95% 0.022 25)"]
       },
+      "chart-asking": {
+        "role": "primary",
+        "displayName": "Asking-Price Teal",
+        "canonical": "#0f766e",
+        "tonalRamp": ["oklch(15% 0.09 176)", "oklch(27% 0.09 176)", "oklch(39% 0.09 176)", "oklch(51% 0.09 176)", "oklch(63% 0.09 176)", "oklch(75% 0.09 176)", "oklch(87% 0.09 176)", "oklch(95% 0.09 176)"]
+      },
       "chart-sold": {
         "role": "secondary",
         "displayName": "Observed-Sold Orange",
@@ -105,6 +111,12 @@
         "displayName": "Chart Grid",
         "canonical": "#e5e7eb",
         "tonalRamp": ["oklch(15% 0.007 257)", "oklch(27% 0.007 257)", "oklch(39% 0.007 257)", "oklch(51% 0.007 257)", "oklch(63% 0.007 257)", "oklch(75% 0.007 257)", "oklch(87% 0.007 257)", "oklch(95% 0.007 257)"]
+      },
+      "chart-axis": {
+        "role": "neutral",
+        "displayName": "Chart Axis Slate",
+        "canonical": "#667085",
+        "tonalRamp": ["oklch(15% 0.035 260)", "oklch(27% 0.035 260)", "oklch(39% 0.035 260)", "oklch(51% 0.035 260)", "oklch(63% 0.035 260)", "oklch(75% 0.035 260)", "oklch(87% 0.035 260)", "oklch(95% 0.035 260)"]
       }
     },
     "typographyMeta": {

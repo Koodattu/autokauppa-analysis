@@ -310,6 +310,35 @@ export function searchParamsToQueryString(searchParams: Record<string, string | 
   return params.toString();
 }
 
+export function listingDetailHref(
+  listingId: string,
+  searchParams: Record<string, string | string[] | undefined>,
+) {
+  const query = new URLSearchParams(searchParamsToQueryString(searchParams));
+  query.delete("returnTo");
+  const value = query.toString();
+  const returnTo = value ? `/listings?${value}` : "/listings";
+  return `/listings/${encodeURIComponent(listingId)}?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+export function safeListingsReturnHref(value: string | string[] | undefined) {
+  const rawPath = typeof value === "string" ? value.split(/[?#]/, 1)[0] : "";
+  if (!value || Array.isArray(value) || rawPath !== "/listings" || value.includes("\\")) {
+    return "/listings";
+  }
+
+  try {
+    const base = "https://scope.invalid";
+    const url = new URL(value, base);
+    if (url.origin !== base || url.pathname !== "/listings" || url.hash) {
+      return "/listings";
+    }
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return "/listings";
+  }
+}
+
 export function filterMetadataQueryString(queryString: string) {
   const source = new URLSearchParams(queryString);
   const result = new URLSearchParams();

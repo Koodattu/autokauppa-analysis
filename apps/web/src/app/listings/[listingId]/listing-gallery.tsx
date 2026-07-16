@@ -1,22 +1,35 @@
 "use client";
 
-import Image, { type ImageLoaderProps } from "next/image";
+import Image from "next/image";
 import { useRef, useState } from "react";
 import type { PublicListingDetailResponse } from "@/lib/api";
+import { isAllowedListingImageUrl } from "@/lib/listing-images";
 
 type GalleryImage = PublicListingDetailResponse["imageMetadata"][number];
 
 export function ListingGallery({ images, title }: { images: GalleryImage[]; title: string }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const selected = images[selectedIndex];
+  const availableImages = images.filter(
+    (image) => isAllowedListingImageUrl(image.imageUrl) && !failedUrls.includes(image.imageUrl),
+  );
+  const activeIndex = Math.min(selectedIndex, Math.max(availableImages.length - 1, 0));
+  const selected = availableImages[activeIndex];
 
   if (!selected) {
     return <div className="gallery-empty">No images observed</div>;
   }
 
   function move(offset: number) {
-    setSelectedIndex((current) => (current + offset + images.length) % images.length);
+    setSelectedIndex((current) => (
+      (Math.min(current, availableImages.length - 1) + offset + availableImages.length) % availableImages.length
+    ));
+  }
+
+  function markFailed(imageUrl: string) {
+    setFailedUrls((current) => current.includes(imageUrl) ? current : [...current, imageUrl]);
+    setSelectedIndex((current) => Math.min(current, Math.max(availableImages.length - 2, 0)));
   }
 
   return (
@@ -29,23 +42,22 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
           aria-label="Open larger image"
         >
           <Image
-            loader={passthroughImageLoader}
-            unoptimized
             src={selected.imageUrl}
-            alt={`${title} image ${selected.position ?? selectedIndex + 1}`}
+            alt={`${title} image ${selected.position ?? activeIndex + 1}`}
             fill
-            priority
+            preload={activeIndex === 0}
             sizes="(max-width: 800px) 100vw, 65vw"
             referrerPolicy="no-referrer"
+            onError={() => markFailed(selected.imageUrl)}
           />
         </button>
-        {images.length > 1 ? (
+        {availableImages.length > 1 ? (
           <div className="gallery-controls">
             <button type="button" onClick={() => move(-1)} aria-label="Previous image">
               <Chevron direction="left" />
             </button>
             <span aria-live="polite">
-              {selectedIndex + 1} / {images.length}
+              {activeIndex + 1} / {availableImages.length}
             </span>
             <button type="button" onClick={() => move(1)} aria-label="Next image">
               <Chevron direction="right" />
@@ -54,26 +66,25 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
         ) : null}
       </div>
 
-      {images.length > 1 ? (
+      {availableImages.length > 1 ? (
         <div className="gallery-thumbnails" aria-label="Choose image">
-          {images.map((image, index) => (
+          {availableImages.map((image, index) => (
             <button
-              key={image.imageUrl}
-              className={index === selectedIndex ? "selected" : undefined}
+              key={`${image.imageUrl}-${image.position ?? index}`}
+              className={index === activeIndex ? "selected" : undefined}
               type="button"
               onClick={() => setSelectedIndex(index)}
               aria-label={`Show image ${index + 1}`}
-              aria-pressed={index === selectedIndex}
+              aria-pressed={index === activeIndex}
             >
               <Image
-                loader={passthroughImageLoader}
-                unoptimized
                 src={image.imageUrl}
                 alt=""
                 fill
                 sizes="88px"
                 loading="lazy"
                 referrerPolicy="no-referrer"
+                onError={() => markFailed(image.imageUrl)}
               />
             </button>
           ))}
@@ -90,7 +101,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
           }
         }}
         onKeyDown={(event) => {
-          if (images.length < 2) {
+          if (availableImages.length < 2) {
             return;
           }
           if (event.key === "ArrowLeft") {
@@ -108,22 +119,21 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
         </button>
         <div className="gallery-dialog-image">
           <Image
-            loader={passthroughImageLoader}
-            unoptimized
             src={selected.imageUrl}
-            alt={`${title} image ${selected.position ?? selectedIndex + 1}`}
+            alt={`${title} image ${selected.position ?? activeIndex + 1}`}
             fill
             sizes="95vw"
             referrerPolicy="no-referrer"
+            onError={() => markFailed(selected.imageUrl)}
           />
         </div>
-        {images.length > 1 ? (
+        {availableImages.length > 1 ? (
           <div className="gallery-dialog-controls">
             <button type="button" onClick={() => move(-1)} aria-label="Previous image">
               Previous
             </button>
             <span aria-live="polite">
-              {selectedIndex + 1} / {images.length}
+              {activeIndex + 1} / {availableImages.length}
             </span>
             <button type="button" onClick={() => move(1)} aria-label="Next image">
               Next
@@ -133,10 +143,6 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
       </dialog>
     </section>
   );
-}
-
-function passthroughImageLoader({ src }: ImageLoaderProps) {
-  return src;
 }
 
 function Chevron({ direction }: { direction: "left" | "right" }) {

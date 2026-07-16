@@ -16,10 +16,12 @@ colors:
   warning-soft: "#fff5e7"
   danger: "#b42318"
   danger-soft: "#fff0ee"
+  chart-asking: "#0f766e"
   chart-sold: "#b45309"
   chart-count: "#334155"
   chart-history-neutral: "#475467"
   chart-grid: "#e5e7eb"
+  chart-axis: "#667085"
 typography:
   display:
     fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
@@ -174,6 +176,10 @@ The palette is a cool neutral field with one evidence-bearing teal accent and se
 - **Count Slate** (#334155): Listing-count chart series.
 - **History Slate** (#475467): Neutral historical chart series.
 - **Chart Grid** (#e5e7eb): Low-contrast chart guides that never compete with data.
+
+### Public Implementation Tokens
+
+The public shell owns semantic aliases for repeated interface and chart roles. Components consume these names rather than repeating literals: `--public-text-label`, `--public-text-secondary`, `--public-text-tertiary`, `--public-text-on-soft`, `--public-surface-subtle`, `--public-border-control`, `--public-border-control-hover`, `--public-border-tooltip`, `--public-chart-asking`, `--public-chart-sold`, `--public-chart-count`, `--public-chart-history`, `--public-chart-grid`, and `--public-chart-axis`. Administrative surfaces keep their existing global tokens and are not coupled to this public palette.
 
 ### Named Rules
 

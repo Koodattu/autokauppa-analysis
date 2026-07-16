@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   Area,
   Bar,
@@ -14,63 +14,33 @@ import {
   YAxis,
   type TooltipContentProps,
 } from "recharts";
-import type { AnalyticsSnapshotResponse, AnalyticsTrendResponse } from "@/lib/api";
-import { formatCurrency, formatKm, formatNumber } from "@/lib/format";
+import type { AnalyticsTrendResponse } from "@/lib/api";
+import {
+  formatCompactNumber,
+  formatCurrency,
+  formatKm,
+  formatMonthYear,
+  formatNumber,
+} from "@/lib/format";
+import {
+  formatKmBucket,
+  formatObservedDate,
+} from "./analytics-chart-semantics";
 
 type Charts = AnalyticsTrendResponse["charts"];
 type ChartRow = Record<string, unknown>;
 
-const ASKING_COLOR = "#0f766e";
-const SOLD_COLOR = "#b45309";
-const COUNT_COLOR = "#334155";
-const GRID_COLOR = "#e5e7eb";
-const AXIS_COLOR = "#667085";
+const ASKING_COLOR = "var(--public-chart-asking)";
+const SOLD_COLOR = "var(--public-chart-sold)";
+const COUNT_COLOR = "var(--public-chart-count)";
+const GRID_COLOR = "var(--public-chart-grid)";
+const AXIS_COLOR = "var(--public-chart-axis)";
 
-export function AnalyticsSnapshotCharts({ analytics }: { analytics: AnalyticsSnapshotResponse }) {
-  return (
-    <section className="analytics-grid" aria-label="Market charts">
-      <PriceByYearChart data={analytics.charts.priceByYear} />
-      <PriceByMileageChart data={analytics.charts.priceByMileageBucket} />
-      <PriceByTransmissionComparison
-        data={analytics.charts.priceByTransmission}
-        totalListings={analytics.summary.listingCount}
-      />
-    </section>
-  );
-}
-
-export function HistoricalPriceChart({ data }: { data: Charts["marketOverTime"] }) {
-  return <PriceOverTimeChart data={data} />;
-}
-
-export function MarketActivityChart({ data }: { data: Charts["marketOverTime"] }) {
-  return <ObservedListingsChart data={data} />;
-}
-
-function PriceOverTimeChart({ data }: { data: Charts["marketOverTime"] }) {
+export function HistoricalPriceVisual({ data }: { data: Charts["marketOverTime"] }) {
   const rows = withBucketTime(data);
-  const pricePoints = rows.filter(
-    (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
-  );
-  if (pricePoints.length < 2) {
-    return (
-      <EmptyChart
-        title="Price over observed time"
-        message="At least two observed periods are needed for a price trend."
-        full
-      />
-    );
-  }
-
   return (
-    <ChartPanel
-      title="Price over observed time"
-      meta="Median price in each observed period · observed-sold values are listing evidence, not confirmed transactions"
-      full
-      legend
-    >
-      <ChartCanvas>
-        <LineChart
+    <ChartCanvas>
+      <LineChart
           data={rows}
           margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
           title="Price over observed time"
@@ -111,30 +81,16 @@ function PriceOverTimeChart({ data }: { data: Charts["marketOverTime"] }) {
             connectNulls={false}
             isAnimationActive={false}
           />
-        </LineChart>
-      </ChartCanvas>
-    </ChartPanel>
+      </LineChart>
+    </ChartCanvas>
   );
 }
 
-function PriceByYearChart({ data }: { data: Charts["priceByYear"] }) {
-  const rows = withAskingRange(
-    data.filter(
-      (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
-    ),
-  );
-  if (rows.length === 0) {
-    return <EmptyChart title="Price by model year" message="No model-year price data for these filters." />;
-  }
-
+export function PriceByYearVisual({ data }: { data: Charts["priceByYear"] }) {
+  const rows = withAskingRange(data);
   return (
-    <ChartPanel
-      title="Price by model year"
-      meta="Asking-price middle 50% shown as a band · compare similar mileage where possible"
-      legend
-    >
-      <ChartCanvas>
-        <ComposedChart
+    <ChartCanvas>
+      <ComposedChart
           data={rows}
           margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
           title="Price by model year"
@@ -155,7 +111,9 @@ function PriceByYearChart({ data }: { data: Charts["priceByYear"] }) {
             type="monotone"
             dataKey="askingRange"
             name="Asking p25–p75"
-            stroke="none"
+            stroke={ASKING_COLOR}
+            strokeOpacity={0.78}
+            strokeWidth={1.5}
             fill={ASKING_COLOR}
             fillOpacity={0.13}
             tooltipType="none"
@@ -183,27 +141,16 @@ function PriceByYearChart({ data }: { data: Charts["priceByYear"] }) {
             connectNulls={false}
             isAnimationActive={false}
           />
-        </ComposedChart>
-      </ChartCanvas>
-      <PriceByYearTable data={rows} />
-    </ChartPanel>
+      </ComposedChart>
+    </ChartCanvas>
   );
 }
 
-function PriceByMileageChart({ data }: { data: Charts["priceByMileageBucket"] }) {
-  const rows = withAskingRange(
-    data.filter(
-      (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
-    ),
-  );
-  if (rows.length === 0) {
-    return <EmptyChart title="Price by mileage" message="No mileage and price data for these filters." />;
-  }
-
+export function PriceByMileageVisual({ data }: { data: Charts["priceByMileageBucket"] }) {
+  const rows = withAskingRange(data);
   return (
-    <ChartPanel title="Price by mileage" meta="25,000 km groups · model year can affect the result" legend>
-      <ChartCanvas>
-        <ComposedChart
+    <ChartCanvas>
+      <ComposedChart
           data={rows}
           margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
           title="Price by mileage"
@@ -224,7 +171,9 @@ function PriceByMileageChart({ data }: { data: Charts["priceByMileageBucket"] })
             type="monotone"
             dataKey="askingRange"
             name="Asking p25–p75"
-            stroke="none"
+            stroke={ASKING_COLOR}
+            strokeOpacity={0.78}
+            strokeWidth={1.5}
             fill={ASKING_COLOR}
             fillOpacity={0.13}
             tooltipType="none"
@@ -252,201 +201,15 @@ function PriceByMileageChart({ data }: { data: Charts["priceByMileageBucket"] })
             connectNulls={false}
             isAnimationActive={false}
           />
-        </ComposedChart>
-      </ChartCanvas>
-      <PriceByMileageTable data={rows} />
-    </ChartPanel>
+      </ComposedChart>
+    </ChartCanvas>
   );
 }
 
-function PriceByTransmissionComparison({
-  data,
-  totalListings,
-}: {
-  data: Charts["priceByTransmission"];
-  totalListings: number;
-}) {
-  const rows = data.filter(
-    (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
-  );
-  if (rows.length === 0) {
-    return <EmptyChart title="Transmission comparison" message="No transmission price data for these filters." full />;
-  }
-  const knownCount = data.reduce((sum, point) => sum + point.listingCount, 0);
-  const maxAskingPrice = Math.max(
-    1,
-    ...rows.map((row) => row.medianAskingPriceEur ?? 0),
-  );
-
+export function MarketActivityVisual({ data }: { data: Charts["marketOverTime"] }) {
   return (
-    <ChartPanel
-      title="Transmission comparison"
-      meta={`${formatNumber(knownCount)} of ${formatNumber(totalListings)} listings include transmission data · vehicle mix can affect prices`}
-      full
-    >
-      <div className="transmission-comparison" aria-label="Median asking price by transmission">
-        {rows.map((row) => {
-          const width = ((row.medianAskingPriceEur ?? 0) / maxAskingPrice) * 100;
-          const style = { "--comparison-width": `${width}%` } as CSSProperties;
-          return (
-            <div className="transmission-row" key={row.transmission}>
-              <div className="transmission-label">
-                <strong>{row.transmission}</strong>
-                <span>{formatNumber(row.listingCount)} listings</span>
-              </div>
-              <div className="transmission-value">
-                <span className="comparison-track" aria-hidden="true" style={style}>
-                  <span />
-                </span>
-                <strong>{formatCurrency(row.medianAskingPriceEur)}</strong>
-                <small>
-                  {row.medianObservedSoldPriceEur === null
-                    ? "No observed-sold price"
-                    : `${formatCurrency(row.medianObservedSoldPriceEur)} on observed-sold listings`}
-                </small>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <details className="chart-data">
-        <summary>View exact transmission data</summary>
-        <div className="chart-table-wrap">
-          <table className="chart-table">
-            <thead>
-              <tr>
-                <th scope="col">Transmission</th>
-                <th scope="col">Listings</th>
-                <th scope="col">Median asking</th>
-                <th scope="col">Middle 50%</th>
-                <th scope="col">Median mileage</th>
-                <th scope="col">Observed-sold price</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.transmission}>
-                  <th scope="row">{row.transmission}</th>
-                  <td>{formatNumber(row.listingCount)}</td>
-                  <td>{formatCurrency(row.medianAskingPriceEur)}</td>
-                  <td>{formatPriceRange(row.askingPriceP25Eur, row.askingPriceP75Eur)}</td>
-                  <td>{formatKm(row.medianMileageKm)}</td>
-                  <td>{formatCurrency(row.medianObservedSoldPriceEur)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
-    </ChartPanel>
-  );
-}
-
-function PriceByYearTable({ data }: { data: Charts["priceByYear"] }) {
-  return (
-    <details className="chart-data">
-      <summary>View exact model-year data</summary>
-      <div className="chart-table-wrap">
-        <table className="chart-table">
-          <thead>
-            <tr>
-              <th scope="col">Model year</th>
-              <th scope="col">Listings</th>
-              <th scope="col">Median asking</th>
-              <th scope="col">Middle 50%</th>
-              <th scope="col">Observed-sold price</th>
-              <th scope="col">Median mileage</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row) => (
-              <tr key={row.yearModel}>
-                <th scope="row">{row.yearModel}</th>
-                <td>{formatNumber(row.listingCount)}</td>
-                <td>
-                  <SampledValue value={formatCurrency(row.medianAskingPriceEur)} sample={row.askingPriceSampleSize} />
-                </td>
-                <td>{formatPriceRange(row.askingPriceP25Eur, row.askingPriceP75Eur)}</td>
-                <td>
-                  <SampledValue
-                    value={formatCurrency(row.medianObservedSoldPriceEur)}
-                    sample={row.observedSoldPriceSampleSize}
-                  />
-                </td>
-                <td>{formatKm(row.medianMileageKm)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
-  );
-}
-
-function PriceByMileageTable({ data }: { data: Charts["priceByMileageBucket"] }) {
-  return (
-    <details className="chart-data">
-      <summary>View exact mileage data</summary>
-      <div className="chart-table-wrap">
-        <table className="chart-table">
-          <thead>
-            <tr>
-              <th scope="col">Mileage</th>
-              <th scope="col">Listings</th>
-              <th scope="col">Median asking</th>
-              <th scope="col">Middle 50%</th>
-              <th scope="col">Observed-sold price</th>
-              <th scope="col">Median model year</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row) => (
-              <tr key={row.bucketStartKm}>
-                <th scope="row">{formatKmBucket(row.bucketStartKm)}</th>
-                <td>{formatNumber(row.listingCount)}</td>
-                <td>
-                  <SampledValue value={formatCurrency(row.medianAskingPriceEur)} sample={row.askingPriceSampleSize} />
-                </td>
-                <td>{formatPriceRange(row.askingPriceP25Eur, row.askingPriceP75Eur)}</td>
-                <td>
-                  <SampledValue
-                    value={formatCurrency(row.medianObservedSoldPriceEur)}
-                    sample={row.observedSoldPriceSampleSize}
-                  />
-                </td>
-                <td>{row.medianYearModel ?? "–"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
-  );
-}
-
-function SampledValue({ value, sample }: { value: string; sample: number }) {
-  return (
-    <span className="sampled-value">
-      {value}
-      <small>{formatNumber(sample)} observations</small>
-    </span>
-  );
-}
-
-function ObservedListingsChart({ data }: { data: Charts["marketOverTime"] }) {
-  if (data.length === 0) {
-    return <EmptyChart title="Listings captured per period" message="No complete observation periods for these filters." full />;
-  }
-
-  return (
-    <ChartPanel
-      title="Listings captured per period"
-      meta="Latest complete current and observed-sold listing set in each period · repeated observations are not sales"
-      full
-      activityLegend
-    >
-      <ChartCanvas>
-        <ComposedChart
+    <ChartCanvas>
+      <ComposedChart
           data={withBucketTime(data)}
           margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
           title="Listings captured per period"
@@ -491,100 +254,8 @@ function ObservedListingsChart({ data }: { data: Charts["marketOverTime"] }) {
             connectNulls={false}
             isAnimationActive={false}
           />
-        </ComposedChart>
-      </ChartCanvas>
-      <ActivityTable data={data} />
-    </ChartPanel>
-  );
-}
-
-function ChartPanel({
-  title,
-  meta,
-  legend = false,
-  activityLegend = false,
-  full = false,
-  children,
-}: {
-  title: string;
-  meta?: string;
-  legend?: boolean;
-  activityLegend?: boolean;
-  full?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <section className={`chart-panel ${full ? "chart-panel-full" : ""}`}>
-      <div className="chart-heading">
-        <div>
-          <h3>{title}</h3>
-          {meta ? <p>{meta}</p> : null}
-        </div>
-        {activityLegend ? <ActivityLegend /> : legend ? <PriceLegend /> : null}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function PriceLegend() {
-  return (
-    <div className="chart-legend" aria-label="Chart legend">
-      <span>
-        <i className="legend-line legend-asking" /> Asking
-      </span>
-      <span>
-        <i className="legend-line legend-sold" /> Observed-sold listing
-      </span>
-    </div>
-  );
-}
-
-function ActivityLegend() {
-  return (
-    <div className="chart-legend" aria-label="Chart legend">
-      <span>
-        <i className="legend-bar legend-current" /> Current
-      </span>
-      <span>
-        <i className="legend-bar legend-observed-sold" /> Observed-sold
-      </span>
-      <span>
-        <i className="legend-line legend-first-observed" /> First observed
-      </span>
-    </div>
-  );
-}
-
-function ActivityTable({ data }: { data: Charts["marketOverTime"] }) {
-  return (
-    <details className="chart-data">
-      <summary>View exact listing-activity data</summary>
-      <div className="chart-table-wrap">
-        <table className="chart-table">
-          <thead>
-            <tr>
-              <th scope="col">Period</th>
-              <th scope="col">Current</th>
-              <th scope="col">Observed-sold</th>
-              <th scope="col">First observed</th>
-              <th scope="col">Total observed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row) => (
-              <tr key={row.bucket}>
-                <th scope="row">{formatObservedDate(row.bucket)}</th>
-                <td>{formatNumber(row.activeCount)}</td>
-                <td>{formatNumber(row.soldCount)}</td>
-                <td>{formatNumber(row.newListingCount)}</td>
-                <td>{formatNumber(row.listingCount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
+      </ComposedChart>
+    </ChartCanvas>
   );
 }
 
@@ -595,14 +266,6 @@ function ChartCanvas({ children }: { children: ReactNode }) {
         {children}
       </ResponsiveContainer>
     </div>
-  );
-}
-
-function EmptyChart({ title, message, full = false }: { title: string; message: string; full?: boolean }) {
-  return (
-    <ChartPanel title={title} full={full}>
-      <div className="chart-empty">{message}</div>
-    </ChartPanel>
   );
 }
 
@@ -688,29 +351,11 @@ function withAskingRange<
 }
 
 function withBucketTime<T extends { bucket: string }>(data: T[]) {
-  return data.map((row) => ({ ...row, bucketTime: new Date(`${row.bucket}T00:00:00`).getTime() }));
+  return data.map((row) => ({ ...row, bucketTime: new Date(`${row.bucket}T12:00:00Z`).getTime() }));
 }
 
 function formatTimeAxis(value: number) {
-  return new Intl.DateTimeFormat("fi-FI", { month: "short", year: "2-digit" }).format(
-    new Date(value),
-  );
-}
-
-function formatObservedDate(value: string | number) {
-  const numericValue = Number(value);
-  const date = Number.isFinite(numericValue) ? new Date(numericValue) : new Date(value);
-  return Number.isNaN(date.getTime())
-    ? String(value)
-    : new Intl.DateTimeFormat("fi-FI", { dateStyle: "medium" }).format(date);
-}
-
-function formatKmBucket(value: string | number) {
-  return `${formatKmCompact(Number(value))}–${formatKmCompact(Number(value) + 24_999)}`;
-}
-
-function formatPriceRange(start: number | null, end: number | null) {
-  return start === null || end === null ? "–" : `${formatCurrency(start)}–${formatCurrency(end)}`;
+  return formatMonthYear(value);
 }
 
 function formatCurrencyCompact(value: number) {
@@ -722,8 +367,5 @@ function formatKmCompact(value: number) {
 }
 
 function formatNumberCompact(value: number) {
-  return new Intl.NumberFormat("fi-FI", {
-    notation: value >= 1_000 ? "compact" : "standard",
-    maximumFractionDigits: 1,
-  }).format(value);
+  return formatCompactNumber(value);
 }

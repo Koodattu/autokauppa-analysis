@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { APP_LOCALE } from "@/lib/format";
 import "./globals.css";
 import "./public.css";
 
@@ -20,7 +21,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang={APP_LOCALE}>
       <body>{children}</body>
     </html>
   );

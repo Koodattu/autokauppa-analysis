@@ -27,7 +27,8 @@ type PageProps = {
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
-  const result = await loadHomeData(searchParamsToQueryString(params));
+  const queryString = searchParamsToQueryString(params);
+  const result = await loadHomeData(queryString);
 
   if (!result.ok) {
     return <HomeError error={result.error} />;
@@ -36,6 +37,7 @@ export default async function Home({ searchParams }: PageProps) {
   const { filters, analytics } = result.data;
   const title = analysisTitle(params);
   const listingsHref = filteredListingsHref(params);
+  const timeSeriesPromise = loadTimeSeries(queryString);
 
   return (
     <main className="shell public-shell">
@@ -55,12 +57,22 @@ export default async function Home({ searchParams }: PageProps) {
       </section>
 
       <MarketFilterForm
-        key={searchParamsToQueryString(params)}
+        key={queryString}
         action="/"
         filters={filters}
         params={params}
         variant="analytics"
       />
+
+      <section className="analysis-chapter signal-chapter">
+        <AnalyticsSectionHeading
+          title="Price direction"
+          description="The clearest change across the selected observation window, with sample context and a vehicle-mix caveat."
+        />
+        <Suspense fallback={<MarketSignalPlaceholder />}>
+          <PriceTrendSignalSection timeSeriesPromise={timeSeriesPromise} />
+        </Suspense>
+      </section>
 
       <section className="market-snapshot" aria-labelledby="market-snapshot-title">
         <div className="snapshot-intro">
@@ -95,11 +107,11 @@ export default async function Home({ searchParams }: PageProps) {
 
       <section className="analysis-chapter">
         <AnalyticsSectionHeading
-          title="Price direction"
-          description="Read the market’s direction across observed periods. This is segment evidence, not a valuation for one car."
+          title="Price over time"
+          description="Compare median asking prices and prices shown on observed-sold listings across each observed period."
         />
         <Suspense fallback={<ChartPlaceholder title="Price over observed time" />}>
-          <HistoricalPriceSection queryString={searchParamsToQueryString(params)} />
+          <HistoricalPriceSection timeSeriesPromise={timeSeriesPromise} />
         </Suspense>
       </section>
 
@@ -117,7 +129,7 @@ export default async function Home({ searchParams }: PageProps) {
           description="Counts show listings captured in complete observation periods—not completed sales or exact point-in-time inventory."
         />
         <Suspense fallback={<ChartPlaceholder title="Listings captured per period" />}>
-          <MarketActivitySection queryString={searchParamsToQueryString(params)} />
+          <MarketActivitySection timeSeriesPromise={timeSeriesPromise} />
         </Suspense>
       </section>
 
@@ -176,18 +188,20 @@ const loadTimeSeries = cache(async (queryString: string) => {
   });
 });
 
-async function HistoricalPriceSection({ queryString }: { queryString: string }) {
-  const timeSeries = await loadTimeSeries(queryString);
-  return (
-    <>
-      <PriceTrendInsight data={timeSeries.marketOverTime} />
-      <LazyHistoricalPriceChart data={timeSeries.marketOverTime} />
-    </>
-  );
+type TimeSeriesPromise = Promise<AnalyticsTimeSeriesResponse>;
+
+async function PriceTrendSignalSection({ timeSeriesPromise }: { timeSeriesPromise: TimeSeriesPromise }) {
+  const timeSeries = await timeSeriesPromise;
+  return <PriceTrendInsight data={timeSeries.marketOverTime} />;
 }
 
-async function MarketActivitySection({ queryString }: { queryString: string }) {
-  const timeSeries = await loadTimeSeries(queryString);
+async function HistoricalPriceSection({ timeSeriesPromise }: { timeSeriesPromise: TimeSeriesPromise }) {
+  const timeSeries = await timeSeriesPromise;
+  return <LazyHistoricalPriceChart data={timeSeries.marketOverTime} />;
+}
+
+async function MarketActivitySection({ timeSeriesPromise }: { timeSeriesPromise: TimeSeriesPromise }) {
+  const timeSeries = await timeSeriesPromise;
   return <LazyMarketActivityChart data={timeSeries.marketOverTime} />;
 }
 
@@ -205,7 +219,15 @@ function PriceTrendInsight({ data }: { data: AnalyticsTimeSeriesResponse["market
     .filter((point) => point.medianAskingPriceEur !== null)
     .sort((left, right) => left.bucket.localeCompare(right.bucket));
   if (points.length < 2) {
-    return null;
+    return (
+      <aside className="market-signal signal-neutral">
+        <span className="signal-symbol" aria-hidden="true">→</span>
+        <div>
+          <strong>Not enough observed periods to show a price direction yet.</strong>
+          <p>At least two periods with asking-price evidence are needed. Try a wider observation window or broader market scope.</p>
+        </div>
+      </aside>
+    );
   }
 
   const first = points[0];
@@ -229,10 +251,22 @@ function PriceTrendInsight({ data }: { data: AnalyticsTimeSeriesResponse["market
           Median asking prices are {stable ? direction : `${formatNumber(Math.abs(Number(change.toFixed(1))))}% ${direction}`} across the observed window.
         </strong>
         <p>
-          {formatCurrency(firstPrice)} on {formatDate(`${first.bucket}T00:00:00`)} to {formatCurrency(lastPrice)} on {formatDate(`${last.bucket}T00:00:00`)} · latest period includes {formatNumber(last.askingPriceSampleSize)} asking-price observations. Vehicle mix can change between periods.
+          {formatCurrency(firstPrice)} on {formatDate(first.bucket)} to {formatCurrency(lastPrice)} on {formatDate(last.bucket)} · latest period includes {formatNumber(last.askingPriceSampleSize)} asking-price observations. Vehicle mix can change between periods.
         </p>
       </div>
     </aside>
+  );
+}
+
+function MarketSignalPlaceholder() {
+  return (
+    <div className="market-signal signal-loading" role="status" aria-busy="true">
+      <span className="signal-symbol" aria-hidden="true">·</span>
+      <div>
+        <strong>Reading price direction…</strong>
+        <p>Comparing observed periods in this market scope.</p>
+      </div>
+    </div>
   );
 }
 

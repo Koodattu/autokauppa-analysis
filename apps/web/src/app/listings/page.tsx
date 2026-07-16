@@ -3,6 +3,7 @@ import {
   ApiError,
   apiGet,
   filterMetadataQueryString,
+  listingDetailHref,
   searchParamsToQueryString,
   type FilterMetadata,
   type ListingSearchResponse,
@@ -99,7 +100,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                 {listings.items.map((listing) => (
                   <tr key={listing.listingId}>
                     <td>
-                      <ListingLink listing={listing} />
+                      <ListingLink listing={listing} params={params} />
                     </td>
                     <td><ListingPrice listing={listing} /></td>
                     <td>{formatKm(listing.mileageKm)}</td>
@@ -118,7 +119,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
               {listings.items.map((listing) => (
                 <article className="listing-card" key={listing.listingId}>
                   <div className="listing-card-heading">
-                    <ListingLink listing={listing} />
+                    <ListingLink listing={listing} params={params} />
                     <span className={`status-badge status-${statusTone(listing.availability)}`}>
                       {labelAvailability(listing.availability)}
                     </span>
@@ -153,10 +154,10 @@ export default async function ListingsPage({ searchParams }: PageProps) {
   );
 }
 
-function ListingLink({ listing }: { listing: ListingTableItem }) {
+function ListingLink({ listing, params }: { listing: ListingTableItem; params: PageSearchParams }) {
   const title = [listing.make, listing.model].filter(Boolean).join(" ") || "Unknown listing";
   return (
-    <Link className="listing-link" href={`/listings/${listing.listingId}`}>
+    <Link className="listing-link" href={listingDetailHref(listing.listingId, params)}>
       <strong>{title}</strong>
       <span>
         {listing.yearModel ?? "Year unknown"} · {listing.sourceListingId}
