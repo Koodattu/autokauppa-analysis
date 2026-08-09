@@ -71,6 +71,13 @@
       "when": 1786300000000,
       "tag": "0009_remove_private_detail_snapshot_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786350000000,
+      "tag": "0010_diagnostics_performance_indexes",
+      "breakpoints": true
     }
   ]
 }

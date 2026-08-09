@@ -206,6 +206,11 @@ export const rawListingRecords = pgTable(
     index("raw_listing_records_source_listing_idx").on(table.source, table.sourceListingId),
     index("raw_listing_records_crawl_run_idx").on(table.crawlRunId),
     index("raw_listing_records_parser_status_idx").on(table.parserVersion, table.parserStatus),
+    index("raw_listing_records_captured_quality_idx").on(
+      table.capturedAt.desc(),
+      table.parserVersion,
+      table.parserStatus,
+    ),
     index("raw_listing_records_failed_captured_idx")
       .on(table.capturedAt.desc())
       .where(sql`${table.parserStatus} = 'failed'`),
@@ -333,6 +338,9 @@ export const listingSnapshots = pgTable(
     index("listing_snapshots_sold_price_idx").on(table.observedSoldPriceEur),
     index("listing_snapshots_mileage_idx").on(table.mileageKm),
     index("listing_snapshots_year_model_idx").on(table.yearModel),
+    index("listing_snapshots_detail_enriched_idx")
+      .on(table.id)
+      .where(sql`${table.normalizedData} ? 'detailParserVersion'`),
   ],
 );
 

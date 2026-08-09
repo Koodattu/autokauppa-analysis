@@ -63,7 +63,7 @@ describeDatabase("PostgreSQL product integration", () => {
     const currentRunTwo = await insertRun(currentQueryId, "current", "2026-08-10T10:00:00Z");
 
     await insertObservation(currentRunOne, currentQueryId, "current", "active-1", "active", "2026-08-03T09:00:00Z", 20_000);
-    await insertObservation(currentRunTwo, currentQueryId, "current", "active-1", "active", "2026-08-10T09:00:00Z", 20_000);
+    await insertObservation(currentRunTwo, currentQueryId, "current", "active-1", "active", "2026-08-10T09:00:00Z", 25_000);
     await insertObservation(soldRunOne, soldQueryId, "sold", "sold-1", "sold", "2026-08-03T09:30:00Z", 18_000);
 
     const result = await getAnalyticsTimeSeries(
@@ -82,12 +82,14 @@ describeDatabase("PostgreSQL product integration", () => {
       includesSoldRun: true,
       activeCount: 1,
       soldCount: 1,
+      medianAskingPriceEur: 20_000,
     });
     expect(result.marketOverTime[1]).toMatchObject({
       includesCurrentRun: true,
       includesSoldRun: false,
       activeCount: 1,
       soldCount: null,
+      medianAskingPriceEur: 25_000,
     });
   });
 
@@ -131,6 +133,11 @@ describeDatabase("PostgreSQL product integration", () => {
     const listingId = await insertObservation(runId, queryId, "current", "context-1", "active", "2026-08-03T09:00:00Z", 20_000);
     await insertObservation(runId, queryId, "current", "context-2", "active", "2026-08-03T09:01:00Z", 18_000);
     await insertObservation(runId, queryId, "current", "context-3", "active", "2026-08-03T09:02:00Z", 22_000);
+    await sql`
+      update listing_snapshots
+      set normalized_data = jsonb_build_object('detailParserVersion', 'integration-test')
+      where id = (select latest_snapshot_id from listings where id = ${listingId})
+    `;
 
     const detail = await getPublicListingDetail(sql, listingId);
     expect(detail?.marketContext).toMatchObject({
@@ -145,8 +152,15 @@ describeDatabase("PostgreSQL product integration", () => {
     const diagnostics = await getAdminCrawlerDiagnostics(sql);
     expect(diagnostics.dataQuality).toMatchObject({
       totalListings: 3,
+      detailEnrichedListings: 1,
       rawRecordsLast30Days: 3,
       failedRawRecordsLast30Days: 0,
+    });
+    expect(diagnostics.dataQuality.parserVersions).toContainEqual({
+      parserVersion: "integration-test",
+      recordCount: 3,
+      failedCount: 0,
+      latestCapturedAt: "2026-08-03 09:02:00+00",
     });
     expect(diagnostics.dataQuality.fieldCoverage.find((field) => field.field === "Fuel type"))
       .toMatchObject({ presentCount: 3, percentage: 100 });

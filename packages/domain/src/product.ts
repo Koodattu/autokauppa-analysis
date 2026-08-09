@@ -597,7 +597,7 @@ export async function getAdminCrawlerStatus(
 export async function getAdminCrawlerDiagnostics(
   sql: Sql,
 ): Promise<AdminCrawlerDiagnosticsResponse> {
-  const [failureCounts, sourceFetchFailures, parserErrors, failedJobs, qualityRows, parserVersions] = await Promise.all([
+  const [failureCounts, sourceFetchFailures, parserErrors, failedJobs, qualityRows, parserVersionRows] = await Promise.all([
     sql<AdminCrawlerDiagnosticsResponse["failureCounts"]>`
       select coalesce(failure_reason, 'unknown') as "failureReason", count(*)::int as count
       from crawl_runs
@@ -643,34 +643,49 @@ export async function getAdminCrawlerDiagnostics(
       mileageCount: number;
       fuelCount: number;
       transmissionCount: number;
-      rawRecordsLast30Days: number;
-      failedRawRecordsLast30Days: number;
     }[]>`
       with latest_snapshots as (${sql.unsafe(latestSnapshotSql())})
       select
         count(*)::int as "totalListings",
-        count(*) filter (where normalized_data ? 'detailParserVersion')::int as "detailEnrichedListings",
+        (
+          select count(*)::int
+          from listings detail_listing
+          join listing_snapshots detail_snapshot
+            on detail_snapshot.id = detail_listing.latest_snapshot_id
+          where detail_snapshot.normalized_data ? 'detailParserVersion'
+        ) as "detailEnrichedListings",
         count(make_source_label)::int as "makeCount",
         count(model_source_label)::int as "modelCount",
         count(year_model)::int as "yearCount",
         count(coalesce(asking_price_eur, observed_sold_price_eur))::int as "priceCount",
         count(mileage_km)::int as "mileageCount",
         count(fuel_type_source_label)::int as "fuelCount",
-        count(transmission_source_label)::int as "transmissionCount",
-        (select count(*)::int from raw_listing_records where captured_at >= now() - interval '30 days') as "rawRecordsLast30Days",
-        (select count(*)::int from raw_listing_records where captured_at >= now() - interval '30 days' and parser_status = 'failed') as "failedRawRecordsLast30Days"
+        count(transmission_source_label)::int as "transmissionCount"
       from latest_snapshots
     `,
-    sql<AdminCrawlerDiagnosticsResponse["dataQuality"]["parserVersions"]>`
+    sql<Array<AdminCrawlerDiagnosticsResponse["dataQuality"]["parserVersions"][number] & {
+      rawRecordsLast30Days: number;
+      failedRawRecordsLast30Days: number;
+    }>>`
+      with parser_versions as (
+        select
+          parser_version as "parserVersion",
+          count(*)::int as "recordCount",
+          count(*) filter (where parser_status = 'failed')::int as "failedCount",
+          max(captured_at)::text as "latestCapturedAt"
+        from raw_listing_records
+        where captured_at >= now() - interval '30 days'
+        group by parser_version
+      )
       select
-        parser_version as "parserVersion",
-        count(*)::int as "recordCount",
-        count(*) filter (where parser_status = 'failed')::int as "failedCount",
-        max(captured_at)::text as "latestCapturedAt"
-      from raw_listing_records
-      where captured_at >= now() - interval '30 days'
-      group by parser_version
-      order by max(captured_at) desc
+        "parserVersion",
+        "recordCount",
+        "failedCount",
+        "latestCapturedAt",
+        sum("recordCount") over ()::int as "rawRecordsLast30Days",
+        sum("failedCount") over ()::int as "failedRawRecordsLast30Days"
+      from parser_versions
+      order by "latestCapturedAt" desc
       limit 10
     `,
   ]);
@@ -685,9 +700,17 @@ export async function getAdminCrawlerDiagnostics(
     mileageCount: 0,
     fuelCount: 0,
     transmissionCount: 0,
+  };
+  const rawQuality = parserVersionRows[0] ?? {
     rawRecordsLast30Days: 0,
     failedRawRecordsLast30Days: 0,
   };
+  const parserVersions = parserVersionRows.map((row) => ({
+    parserVersion: row.parserVersion,
+    recordCount: row.recordCount,
+    failedCount: row.failedCount,
+    latestCapturedAt: row.latestCapturedAt,
+  }));
   const fieldCoverage = [
     ["Make", quality.makeCount],
     ["Model", quality.modelCount],
@@ -712,8 +735,8 @@ export async function getAdminCrawlerDiagnostics(
     dataQuality: {
       totalListings: quality.totalListings,
       detailEnrichedListings: quality.detailEnrichedListings,
-      rawRecordsLast30Days: quality.rawRecordsLast30Days,
-      failedRawRecordsLast30Days: quality.failedRawRecordsLast30Days,
+      rawRecordsLast30Days: rawQuality.rawRecordsLast30Days,
+      failedRawRecordsLast30Days: rawQuality.failedRawRecordsLast30Days,
       fieldCoverage,
       parserVersions,
     },
@@ -902,7 +925,7 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         from selected_runs
         group by bucket_start
       ),
-      sighting_buckets as (
+      sighting_buckets as materialized (
         select
           run.bucket_start,
           run.crawl_kind,
@@ -911,6 +934,26 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         from selected_runs run
         join listing_sightings sighting on sighting.crawl_run_id = run.id
         group by run.bucket_start, run.crawl_kind, sighting.listing_id
+      ),
+      snapshot_periods as materialized (
+        select
+          snapshot.listing_id,
+          snapshot.observed_at,
+          lag(snapshot.observed_at) over (
+            partition by snapshot.listing_id
+            order by snapshot.observed_at desc, snapshot.created_at desc
+          ) as next_observed_at,
+          snapshot.availability,
+          snapshot.asking_price_eur,
+          snapshot.observed_sold_price_eur,
+          snapshot.mileage_km,
+          snapshot.year_model,
+          snapshot.make_source_label,
+          snapshot.model_source_label,
+          snapshot.seller_type_source_label,
+          snapshot.fuel_type_source_label,
+          snapshot.transmission_source_label
+        from listing_snapshots snapshot
       ),
       bucketed_snapshots as (
         select
@@ -924,14 +967,13 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
           s.observed_sold_price_eur
         from sighting_buckets b
         join listings l on l.id = b.listing_id
-        join lateral (
-          select *
-          from listing_snapshots snapshot
-          where snapshot.listing_id = b.listing_id
-            and snapshot.observed_at <= b.seen_at + interval '1 minute'
-          order by snapshot.observed_at desc, snapshot.created_at desc
-          limit 1
-        ) s on true
+        join snapshot_periods s
+          on s.listing_id = b.listing_id
+          and s.observed_at <= b.seen_at + interval '1 minute'
+          and (
+            s.next_observed_at is null
+            or s.next_observed_at > b.seen_at + interval '1 minute'
+          )
         ${whereSql}
       )
       select
