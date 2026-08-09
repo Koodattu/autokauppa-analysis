@@ -485,5 +485,6 @@ function analyticsTimeSeriesCacheKey(query: ListingFiltersQuery) {
 
 export default {
   port: Number(process.env.PORT ?? 3001),
+  idleTimeout: 60,
   fetch: app.fetch,
 };
