@@ -7,6 +7,7 @@ import {
   markCrawlRunFinished,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
+import { NETTIAUTO_SEARCH_MAX_ATTEMPTS } from "../nettiauto-fetch-policy";
 
 const payloadSchema = z.object({
   sourceQueryId: z.string().uuid(),
@@ -52,12 +53,23 @@ const task: Task = async (payload, helpers) => {
     }
 
     crawlRunId = await createCrawlRunForSourceQuery(sql, sourceQuery.id);
+    if (!crawlRunId) {
+      logger.info(
+        {
+          jobId: helpers.job.id,
+          task: "crawl_nettiauto_search_query",
+          sourceQueryId: sourceQuery.id,
+        },
+        "Nettiauto search query skipped because a crawl is already active",
+      );
+      return;
+    }
     await helpers.addJob(
       "crawl_nettiauto_search_page",
       { crawlRunId, sourceQueryId: sourceQuery.id, pageNumber: 1 },
       {
         queueName: "nettiauto",
-        maxAttempts: 3,
+        maxAttempts: NETTIAUTO_SEARCH_MAX_ATTEMPTS,
         jobKey: `nettiauto:search-page:${crawlRunId}:1`,
         jobKeyMode: "preserve_run_at",
         priority: sourceQuery.priority,

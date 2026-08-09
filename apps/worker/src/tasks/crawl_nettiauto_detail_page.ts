@@ -11,6 +11,12 @@ import {
   sha256,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
+import {
+  RetryableNettiautoFetchError,
+  classifyRequestError,
+  createNettiautoRequestSignal,
+  isRetryableNettiautoHttpStatus,
+} from "../nettiauto-fetch-policy";
 
 const payloadSchema = z.object({
   crawlRunId: z.string().uuid(),
@@ -74,12 +80,47 @@ const task: Task = async (payload, helpers) => {
 
     const requestHeaders = nettiautoDetailRequestHeaders(taskPayload.sourceUrl);
     const startedAt = Date.now();
-    const response = await fetch(taskPayload.sourceUrl, {
-      headers: requestHeaders,
-      redirect: "manual",
-      signal: helpers.abortSignal,
-    });
-    const responseBody = await response.text();
+    const { signal, timeoutSignal } = createNettiautoRequestSignal(
+      helpers.abortSignal,
+      config.CRAWLER_REQUEST_TIMEOUT_MS,
+    );
+    let response: Response;
+    let responseBody: string;
+    try {
+      response = await fetch(taskPayload.sourceUrl, {
+        headers: requestHeaders,
+        redirect: "manual",
+        signal,
+      });
+      responseBody = await response.text();
+    } catch {
+      const durationMs = Date.now() - startedAt;
+      const failureReason = classifyRequestError({
+        timeoutAborted: timeoutSignal?.aborted ?? false,
+        workerAborted: helpers.abortSignal.aborted,
+      });
+      await persistNettiautoDetailPage(sql, {
+        crawlRunId: taskPayload.crawlRunId,
+        searchQueryId: taskPayload.searchQueryId,
+        sourceListingId: taskPayload.sourceListingId,
+        sourceUrl: taskPayload.sourceUrl,
+        attemptNumber: helpers.job.attempts,
+        responseStatus: null,
+        responseContentType: null,
+        responseBodyShape: "unknown",
+        responseBodySha256: null,
+        responseBytes: null,
+        durationMs,
+        requestHeaders,
+        errorType: failureReason,
+        errorMessage: `Nettiauto detail request ended before a response (${failureReason}).`,
+        parsedDetail: null,
+      });
+      throw new RetryableNettiautoFetchError(
+        failureReason,
+        `Nettiauto detail request failed (${failureReason}).`,
+      );
+    }
     const durationMs = Date.now() - startedAt;
     const responseContentType = response.headers.get("content-type");
     const responseBodyShape = classifyNettiautoResponseBody(responseBody, responseContentType);
@@ -100,6 +141,7 @@ const task: Task = async (payload, helpers) => {
       searchQueryId: taskPayload.searchQueryId,
       sourceListingId: taskPayload.sourceListingId,
       sourceUrl: taskPayload.sourceUrl,
+      attemptNumber: helpers.job.attempts,
       responseStatus: response.status,
       responseContentType,
       responseBodyShape,
@@ -113,6 +155,13 @@ const task: Task = async (payload, helpers) => {
         : null,
       parsedDetail,
     });
+
+    if (isRetryableNettiautoHttpStatus(response.status)) {
+      throw new RetryableNettiautoFetchError(
+        failureReason ?? `http_${response.status}`,
+        `Nettiauto detail request returned transient HTTP ${response.status}.`,
+      );
+    }
 
     logger.info(
       {

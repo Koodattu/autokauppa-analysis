@@ -26,6 +26,10 @@ export interface FilterMetadata {
 }
 
 export interface AnalyticsTrendResponse {
+  appliedFilters: {
+    availability: "all" | "current" | "sold";
+    interval: "day" | "week" | "month";
+  };
   coverage: CoverageMetadata;
   summary: {
     listingCount: number;
@@ -99,6 +103,7 @@ export type AnalyticsSnapshotResponse = Omit<AnalyticsTrendResponse, "charts"> &
 };
 
 export interface AnalyticsTimeSeriesResponse {
+  appliedFilters: AnalyticsTrendResponse["appliedFilters"];
   marketOverTime: AnalyticsTrendResponse["charts"]["marketOverTime"];
 }
 
@@ -192,6 +197,7 @@ export interface PublicListingDetailResponse {
   }>;
   imageMetadata: Array<{
     imageUrl: string;
+    fallbackImageUrls: string[];
     role: string | null;
     position: number | null;
     width: number | null;

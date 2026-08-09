@@ -50,6 +50,13 @@
       "when": 1784035017422,
       "tag": "0006_reflective_forge",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786278272177,
+      "tag": "0007_wakeful_edwin_jarvis",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ import {
   seedDefaultSourceSearchQueries,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
+import { NETTIAUTO_SEARCH_MAX_ATTEMPTS } from "../nettiauto-fetch-policy";
 
 const payloadSchema = z.object({
   force: z.boolean().optional().default(false),
@@ -47,20 +48,25 @@ const task: Task = async (payload, helpers) => {
       force: payloadResult.data.force,
       crawlKind: payloadResult.data.crawlKind,
     });
+    let scheduledQueryCount = 0;
     for (const query of queries) {
       const crawlRunId = await createCrawlRunForSourceQuery(sql, query.id);
+      if (!crawlRunId) {
+        continue;
+      }
       try {
         await helpers.addJob(
           "crawl_nettiauto_search_page",
           { crawlRunId, sourceQueryId: query.id, pageNumber: 1 },
           {
             queueName: "nettiauto",
-            maxAttempts: 3,
+            maxAttempts: NETTIAUTO_SEARCH_MAX_ATTEMPTS,
             jobKey: `nettiauto:search-page:${crawlRunId}:1`,
             jobKeyMode: "preserve_run_at",
             priority: query.priority,
           },
         );
+        scheduledQueryCount += 1;
       } catch (error) {
         await markCrawlRunFinished(sql, {
           crawlRunId,
@@ -79,7 +85,7 @@ const task: Task = async (payload, helpers) => {
         task: "schedule_nettiauto_crawl",
         force: payloadResult.data.force,
         crawlKind: payloadResult.data.crawlKind ?? "all",
-        scheduledQueryCount: queries.length,
+        scheduledQueryCount,
         recoveredStaleRunCount: recoveredRuns.length,
       },
       "Nettiauto crawl jobs scheduled",

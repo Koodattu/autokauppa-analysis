@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useRef, useState } from "react";
 import type { PublicListingDetailResponse } from "@/lib/api";
-import { isAllowedListingImageUrl } from "@/lib/listing-images";
+import { firstAvailableListingImageUrl } from "@/lib/listing-images";
 
 type GalleryImage = PublicListingDetailResponse["imageMetadata"][number];
 
@@ -11,9 +11,11 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const availableImages = images.filter(
-    (image) => isAllowedListingImageUrl(image.imageUrl) && !failedUrls.includes(image.imageUrl),
-  );
+  const failedUrlSet = new Set(failedUrls);
+  const availableImages = images.flatMap((image) => {
+    const displayUrl = firstAvailableListingImageUrl(image, failedUrlSet);
+    return displayUrl ? [{ ...image, displayUrl }] : [];
+  });
   const activeIndex = Math.min(selectedIndex, Math.max(availableImages.length - 1, 0));
   const selected = availableImages[activeIndex];
 
@@ -29,7 +31,6 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
 
   function markFailed(imageUrl: string) {
     setFailedUrls((current) => current.includes(imageUrl) ? current : [...current, imageUrl]);
-    setSelectedIndex((current) => Math.min(current, Math.max(availableImages.length - 2, 0)));
   }
 
   return (
@@ -42,13 +43,13 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
           aria-label="Open larger image"
         >
           <Image
-            src={selected.imageUrl}
+            src={selected.displayUrl}
             alt={`${title} image ${selected.position ?? activeIndex + 1}`}
             fill
             preload={activeIndex === 0}
             sizes="(max-width: 800px) 100vw, 65vw"
             referrerPolicy="no-referrer"
-            onError={() => markFailed(selected.imageUrl)}
+            onError={() => markFailed(selected.displayUrl)}
           />
         </button>
         {availableImages.length > 1 ? (
@@ -78,13 +79,13 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
               aria-pressed={index === activeIndex}
             >
               <Image
-                src={image.imageUrl}
+                src={image.displayUrl}
                 alt=""
                 fill
                 sizes="88px"
                 loading="lazy"
                 referrerPolicy="no-referrer"
-                onError={() => markFailed(image.imageUrl)}
+                onError={() => markFailed(image.displayUrl)}
               />
             </button>
           ))}
@@ -119,12 +120,12 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
         </button>
         <div className="gallery-dialog-image">
           <Image
-            src={selected.imageUrl}
+            src={selected.displayUrl}
             alt={`${title} image ${selected.position ?? activeIndex + 1}`}
             fill
             sizes="95vw"
             referrerPolicy="no-referrer"
-            onError={() => markFailed(selected.imageUrl)}
+            onError={() => markFailed(selected.displayUrl)}
           />
         </div>
         {availableImages.length > 1 ? (

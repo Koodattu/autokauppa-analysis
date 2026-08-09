@@ -24,6 +24,7 @@ describe("API config", () => {
 
     expect(config.ADMIN_PASSWORD).toBe("change-me");
     expect(config.SESSION_SECRET).toBe("short");
+    expect(config.CRAWLER_REQUEST_TIMEOUT_MS).toBe(30_000);
     expect(warn).toHaveBeenCalledTimes(2);
     expect(warn.mock.calls[0]?.[0]).toContain("ADMIN_PASSWORD");
     expect(warn.mock.calls[1]?.[0]).toContain("SESSION_SECRET");

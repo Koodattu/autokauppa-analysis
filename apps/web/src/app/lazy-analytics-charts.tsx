@@ -32,14 +32,23 @@ const MarketActivityVisual = lazy(() =>
   import("./analytics-charts").then((module) => ({ default: module.MarketActivityVisual })),
 );
 
-export function LazyHistoricalPriceChart({ data }: { data: AnalyticsTimeSeriesResponse["marketOverTime"] }) {
-  const pricePoints = data.filter(
-    (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
-  );
-  if (pricePoints.length < 2) {
+export function LazyHistoricalPriceChart({
+  data,
+  availability,
+}: {
+  data: AnalyticsTimeSeriesResponse["marketOverTime"];
+  availability: AnalyticsTimeSeriesResponse["appliedFilters"]["availability"];
+}) {
+  const askingPricePointCount = data.filter((point) => point.medianAskingPriceEur !== null).length;
+  const observedSoldPricePointCount = data.filter(
+    (point) => point.medianObservedSoldPriceEur !== null,
+  ).length;
+  if (askingPricePointCount < 2 && observedSoldPricePointCount < 2) {
     return (
       <ChartPanel title="Price over observed time" full>
-        <div className="chart-empty">At least two observed periods are needed for a price trend.</div>
+        <div className="chart-empty">
+          At least two complete {availability === "all" ? "observation" : availability} periods with price evidence are needed.
+        </div>
         {data.length > 0 ? <HistoricalPriceTable data={data} /> : null}
       </ChartPanel>
     );

@@ -29,3 +29,12 @@ export function isAllowedListingImageUrl(value: string) {
     return false;
   }
 }
+
+export function firstAvailableListingImageUrl(
+  image: { imageUrl: string; fallbackImageUrls?: string[] },
+  failedUrls: ReadonlySet<string>,
+) {
+  return [image.imageUrl, ...(image.fallbackImageUrls ?? [])].find(
+    (candidate) => isAllowedListingImageUrl(candidate) && !failedUrls.has(candidate),
+  ) ?? null;
+}

@@ -142,6 +142,7 @@ export const sourceFetches = pgTable(
     source: sourceCodeEnum("source").notNull(),
     fetchKind: fetchKindEnum("fetch_kind").notNull(),
     pageNumber: integer("page_number"),
+    attemptNumber: integer("attempt_number").notNull().default(1),
     sourceUrl: text("source_url").notNull(),
     requestHeaders: jsonb("request_headers").notNull().default(jsonbEmptyObject),
     responseStatus: integer("response_status"),
@@ -159,6 +160,7 @@ export const sourceFetches = pgTable(
       table.crawlRunId,
       table.fetchKind,
       table.pageNumber,
+      table.attemptNumber,
     ),
     index("source_fetches_search_query_page_idx").on(table.searchQueryId, table.pageNumber),
     index("source_fetches_response_status_idx").on(table.responseStatus),
@@ -273,6 +275,11 @@ export const listingSightings = pgTable(
     index("listing_sightings_listing_seen_idx").on(table.listingId, table.seenAt),
     index("listing_sightings_seen_listing_idx").on(table.seenAt.desc(), table.listingId),
     index("listing_sightings_search_query_seen_idx").on(table.searchQueryId, table.seenAt),
+    index("listing_sightings_query_listing_seen_idx").on(
+      table.searchQueryId,
+      table.listingId,
+      table.seenAt.desc(),
+    ),
   ],
 );
 
@@ -349,18 +356,31 @@ export const listingImages = pgTable(
   ],
 );
 
-export const listingEvents = pgTable("listing_events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  listingId: uuid("listing_id")
-    .notNull()
-    .references(() => listings.id),
-  eventType: text("event_type").notNull(),
-  eventAt: timestamp("event_at", { withTimezone: true }).notNull(),
-  sourceCrawlRunId: uuid("source_crawl_run_id").references(() => crawlRuns.id),
-  sourceSnapshotId: uuid("source_snapshot_id").references(() => listingSnapshots.id),
-  metadata: jsonb("metadata").notNull().default(jsonbEmptyObject),
-  createdAt: createdAtColumn(),
-});
+export const listingEvents = pgTable(
+  "listing_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id),
+    eventType: text("event_type").notNull(),
+    eventAt: timestamp("event_at", { withTimezone: true }).notNull(),
+    sourceCrawlRunId: uuid("source_crawl_run_id").references(() => crawlRuns.id),
+    sourceSnapshotId: uuid("source_snapshot_id").references(() => listingSnapshots.id),
+    metadata: jsonb("metadata").notNull().default(jsonbEmptyObject),
+    createdAt: createdAtColumn(),
+  },
+  (table) => [
+    uniqueIndex("listing_events_listing_type_run_uq")
+      .on(table.listingId, table.eventType, table.sourceCrawlRunId)
+      .where(sql`${table.sourceCrawlRunId} is not null`),
+    index("listing_events_listing_type_time_idx").on(
+      table.listingId,
+      table.eventType,
+      table.eventAt.desc(),
+    ),
+  ],
+);
 
 export const reprocessingRuns = pgTable("reprocessing_runs", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -59,6 +59,7 @@ export interface PersistSearchResultPageInput {
   vehicleCategory: "passenger_car";
   sourceUrl: string;
   pageNumber: number;
+  attemptNumber?: number;
   responseStatus: number | null;
   responseContentType: string | null;
   responseBodyShape: NettiautoResponseBodyShape;
@@ -83,6 +84,7 @@ export interface PersistNettiautoDetailPageInput {
   searchQueryId: string;
   sourceListingId: string;
   sourceUrl: string;
+  attemptNumber?: number;
   responseStatus: number | null;
   responseContentType: string | null;
   responseBodyShape: NettiautoResponseBodyShape;
@@ -161,36 +163,51 @@ export async function seedDefaultSourceSearchQueries(sql: SqlClient) {
 }
 
 export async function createCrawlRunForSourceQuery(sql: SqlClient, searchQueryId: string) {
-  const [row] = await sql<{ id: string }[]>`
-    insert into crawl_runs (
-      source,
-      search_query_id,
-      crawl_kind,
-      vehicle_category,
-      status,
-      started_at,
-      created_at,
-      updated_at
-    )
-    select
-      source,
-      id,
-      crawl_kind,
-      vehicle_category,
-      'running',
-      now(),
-      now(),
-      now()
-    from source_search_queries
-    where id = ${searchQueryId}
-    returning id
-  `;
+  return sql.begin(async (tx) => {
+    const [sourceQuery] = await tx<{ id: string }[]>`
+      select id
+      from source_search_queries
+      where id = ${searchQueryId}
+      for update
+    `;
 
-  if (!row) {
-    throw new Error(`Source search query not found: ${searchQueryId}`);
-  }
+    if (!sourceQuery) {
+      throw new Error(`Source search query not found: ${searchQueryId}`);
+    }
 
-  return row.id;
+    const [row] = await tx<{ id: string }[]>`
+      insert into crawl_runs (
+        source,
+        search_query_id,
+        crawl_kind,
+        vehicle_category,
+        status,
+        started_at,
+        created_at,
+        updated_at
+      )
+      select
+        source,
+        id,
+        crawl_kind,
+        vehicle_category,
+        'running',
+        now(),
+        now(),
+        now()
+      from source_search_queries source_query
+      where source_query.id = ${searchQueryId}
+        and not exists (
+          select 1
+          from crawl_runs active_run
+          where active_run.search_query_id = source_query.id
+            and active_run.status in ('planned', 'running')
+        )
+      returning id
+    `;
+
+    return row?.id ?? null;
+  });
 }
 
 export async function markStaleCrawlRunsPartial(
@@ -199,16 +216,35 @@ export async function markStaleCrawlRunsPartial(
 ) {
   const staleAfterInterval = options.staleAfterInterval ?? "2 hours";
   return sql<{ id: string }[]>`
-    update crawl_runs
-    set
-      status = 'partial',
-      finished_at = now(),
-      is_complete = false,
-      failure_reason = 'stale_running_crawl_recovered',
-      updated_at = now()
-    where status in ('planned', 'running')
-      and updated_at < now() - ${staleAfterInterval}::interval
-    returning id
+    with recovered as (
+      update crawl_runs run
+      set
+        status = 'partial',
+        finished_at = now(),
+        is_complete = false,
+        failure_reason = 'stale_running_crawl_recovered',
+        updated_at = now()
+      where run.status in ('planned', 'running')
+        and run.updated_at < now() - ${staleAfterInterval}::interval
+        and not exists (
+          select 1
+          from graphile_worker.jobs job
+          where job.payload->>'crawlRunId' = run.id::text
+            and job.task_identifier = 'crawl_nettiauto_search_page'
+            and (job.attempts < job.max_attempts or job.locked_at is not null)
+        )
+      returning run.id, run.search_query_id
+    ),
+    updated_queries as (
+      update source_search_queries query
+      set
+        last_failure_at = now(),
+        updated_at = now()
+      from recovered
+      where query.id = recovered.search_query_id
+      returning query.id
+    )
+    select id from recovered
   `;
 }
 
@@ -344,43 +380,305 @@ export async function markCrawlRunFinished(
     failureReason?: string | null;
   },
 ) {
-  await sql`
-    update crawl_runs
-    set
-      status = ${input.status},
-      finished_at = now(),
-      expected_page_count = coalesce(${input.expectedPageCount}, expected_page_count),
-      source_total_ads = coalesce(${input.sourceTotalAds}, source_total_ads),
-      is_complete = ${input.status === "completed"},
-      failure_reason = ${input.failureReason ?? null},
-      updated_at = now()
-    where id = ${input.crawlRunId}
+  return sql.begin(async (tx) => {
+    const runRows = (await tx`
+      select
+        run.id,
+        run.search_query_id as "searchQueryId",
+        run.crawl_kind as "crawlKind",
+        run.status,
+        run.started_at as "startedAt",
+        run.failure_reason as "failureReason",
+        coalesce(${input.expectedPageCount}, run.expected_page_count) as "expectedPageCount",
+        coalesce(${input.sourceTotalAds}, run.source_total_ads) as "sourceTotalAds"
+      from crawl_runs run
+      join source_search_queries source_query on source_query.id = run.search_query_id
+      where run.id = ${input.crawlRunId}
+      for update of run, source_query
+    `) as unknown as Array<{
+      id: string;
+      searchQueryId: string;
+      crawlKind: "current" | "sold";
+      status: "planned" | "running" | "completed" | "partial" | "failed" | "cancelled";
+      startedAt: Date | null;
+      failureReason: string | null;
+      expectedPageCount: number | null;
+      sourceTotalAds: number | null;
+    }>;
+    const [run] = runRows;
+
+    if (!run) {
+      throw new Error(`Crawl run not found: ${input.crawlRunId}`);
+    }
+
+    if (run.status !== "planned" && run.status !== "running") {
+      return { status: run.status, failureReason: run.failureReason, changed: false };
+    }
+
+    let effectiveStatus = input.status;
+    let effectiveFailureReason = input.failureReason ?? null;
+    let observedListingCount = 0;
+
+    if (input.status === "completed") {
+      const evidenceRows = (await tx`
+        select
+          count(distinct page_number) filter (
+            where fetch_kind = 'search_result_page'
+              and response_status between 200 and 299
+              and response_body_shape = 'ajax_json'
+          )::int as "successfulPageCount",
+          min(page_number) filter (
+            where fetch_kind = 'search_result_page'
+              and response_status between 200 and 299
+              and response_body_shape = 'ajax_json'
+          )::int as "minimumSuccessfulPage",
+          max(page_number) filter (
+            where fetch_kind = 'search_result_page'
+              and response_status between 200 and 299
+              and response_body_shape = 'ajax_json'
+          )::int as "maximumSuccessfulPage"
+        from source_fetches
+        where crawl_run_id = ${run.id}
+      `) as unknown as Array<{
+        successfulPageCount: number;
+        minimumSuccessfulPage: number | null;
+        maximumSuccessfulPage: number | null;
+      }>;
+      const sightingRows = (await tx`
+        select count(distinct listing_id)::int as count
+        from listing_sightings
+        where crawl_run_id = ${run.id}
+      `) as unknown as Array<{ count: number }>;
+      const evidence = evidenceRows[0] ?? {
+        successfulPageCount: 0,
+        minimumSuccessfulPage: null,
+        maximumSuccessfulPage: null,
+      };
+      observedListingCount = sightingRows[0]?.count ?? 0;
+      const completionFailure = evaluateCrawlRunCompletionQuality({
+        expectedPageCount: run.expectedPageCount,
+        sourceTotalAds: run.sourceTotalAds,
+        observedListingCount,
+        ...evidence,
+      });
+
+      if (completionFailure) {
+        effectiveStatus = "partial";
+        effectiveFailureReason = completionFailure;
+      }
+    }
+
+    await tx`
+      update crawl_runs
+      set
+        status = ${effectiveStatus},
+        finished_at = now(),
+        expected_page_count = ${run.expectedPageCount},
+        source_total_ads = ${run.sourceTotalAds},
+        is_complete = ${effectiveStatus === "completed"},
+        failure_reason = ${effectiveFailureReason},
+        updated_at = now()
+      where id = ${run.id}
+        and status in ('planned', 'running')
+    `;
+
+    if (effectiveStatus === "completed") {
+      await tx`
+        update source_search_queries
+        set
+          last_complete_crawl_run_id = ${run.id},
+          last_success_at = now(),
+          updated_at = now()
+        where id = ${run.searchQueryId}
+      `;
+
+      if (run.crawlKind === "current" && run.startedAt) {
+        await reconcileMissingCurrentListings(tx, {
+          crawlRunId: run.id,
+          searchQueryId: run.searchQueryId,
+          startedAt: run.startedAt,
+          observedListingCount,
+          sourceTotalAds: run.sourceTotalAds ?? 0,
+        });
+      }
+    } else {
+      await tx`
+        update source_search_queries
+        set
+          last_failure_at = now(),
+          updated_at = now()
+        where id = ${run.searchQueryId}
+      `;
+    }
+
+    return {
+      status: effectiveStatus,
+      failureReason: effectiveFailureReason,
+      changed: true,
+    };
+  });
+}
+
+const MINIMUM_CRAWL_LISTING_COVERAGE = 0.98;
+
+export function evaluateCrawlRunCompletionQuality(input: {
+  expectedPageCount: number | null;
+  sourceTotalAds: number | null;
+  successfulPageCount: number;
+  minimumSuccessfulPage: number | null;
+  maximumSuccessfulPage: number | null;
+  observedListingCount: number;
+}) {
+  if (input.expectedPageCount === null) {
+    return "missing_expected_page_count";
+  }
+
+  const expectedFetchedPages = Math.max(1, input.expectedPageCount);
+  if (
+    input.successfulPageCount !== expectedFetchedPages ||
+    input.minimumSuccessfulPage !== 1 ||
+    input.maximumSuccessfulPage !== expectedFetchedPages
+  ) {
+    return "incomplete_search_page_coverage";
+  }
+
+  if (input.sourceTotalAds === null) {
+    return "missing_source_total";
+  }
+
+  if (
+    input.sourceTotalAds > 0 &&
+    input.observedListingCount < Math.ceil(input.sourceTotalAds * MINIMUM_CRAWL_LISTING_COVERAGE)
+  ) {
+    return "insufficient_listing_coverage";
+  }
+
+  return null;
+}
+
+async function reconcileMissingCurrentListings(
+  tx: TransactionSqlClient,
+  input: {
+    crawlRunId: string;
+    searchQueryId: string;
+    startedAt: Date;
+    observedListingCount: number;
+    sourceTotalAds: number;
+  },
+) {
+  await tx`
+    with removed_candidates as (
+      select listing.id
+      from listings listing
+      where listing.current_availability = 'stale'
+        and listing.availability_last_confirmed_at < ${input.startedAt}
+        and exists (
+          select 1
+          from listing_sightings prior_sighting
+          where prior_sighting.listing_id = listing.id
+            and prior_sighting.search_query_id = ${input.searchQueryId}
+            and prior_sighting.crawl_run_id <> ${input.crawlRunId}
+        )
+        and not exists (
+          select 1
+          from listing_sightings current_sighting
+          where current_sighting.listing_id = listing.id
+            and current_sighting.crawl_run_id = ${input.crawlRunId}
+        )
+        and exists (
+          select 1
+          from listing_events stale_event
+          join crawl_runs stale_run on stale_run.id = stale_event.source_crawl_run_id
+          where stale_event.listing_id = listing.id
+            and stale_event.event_type = 'marked_stale'
+            and stale_event.source_crawl_run_id <> ${input.crawlRunId}
+            and stale_event.event_at > listing.availability_last_confirmed_at
+            and stale_run.search_query_id = ${input.searchQueryId}
+            and stale_run.status = 'completed'
+            and stale_run.is_complete = true
+        )
+    ),
+    removed as (
+      update listings listing
+      set
+        current_availability = 'removed',
+        updated_at = now()
+      from removed_candidates candidate
+      where listing.id = candidate.id
+        and listing.current_availability = 'stale'
+      returning listing.id
+    )
+    insert into listing_events (
+      listing_id,
+      event_type,
+      event_at,
+      source_crawl_run_id,
+      metadata
+    )
+    select
+      removed.id,
+      'marked_removed',
+      now(),
+      ${input.crawlRunId},
+      jsonb_build_object(
+        'searchQueryId', ${input.searchQueryId}::text,
+        'observedListingCount', ${input.observedListingCount}::int,
+        'sourceTotalAds', ${input.sourceTotalAds}::int
+      )
+    from removed
+    on conflict do nothing
   `;
 
-  if (input.status === "completed") {
-    await sql`
-      update source_search_queries query
+  await tx`
+    with stale_candidates as (
+      select listing.id
+      from listings listing
+      where listing.current_availability = 'active'
+        and listing.availability_last_confirmed_at < ${input.startedAt}
+        and exists (
+          select 1
+          from listing_sightings prior_sighting
+          where prior_sighting.listing_id = listing.id
+            and prior_sighting.search_query_id = ${input.searchQueryId}
+            and prior_sighting.crawl_run_id <> ${input.crawlRunId}
+        )
+        and not exists (
+          select 1
+          from listing_sightings current_sighting
+          where current_sighting.listing_id = listing.id
+            and current_sighting.crawl_run_id = ${input.crawlRunId}
+        )
+    ),
+    marked_stale as (
+      update listings listing
       set
-        last_complete_crawl_run_id = run.id,
-        last_success_at = now(),
+        current_availability = 'stale',
         updated_at = now()
-      from crawl_runs run
-      where run.id = ${input.crawlRunId}
-        and query.id = run.search_query_id
-    `;
-  }
-
-  if (input.status === "failed" || input.status === "partial") {
-    await sql`
-      update source_search_queries query
-      set
-        last_failure_at = now(),
-        updated_at = now()
-      from crawl_runs run
-      where run.id = ${input.crawlRunId}
-        and query.id = run.search_query_id
-    `;
-  }
+      from stale_candidates candidate
+      where listing.id = candidate.id
+        and listing.current_availability = 'active'
+      returning listing.id
+    )
+    insert into listing_events (
+      listing_id,
+      event_type,
+      event_at,
+      source_crawl_run_id,
+      metadata
+    )
+    select
+      marked_stale.id,
+      'marked_stale',
+      now(),
+      ${input.crawlRunId},
+      jsonb_build_object(
+        'searchQueryId', ${input.searchQueryId}::text,
+        'observedListingCount', ${input.observedListingCount}::int,
+        'sourceTotalAds', ${input.sourceTotalAds}::int
+      )
+    from marked_stale
+    on conflict do nothing
+  `;
 }
 
 export async function persistSearchResultPage(
@@ -396,6 +694,7 @@ export async function persistSearchResultPage(
         source,
         fetch_kind,
         page_number,
+        attempt_number,
         source_url,
         request_headers,
         response_status,
@@ -414,6 +713,7 @@ export async function persistSearchResultPage(
         'nettiauto',
         'search_result_page',
         ${input.pageNumber},
+        ${input.attemptNumber ?? 1},
         ${input.sourceUrl},
         ${tx.json(jsonValue(input.requestHeaders))},
         ${input.responseStatus},
@@ -426,7 +726,7 @@ export async function persistSearchResultPage(
         ${input.errorType ?? firstParseIssue(input.parsedPage)?.code ?? null},
         ${input.errorMessage ?? firstParseIssue(input.parsedPage)?.message ?? null}
       )
-      on conflict (crawl_run_id, fetch_kind, page_number)
+      on conflict (crawl_run_id, fetch_kind, page_number, attempt_number)
       do update set
         source_url = excluded.source_url,
         request_headers = excluded.request_headers,
@@ -460,16 +760,17 @@ export async function persistSearchResultPage(
       update crawl_runs
       set
         fetched_page_count = (
-          select count(*)
+          select count(distinct page_number)
           from source_fetches
           where crawl_run_id = ${input.crawlRunId}
             and fetch_kind = 'search_result_page'
+            and response_status between 200 and 299
+            and response_body_shape = 'ajax_json'
         ),
         parsed_listing_count = (
-          select count(*)
-          from raw_listing_records
+          select count(distinct listing_id)
+          from listing_sightings
           where crawl_run_id = ${input.crawlRunId}
-            and parser_status = 'parsed'
         ),
         expected_page_count = coalesce(${input.parsedPage.totalPages}, expected_page_count),
         source_total_ads = coalesce(${input.parsedPage.totalAds}, source_total_ads),
@@ -498,6 +799,7 @@ export async function persistNettiautoDetailPage(
         source,
         fetch_kind,
         page_number,
+        attempt_number,
         source_url,
         request_headers,
         response_status,
@@ -516,6 +818,7 @@ export async function persistNettiautoDetailPage(
         'nettiauto',
         'detail_page',
         null,
+        ${input.attemptNumber ?? 1},
         ${input.sourceUrl},
         ${tx.json(jsonValue(input.requestHeaders))},
         ${input.responseStatus},

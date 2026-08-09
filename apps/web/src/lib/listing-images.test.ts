@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedListingImageUrl } from "./listing-images";
+import { firstAvailableListingImageUrl, isAllowedListingImageUrl } from "./listing-images";
 
 describe("listing image URL allowlist", () => {
   it.each([
@@ -20,5 +20,25 @@ describe("listing image URL allowlist", () => {
     "not-a-url",
   ])("rejects an unsupported image URL %s", (value) => {
     expect(isAllowedListingImageUrl(value)).toBe(false);
+  });
+});
+
+describe("listing image fallbacks", () => {
+  it("promotes the next allowed variant after an image fails", () => {
+    const primary = "https://images.nettiauto.com/live/12345/vehicle-large.jpg";
+    const fallback = "https://images.nettiauto.com/live/12345/vehicle-289x217.webp";
+    expect(
+      firstAvailableListingImageUrl(
+        { imageUrl: primary, fallbackImageUrls: [fallback] },
+        new Set([primary]),
+      ),
+    ).toBe(fallback);
+  });
+
+  it("returns null after all allowed variants fail", () => {
+    const imageUrl = "https://images.nettiauto.com/live/12345/vehicle.jpg";
+    expect(
+      firstAvailableListingImageUrl({ imageUrl, fallbackImageUrls: [] }, new Set([imageUrl])),
+    ).toBeNull();
   });
 });

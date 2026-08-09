@@ -29,7 +29,8 @@ const booleanEnvSchema = z
 
 const integerEnvSchema = (defaultValue: number) =>
   z
-    .union([z.number(), z.string(), z.undefined()])
+    .union([z.number(), z.string()])
+    .optional()
     .transform((value) => {
       if (value === undefined || value === "") {
         return defaultValue;
@@ -50,6 +51,7 @@ const sharedConfigSchema = z.object({
   CRAWLER_ENABLED: booleanEnvSchema.transform((value) => value ?? false),
   CRAWLER_PAUSED: booleanEnvSchema.transform((value) => value ?? false),
   CRAWLER_DELAY_MS: integerEnvSchema(2_500),
+  CRAWLER_REQUEST_TIMEOUT_MS: integerEnvSchema(30_000),
   CRAWLER_MAX_PAGES_PER_RUN: integerEnvSchema(2),
 });
 
@@ -113,6 +115,7 @@ export function safeConfigSnapshot(config: SharedServiceConfig) {
     crawlerEnabled: config.CRAWLER_ENABLED,
     crawlerPaused: config.CRAWLER_PAUSED,
     crawlerDelayMs: config.CRAWLER_DELAY_MS,
+    crawlerRequestTimeoutMs: config.CRAWLER_REQUEST_TIMEOUT_MS,
     crawlerMaxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
     sentryConfigured: config.SENTRY_DSN.length > 0,
   };

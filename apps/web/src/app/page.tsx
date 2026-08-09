@@ -192,12 +192,22 @@ type TimeSeriesPromise = Promise<AnalyticsTimeSeriesResponse>;
 
 async function PriceTrendSignalSection({ timeSeriesPromise }: { timeSeriesPromise: TimeSeriesPromise }) {
   const timeSeries = await timeSeriesPromise;
-  return <PriceTrendInsight data={timeSeries.marketOverTime} />;
+  return (
+    <PriceTrendInsight
+      data={timeSeries.marketOverTime}
+      availability={timeSeries.appliedFilters.availability}
+    />
+  );
 }
 
 async function HistoricalPriceSection({ timeSeriesPromise }: { timeSeriesPromise: TimeSeriesPromise }) {
   const timeSeries = await timeSeriesPromise;
-  return <LazyHistoricalPriceChart data={timeSeries.marketOverTime} />;
+  return (
+    <LazyHistoricalPriceChart
+      data={timeSeries.marketOverTime}
+      availability={timeSeries.appliedFilters.availability}
+    />
+  );
 }
 
 async function MarketActivitySection({ timeSeriesPromise }: { timeSeriesPromise: TimeSeriesPromise }) {
@@ -214,17 +224,40 @@ function AnalyticsSectionHeading({ title, description }: { title: string; descri
   );
 }
 
-function PriceTrendInsight({ data }: { data: AnalyticsTimeSeriesResponse["marketOverTime"] }) {
-  const points = [...data]
+function PriceTrendInsight({
+  data,
+  availability,
+}: {
+  data: AnalyticsTimeSeriesResponse["marketOverTime"];
+  availability: AnalyticsTimeSeriesResponse["appliedFilters"]["availability"];
+}) {
+  const askingPoints = data
     .filter((point) => point.medianAskingPriceEur !== null)
-    .sort((left, right) => left.bucket.localeCompare(right.bucket));
+    .map((point) => ({
+      point,
+      price: point.medianAskingPriceEur as number,
+      sampleSize: point.askingPriceSampleSize,
+    }));
+  const observedSoldPoints = data
+    .filter((point) => point.medianObservedSoldPriceEur !== null)
+    .map((point) => ({
+      point,
+      price: point.medianObservedSoldPriceEur as number,
+      sampleSize: point.observedSoldPriceSampleSize,
+    }));
+  const usesObservedSold = availability === "sold" ||
+    (availability === "all" && askingPoints.length < 2 && observedSoldPoints.length >= 2);
+  const metricLabel = usesObservedSold ? "observed-sold" : "asking";
+  const points = [...(usesObservedSold ? observedSoldPoints : askingPoints)]
+    .sort((left, right) => left.point.bucket.localeCompare(right.point.bucket));
   if (points.length < 2) {
+    const scopeLabel = availability === "sold" ? "sold" : availability === "current" ? "current" : "selected";
     return (
       <aside className="market-signal signal-neutral">
         <span className="signal-symbol" aria-hidden="true">→</span>
         <div>
-          <strong>Not enough observed periods to show a price direction yet.</strong>
-          <p>At least two periods with asking-price evidence are needed. Try a wider observation window or broader market scope.</p>
+          <strong>Not enough complete {scopeLabel} periods to show a price direction yet.</strong>
+          <p>Two periods with {metricLabel} price evidence are needed. Try a wider observation window.</p>
         </div>
       </aside>
     );
@@ -232,9 +265,9 @@ function PriceTrendInsight({ data }: { data: AnalyticsTimeSeriesResponse["market
 
   const first = points[0];
   const last = points[points.length - 1];
-  const firstPrice = first.medianAskingPriceEur;
-  const lastPrice = last.medianAskingPriceEur;
-  if (firstPrice === null || lastPrice === null || firstPrice === 0) {
+  const firstPrice = first.price;
+  const lastPrice = last.price;
+  if (firstPrice === 0) {
     return null;
   }
 
@@ -248,10 +281,10 @@ function PriceTrendInsight({ data }: { data: AnalyticsTimeSeriesResponse["market
       <span className="signal-symbol" aria-hidden="true">{symbol}</span>
       <div>
         <strong>
-          Median asking prices are {stable ? direction : `${formatNumber(Math.abs(Number(change.toFixed(1))))}% ${direction}`} across the observed window.
+          Median {metricLabel} prices are {stable ? direction : `${formatNumber(Math.abs(Number(change.toFixed(1))))}% ${direction}`} across the observed window.
         </strong>
         <p>
-          {formatCurrency(firstPrice)} on {formatDate(first.bucket)} to {formatCurrency(lastPrice)} on {formatDate(last.bucket)} · latest period includes {formatNumber(last.askingPriceSampleSize)} asking-price observations. Vehicle mix can change between periods.
+          {formatCurrency(firstPrice)} on {formatDate(first.point.bucket)} to {formatCurrency(lastPrice)} on {formatDate(last.point.bucket)} · latest period includes {formatNumber(last.sampleSize)} {metricLabel} observations. Vehicle mix can change between periods.
         </p>
       </div>
     </aside>

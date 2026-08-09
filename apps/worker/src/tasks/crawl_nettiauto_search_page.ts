@@ -13,6 +13,16 @@ import {
   sha256,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
+import {
+  NETTIAUTO_DETAIL_MAX_ATTEMPTS,
+  NETTIAUTO_DETAIL_PRIORITY_OFFSET,
+  NETTIAUTO_SEARCH_MAX_ATTEMPTS,
+  RetryableNettiautoFetchError,
+  classifyRequestError,
+  createNettiautoRequestSignal,
+  isRetryableNettiautoHttpStatus,
+  terminalSearchRunStatus,
+} from "../nettiauto-fetch-policy";
 
 const payloadSchema = z.object({
   crawlRunId: z.string().uuid(),
@@ -61,32 +71,55 @@ const task: Task = async (payload, helpers) => {
         vehicleCategory: "passenger_car";
         entryPath: string;
         priority: number;
+        enabled: boolean;
+        crawlRunStatus: "planned" | "running" | "completed" | "partial" | "failed" | "cancelled";
         sourceSearchHash: string;
         queryParams: Record<string, unknown>;
       }[]
     >`
       select
-        id,
-        crawl_kind as "crawlKind",
-        vehicle_category as "vehicleCategory",
-        entry_path as "entryPath",
-        priority,
-        source_search_hash as "sourceSearchHash",
-        query_params as "queryParams"
-      from source_search_queries
-      where id = ${taskPayload.sourceQueryId}
-        and source = 'nettiauto'
-        and enabled = true
+        source_query.id,
+        source_query.crawl_kind as "crawlKind",
+        source_query.vehicle_category as "vehicleCategory",
+        source_query.entry_path as "entryPath",
+        source_query.priority,
+        source_query.enabled,
+        run.status as "crawlRunStatus",
+        source_query.source_search_hash as "sourceSearchHash",
+        source_query.query_params as "queryParams"
+      from crawl_runs run
+      join source_search_queries source_query on source_query.id = run.search_query_id
+      where run.id = ${taskPayload.crawlRunId}
+        and run.search_query_id = ${taskPayload.sourceQueryId}
+        and source_query.source = 'nettiauto'
       limit 1
     `;
 
     if (!sourceQuery) {
+      throw new Error(`Nettiauto crawl context not found: ${taskPayload.crawlRunId}`);
+    }
+
+    if (sourceQuery.crawlRunStatus !== "running") {
+      logger.info(
+        {
+          jobId: helpers.job.id,
+          task: "crawl_nettiauto_search_page",
+          crawlRunId: taskPayload.crawlRunId,
+          crawlRunStatus: sourceQuery.crawlRunStatus,
+          page: taskPayload.pageNumber,
+        },
+        "Nettiauto search page skipped for terminal crawl run",
+      );
+      return;
+    }
+
+    if (!sourceQuery.enabled) {
       await markCrawlRunFinished(sql, {
         crawlRunId: taskPayload.crawlRunId,
         status: "failed",
         expectedPageCount: null,
         sourceTotalAds: null,
-        failureReason: `Enabled Nettiauto source query not found: ${taskPayload.sourceQueryId}`,
+        failureReason: `Nettiauto source query disabled: ${taskPayload.sourceQueryId}`,
       });
       return;
     }
@@ -107,12 +140,52 @@ const task: Task = async (payload, helpers) => {
       sourceQuery.queryParams,
     );
     const startedAt = Date.now();
-    const response = await fetch(pageUrl, {
-      headers: requestHeaders,
-      redirect: "manual",
-      signal: helpers.abortSignal,
-    });
-    const responseBody = await response.text();
+    const { signal, timeoutSignal } = createNettiautoRequestSignal(
+      helpers.abortSignal,
+      config.CRAWLER_REQUEST_TIMEOUT_MS,
+    );
+    let response: Response;
+    let responseBody: string;
+    try {
+      response = await fetch(pageUrl, {
+        headers: requestHeaders,
+        redirect: "manual",
+        signal,
+      });
+      responseBody = await response.text();
+    } catch {
+      const durationMs = Date.now() - startedAt;
+      const failureReason = classifyRequestError({
+        timeoutAborted: timeoutSignal?.aborted ?? false,
+        workerAborted: helpers.abortSignal.aborted,
+      });
+      await persistSearchResultPage(sql, {
+        crawlRunId: taskPayload.crawlRunId,
+        searchQueryId: sourceQuery.id,
+        crawlKind: sourceQuery.crawlKind,
+        vehicleCategory: sourceQuery.vehicleCategory,
+        sourceUrl: pageUrl,
+        pageNumber: taskPayload.pageNumber,
+        attemptNumber: helpers.job.attempts,
+        responseStatus: null,
+        responseContentType: null,
+        responseBodyShape: "unknown",
+        responseBodySha256: null,
+        responseBytes: null,
+        durationMs,
+        requestHeaders,
+        errorType: failureReason,
+        errorMessage: `Nettiauto search request ended before a response (${failureReason}).`,
+        parsedPage: emptyNettiautoSearchResultPage({
+          crawlKind: sourceQuery.crawlKind,
+          pageNumber: taskPayload.pageNumber,
+        }),
+      });
+      throw new RetryableNettiautoFetchError(
+        failureReason,
+        `Nettiauto search request failed (${failureReason}).`,
+      );
+    }
     const durationMs = Date.now() - startedAt;
     const responseContentType = response.headers.get("content-type");
     const responseBodyShape = classifyNettiautoResponseBody(responseBody, responseContentType);
@@ -128,6 +201,7 @@ const task: Task = async (payload, helpers) => {
         vehicleCategory: sourceQuery.vehicleCategory,
         sourceUrl: pageUrl,
         pageNumber: taskPayload.pageNumber,
+        attemptNumber: helpers.job.attempts,
         responseStatus: response.status,
         responseContentType,
         responseBodyShape,
@@ -143,13 +217,6 @@ const task: Task = async (payload, helpers) => {
           crawlKind: sourceQuery.crawlKind,
           pageNumber: taskPayload.pageNumber,
         }),
-      });
-      await markCrawlRunFinished(sql, {
-        crawlRunId: taskPayload.crawlRunId,
-        status: "partial",
-        expectedPageCount: null,
-        sourceTotalAds: null,
-        failureReason,
       });
       logger.warn(
         {
@@ -168,6 +235,19 @@ const task: Task = async (payload, helpers) => {
         },
         "Nettiauto search result fetch stopped crawl",
       );
+      if (isRetryableNettiautoHttpStatus(response.status)) {
+        throw new RetryableNettiautoFetchError(
+          failureReason,
+          `Nettiauto search request returned transient HTTP ${response.status}.`,
+        );
+      }
+      await markCrawlRunFinished(sql, {
+        crawlRunId: taskPayload.crawlRunId,
+        status: terminalSearchRunStatus(taskPayload.pageNumber),
+        expectedPageCount: null,
+        sourceTotalAds: null,
+        failureReason,
+      });
       return;
     }
 
@@ -183,6 +263,7 @@ const task: Task = async (payload, helpers) => {
         vehicleCategory: sourceQuery.vehicleCategory,
         sourceUrl: pageUrl,
         pageNumber: taskPayload.pageNumber,
+        attemptNumber: helpers.job.attempts,
         responseStatus: response.status,
         responseContentType,
         responseBodyShape,
@@ -199,7 +280,7 @@ const task: Task = async (payload, helpers) => {
       });
       await markCrawlRunFinished(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "partial",
+        status: terminalSearchRunStatus(taskPayload.pageNumber),
         expectedPageCount: null,
         sourceTotalAds: null,
         failureReason,
@@ -235,6 +316,7 @@ const task: Task = async (payload, helpers) => {
       vehicleCategory: sourceQuery.vehicleCategory,
       sourceUrl: pageUrl,
       pageNumber: taskPayload.pageNumber,
+      attemptNumber: helpers.job.attempts,
       responseStatus: response.status,
       responseContentType,
       responseBodyShape,
@@ -260,10 +342,10 @@ const task: Task = async (payload, helpers) => {
         },
         {
           queueName: "nettiauto",
-          maxAttempts: 2,
+          maxAttempts: NETTIAUTO_DETAIL_MAX_ATTEMPTS,
           jobKey: `nettiauto:detail:${taskPayload.crawlRunId}:${listing.sourceListingId}`,
           jobKeyMode: "preserve_run_at",
-          priority: sourceQuery.priority + 10,
+          priority: sourceQuery.priority + NETTIAUTO_DETAIL_PRIORITY_OFFSET,
           runAt: new Date(Date.now() + index * config.CRAWLER_DELAY_MS),
         },
       );
@@ -288,7 +370,7 @@ const task: Task = async (payload, helpers) => {
     if (parsedPage.issues.some((issue) => issue.code === "invalid_ajax_json")) {
       await markCrawlRunFinished(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "partial",
+        status: terminalSearchRunStatus(taskPayload.pageNumber),
         expectedPageCount: parsedPage.totalPages,
         sourceTotalAds: parsedPage.totalAds,
         failureReason: "invalid_ajax_json",
@@ -337,7 +419,7 @@ const task: Task = async (payload, helpers) => {
       },
       {
         queueName: "nettiauto",
-        maxAttempts: 3,
+        maxAttempts: NETTIAUTO_SEARCH_MAX_ATTEMPTS,
         jobKey: `nettiauto:search-page:${taskPayload.crawlRunId}:${taskPayload.pageNumber + 1}`,
         jobKeyMode: "preserve_run_at",
         priority: sourceQuery.priority,
@@ -348,10 +430,15 @@ const task: Task = async (payload, helpers) => {
     if (helpers.job.attempts >= helpers.job.max_attempts) {
       await markCrawlRunFinished(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "failed",
+        status: terminalSearchRunStatus(taskPayload.pageNumber),
         expectedPageCount: null,
         sourceTotalAds: null,
-        failureReason: error instanceof Error ? error.message : "unknown_error",
+        failureReason:
+          error instanceof RetryableNettiautoFetchError
+            ? error.failureReason
+            : error instanceof Error
+              ? error.message
+              : "unknown_error",
       });
     }
     throw error;

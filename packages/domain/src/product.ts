@@ -4,6 +4,7 @@ import {
   type ListingFiltersQuery,
   type ListingSearchQuery,
 } from "@nettiauto/schemas";
+import { selectPublicListingImages, type StoredListingImageRow } from "./listing-images";
 
 export interface CoverageMetadata {
   lastRelevantCrawlAt: string | null;
@@ -200,6 +201,7 @@ export interface PublicListingDetailResponse {
   }>;
   imageMetadata: Array<{
     imageUrl: string;
+    fallbackImageUrls: string[];
     role: string | null;
     position: number | null;
     width: number | null;
@@ -372,7 +374,9 @@ export async function searchListings(
   query: ListingSearchQuery,
   options: { coverage?: CoverageMetadata } = {},
 ): Promise<ListingSearchResponse> {
-  const { whereSql, params } = buildFilterWhere(query);
+  const { whereSql, params } = buildFilterWhere(query, {
+    availabilityExpression: "l.current_availability",
+  });
   const orderBy = sortToOrderBy(query.sort);
   const offset = (query.page - 1) * query.pageSize;
   const rows = await sql.unsafe<ListingTableItem[]>(
@@ -383,7 +387,7 @@ export async function searchListings(
         s.make_source_label as "make",
         s.model_source_label as "model",
         s.year_model as "yearModel",
-        s.availability,
+        l.current_availability as availability,
         s.asking_price_eur as "askingPriceEur",
         s.observed_sold_price_eur as "observedSoldPriceEur",
         s.mileage_km as "mileageKm",
@@ -400,7 +404,7 @@ export async function searchListings(
     `,
     [...params, query.pageSize, offset],
   );
-  const matchSummary = await countListingMatches(sql, query, whereSql, params);
+  const matchSummary = await countListingMatches(sql, query);
   const totalItems = matchSummary.totalItems;
 
   return {
@@ -425,8 +429,6 @@ export async function searchListings(
 async function countListingMatches(
   sql: Sql,
   query: ListingSearchQuery,
-  whereSql: string,
-  params: SqlParameter[],
 ) {
   if (!hasSnapshotFilters(query)) {
     const availabilityWhere =
@@ -450,6 +452,7 @@ async function countListingMatches(
     return row ?? { totalItems: 0, includesCurrent: false, includesSold: false };
   }
 
+  const { whereSql, params } = buildFilterWhere(query);
   const [row] = await sql.unsafe<
     { totalItems: number; includesCurrent: boolean | null; includesSold: boolean | null }[]
   >(
@@ -457,8 +460,8 @@ async function countListingMatches(
       with latest_snapshots as (${latestSnapshotSql()})
       select
         count(*)::int as "totalItems",
-        bool_or(s.availability = 'active') as "includesCurrent",
-        bool_or(s.availability = 'sold') as "includesSold"
+        bool_or(s.current_availability = 'active') as "includesCurrent",
+        bool_or(s.current_availability = 'sold') as "includesSold"
       from latest_snapshots s
       ${whereSql}
     `,
@@ -492,7 +495,7 @@ export async function getPublicListingDetail(
         s.make_source_label as "make",
         s.model_source_label as "model",
         s.year_model as "yearModel",
-        s.availability,
+        l.current_availability as availability,
         s.asking_price_eur as "askingPriceEur",
         s.observed_sold_price_eur as "observedSoldPriceEur",
         s.mileage_km as "mileageKm",
@@ -568,19 +571,21 @@ export async function getPublicListingDetail(
       ) recent_history
       order by "observedAt" asc
     `,
-    sql<
-      {
-        imageUrl: string;
-        role: string | null;
-        position: number | null;
-        width: number | null;
-        height: number | null;
-      }[]
-    >`
-      select image_url as "imageUrl", image_role as "role", position, width, height
-      from listing_images
-      where listing_id = ${listingId}
-      order by position nulls last, first_seen_at asc
+    sql<StoredListingImageRow[]>`
+      select
+        image.image_url as "imageUrl",
+        image.image_role as "role",
+        image.position,
+        image.width,
+        image.height,
+        image.last_raw_listing_record_id::text as "cohortId",
+        raw_record.record_kind as "recordKind",
+        raw_record.captured_at::text as "capturedAt",
+        image.last_seen_at::text as "lastSeenAt"
+      from listing_images image
+      join raw_listing_records raw_record on raw_record.id = image.last_raw_listing_record_id
+      where image.listing_id = ${listingId}
+      order by raw_record.captured_at desc, image.position nulls last, image.last_seen_at desc
     `,
   ]);
 
@@ -596,7 +601,7 @@ export async function getPublicListingDetail(
       },
     },
     history,
-    imageMetadata: images,
+    imageMetadata: selectPublicListingImages(images),
     vehicleDetails,
   };
 }
@@ -828,8 +833,8 @@ async function getSummaryAndCoverage(
       with latest_snapshots as (${latestSnapshotSql()})
       select
         count(*)::int as "listingCount",
-        count(*) filter (where s.availability = 'active')::int as "activeCount",
-        count(*) filter (where s.availability = 'sold')::int as "soldCount",
+        count(*) filter (where s.current_availability = 'active')::int as "activeCount",
+        count(*) filter (where s.current_availability = 'sold')::int as "soldCount",
         (percentile_cont(0.5) within group (order by s.asking_price_eur)
           filter (where s.asking_price_eur is not null))::int as "medianAskingPriceEur",
         (percentile_cont(0.5) within group (order by s.observed_sold_price_eur)
@@ -840,8 +845,8 @@ async function getSummaryAndCoverage(
         count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
         count(${analyticsMileageSql})::int as "mileageSampleSize",
         count(*)::int as "sampleSize",
-        bool_or(s.availability = 'active') as "includesCurrent",
-        bool_or(s.availability = 'sold') as "includesSold"
+        bool_or(s.current_availability = 'active') as "includesCurrent",
+        bool_or(s.current_availability = 'sold') as "includesSold"
       from latest_snapshots s
       ${whereSql}
     `,
@@ -876,14 +881,16 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
   const interval = filters.interval;
   const bucketStep = intervalToSqlInterval(interval);
   const runTimeFilter = buildCompletedRunTimeWhere(filters);
-  const requiredRunKindCount = filters.availability === "all" ? 2 : 1;
   const { whereSql, params: snapshotParams } = buildFilterWhere(
     {
       ...filters,
       from: undefined,
       to: undefined,
     },
-    { startIndex: runTimeFilter.params.length },
+    {
+      startIndex: runTimeFilter.params.length,
+      availabilityExpression: "s.availability",
+    },
   );
   const params = [...runTimeFilter.params, ...snapshotParams];
   const rows = await sql.unsafe<
@@ -911,19 +918,12 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         ${runTimeFilter.whereSql}
         order by date_trunc('${interval}', cr.finished_at), cr.search_query_id, cr.finished_at desc
       ),
-      complete_buckets as (
-        select bucket_start
-        from selected_runs
-        group by bucket_start
-        having count(distinct crawl_kind) = ${requiredRunKindCount}
-      ),
       sighting_buckets as (
         select
           run.bucket_start,
           sighting.listing_id,
           max(sighting.seen_at) as seen_at
         from selected_runs run
-        join complete_buckets complete_bucket on complete_bucket.bucket_start = run.bucket_start
         join listing_sightings sighting on sighting.crawl_run_id = run.id
         group by run.bucket_start, sighting.listing_id
       ),
@@ -1332,7 +1332,7 @@ async function getLatestFailedJobs(
 
 function latestSnapshotSql() {
   return `
-    select snapshot.*
+    select snapshot.*, current_listing.current_availability
     from listings current_listing
     join listing_snapshots snapshot on snapshot.id = current_listing.latest_snapshot_id
   `;
@@ -1340,11 +1340,16 @@ function latestSnapshotSql() {
 
 function buildFilterWhere(
   filters: Partial<ListingFiltersQuery>,
-  options: { snapshotAlias?: string; startIndex?: number } = {},
+  options: {
+    snapshotAlias?: string;
+    startIndex?: number;
+    availabilityExpression?: string;
+  } = {},
 ) {
   const snapshotAlias = options.snapshotAlias ?? "s";
   const startIndex = options.startIndex ?? 0;
   const column = (name: string) => `${snapshotAlias}.${name}`;
+  const availabilityExpression = options.availabilityExpression ?? column("current_availability");
   const conditions: string[] = [];
   const params: SqlParameter[] = [];
   const add = (condition: string, value: SqlParameter) => {
@@ -1392,13 +1397,13 @@ function buildFilterWhere(
     add(`${column("transmission_source_label")} = ?`, filters.transmission);
   }
   if (filters.availability === "current") {
-    conditions.push(`${column("availability")} = 'active'`);
+    conditions.push(`${availabilityExpression} = 'active'`);
   }
   if (filters.availability === "sold") {
-    conditions.push(`${column("availability")} = 'sold'`);
+    conditions.push(`${availabilityExpression} = 'sold'`);
   }
   if (filters.availability === "all") {
-    conditions.push(`${column("availability")} in ('active', 'sold')`);
+    conditions.push(`${availabilityExpression} in ('active', 'sold')`);
   }
   return {
     whereSql: conditions.length > 0 ? `where ${conditions.join(" and ")}` : "",
