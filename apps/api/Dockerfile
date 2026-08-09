@@ -31,10 +31,10 @@ WORKDIR /app/apps/api
 ENV NODE_ENV=production
 ENV PORT=3001
 
-COPY --from=build --chown=bun:bun /app/apps/api/dist/index.js ./index.js
+COPY --from=build --chown=1000:1000 /app/apps/api/dist/index.js ./index.js
 
-USER bun
+USER 1000:1000
 
 EXPOSE 3001
 
-CMD ["bun", "./index.js"]
+CMD ["./index.js"]
