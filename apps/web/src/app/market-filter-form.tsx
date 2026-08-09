@@ -280,6 +280,16 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
                   ))}
                 </select>
               </FilterField>
+              <FilterField label="Fuel type">
+                <select name="fuelType" defaultValue={single(params.fuelType)}>
+                  <option value="">Any fuel type</option>
+                  {filters.fuelTypes.map((fuelType) => (
+                    <option key={fuelType} value={fuelType}>
+                      {fuelType}
+                    </option>
+                  ))}
+                </select>
+              </FilterField>
             </div>
           </fieldset>
 
@@ -400,6 +410,7 @@ function countAdvancedFilters(params: PageSearchParams, variant: MarketFilterFor
     "priceMax",
     "mileageMin",
     "mileageMax",
+    "fuelType",
     "transmission",
     "sellerType",
     ...(variant === "analytics" ? ["from", "to", "interval"] : []),
@@ -422,6 +433,7 @@ function countSelectedFilters(params: PageSearchParams, variant: MarketFilterFor
     "priceMax",
     "mileageMin",
     "mileageMax",
+    "fuelType",
     "transmission",
     "sellerType",
     ...(variant === "analytics" ? ["from", "to", "interval"] : ["sort"]),
@@ -444,6 +456,7 @@ function selectedFilterLabels(params: PageSearchParams, variant: MarketFilterFor
     ["Price to", currencyFilterLabel(single(params.priceMax))],
     ["Mileage from", distanceFilterLabel(single(params.mileageMin))],
     ["Mileage to", distanceFilterLabel(single(params.mileageMax))],
+    ["Fuel type", single(params.fuelType)],
     ["Transmission", single(params.transmission)],
     ["Seller", single(params.sellerType)],
     ...(variant === "analytics"

@@ -6,6 +6,7 @@ import {
   NETTIAUTO_DETAIL_PARSER_VERSION,
   classifyNettiautoResponseBody,
   nettiautoDetailRequestHeaders,
+  pauseSourceSearchQuery,
   parseNettiautoDetailPage,
   persistNettiautoDetailPage,
   sha256,
@@ -16,6 +17,7 @@ import {
   classifyRequestError,
   createNettiautoRequestSignal,
   isRetryableNettiautoHttpStatus,
+  shouldPauseNettiautoSource,
 } from "../nettiauto-fetch-policy";
 
 const payloadSchema = z.object({
@@ -51,6 +53,34 @@ const task: Task = async (payload, helpers) => {
 
   const sql = createSqlClient(config.DATABASE_URL, 1);
   try {
+    const [sourceQuery] = await sql<
+      { enabled: boolean; pausedUntil: string | null; pauseReason: string | null }[]
+    >`
+      select
+        enabled,
+        paused_until::text as "pausedUntil",
+        pause_reason as "pauseReason"
+      from source_search_queries
+      where id = ${taskPayload.searchQueryId}
+        and source = 'nettiauto'
+      limit 1
+    `;
+    if (
+      !sourceQuery?.enabled ||
+      (sourceQuery.pausedUntil && new Date(sourceQuery.pausedUntil).getTime() > Date.now())
+    ) {
+      logger.info(
+        {
+          jobId: helpers.job.id,
+          sourceListingId: taskPayload.sourceListingId,
+          pausedUntil: sourceQuery?.pausedUntil ?? null,
+          pauseReason: sourceQuery?.pauseReason ?? null,
+        },
+        "Nettiauto detail crawl skipped because source query is unavailable",
+      );
+      return;
+    }
+
     if (!taskPayload.force) {
       const [existing] = await sql<
         { sourceUpdatedDate: string | null; detailParserVersion: string | null }[]
@@ -156,6 +186,18 @@ const task: Task = async (payload, helpers) => {
       parsedDetail,
     });
 
+    if (failureReason && shouldPauseNettiautoSource(failureReason)) {
+      const pausedUntil = await pauseSourceSearchQuery(sql, taskPayload.searchQueryId, {
+        pauseMs: config.CRAWLER_BLOCK_PAUSE_MS,
+        reason: failureReason,
+      });
+      logger.warn(
+        { sourceListingId: taskPayload.sourceListingId, pausedUntil, failureReason },
+        "Nettiauto source query paused after detail fetch failure",
+      );
+      return;
+    }
+
     if (isRetryableNettiautoHttpStatus(response.status)) {
       throw new RetryableNettiautoFetchError(
         failureReason ?? `http_${response.status}`,
@@ -203,5 +245,6 @@ function classifyDetailFetchFailure(statusCode: number, bodyShape: string) {
 
   return "fetch_failed";
 }
+
 
 export default task;

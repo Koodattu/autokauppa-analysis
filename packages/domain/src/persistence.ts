@@ -272,6 +272,7 @@ export async function getEnabledSourceSearchQueries(sql: SqlClient) {
       priority
     from source_search_queries
     where enabled = true
+      and (paused_until is null or paused_until <= now())
     order by priority asc, created_at asc
   `;
 }
@@ -318,6 +319,7 @@ export async function getSchedulableSourceSearchQueries(
       ) as "hasActiveCrawlRun"
     from source_search_queries query
     where query.enabled = true
+      and (query.paused_until is null or query.paused_until <= now())
     order by query.priority asc, query.created_at asc
   `;
 
@@ -338,6 +340,80 @@ export async function getSchedulableSourceSearchQueries(
       );
     })
     .map(({ targetCadenceSeconds, lastAttemptAt, hasActiveCrawlRun, ...query }) => query);
+}
+
+export async function pauseSourceSearchQuery(
+  sql: SqlClient,
+  sourceQueryId: string,
+  input: { pauseMs: number; reason: string },
+) {
+  const pausedUntil = new Date(Date.now() + input.pauseMs);
+  const [row] = await sql<{ pausedUntil: string }[]>`
+    update source_search_queries
+    set
+      paused_until = greatest(coalesce(paused_until, now()), ${pausedUntil}),
+      pause_reason = ${input.reason},
+      last_failure_at = now(),
+      updated_at = now()
+    where id = ${sourceQueryId}
+    returning paused_until::text as "pausedUntil"
+  `;
+  return row?.pausedUntil ?? null;
+}
+
+export async function setSourceSearchQueriesPaused(
+  sql: SqlClient,
+  input: {
+    crawlKind: "all" | "current" | "sold";
+    pausedUntil: Date | null;
+    reason: string | null;
+  },
+) {
+  const rows = await sql<{ id: string }[]>`
+    update source_search_queries
+    set
+      paused_until = ${input.pausedUntil},
+      pause_reason = ${input.reason},
+      updated_at = now()
+    where source = 'nettiauto'
+      and (${input.crawlKind} = 'all' or crawl_kind::text = ${input.crawlKind})
+    returning id
+  `;
+  return rows.length;
+}
+
+export async function reserveCrawlRunDetailJobs(
+  sql: SqlClient,
+  crawlRunId: string,
+  requestedCount: number,
+  limit: number,
+) {
+  if (requestedCount <= 0 || limit <= 0) {
+    return 0;
+  }
+
+  const [row] = await sql<{ reservedCount: number }[]>`
+    with allowance as (
+      select
+        id,
+        least(${requestedCount}, greatest(${limit} - detail_jobs_scheduled, 0))::int as reserved_count
+      from crawl_runs
+      where id = ${crawlRunId}
+        and status = 'running'
+      for update
+    ),
+    updated as (
+      update crawl_runs run
+      set
+        detail_jobs_scheduled = run.detail_jobs_scheduled + allowance.reserved_count,
+        updated_at = now()
+      from allowance
+      where run.id = allowance.id
+      returning allowance.reserved_count
+    )
+    select reserved_count as "reservedCount" from updated
+  `;
+  return row?.reservedCount ?? 0;
 }
 
 export function shouldScheduleSourceSearchQuery(

@@ -3,26 +3,23 @@
 Public analytics application for collecting, storing, and analyzing vehicle
 listing data, with private admin-only crawler operations.
 
-This repository now contains the first proof-of-concept implementation slice:
-fixture-tested Search Result parsing, the initial PostgreSQL schema,
-idempotent page persistence helpers, public analytics/listing API routes,
-admin-protected crawler status, Graphile Worker task entry points, and a
-noindex Next.js web UI.
+The repository contains a production-oriented modular monolith with fixture-tested
+Nettiauto parsing, PostgreSQL persistence and migrations, public analytics and
+listing routes, an admin-protected crawler dashboard, Graphile Worker jobs,
+server-rendered Next.js pages, and Docker Compose deployment.
 
-## Planned Stack
+## Stack
 
 - TypeScript monorepo
 - Docker Compose on a single server
 - Caddy reverse proxy
 - Next.js + React web frontend, running on Node.js
 - Bun + Hono backend API
-- Node.js + Graphile Worker background worker
+- Bun + Graphile Worker background worker
 - PostgreSQL
 - Drizzle ORM and Drizzle Kit migrations
 - Zod for runtime validation at system boundaries
-- TanStack Query, Table, and Virtual for interactive analytics UI
-- Pino-compatible structured JSON logging
-- Sentry for error reporting
+- Structured JSON logging
 
 ## Architecture Docs
 
@@ -75,7 +72,7 @@ Deferred:
 - Full user auth/accounts.
 - Precomputed Aggregate Views.
 - Motorcycles.
-- Detail Page Data enrichment.
+- Broad detail-page crawling by default; enrichment is opt-in and capped per run.
 
 ## Scaffold Layout
 
@@ -104,11 +101,12 @@ docker-compose.yml
 ## Local Commands
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run typecheck:packages
 bun run typecheck:web
 bun run typecheck:api
 bun run typecheck:worker
+bun --cwd apps/web lint
 bun run build:web
 bun run build:api
 bun run build:worker
@@ -118,6 +116,13 @@ Tests:
 
 ```bash
 bun run test
+```
+
+PostgreSQL integration tests require a migrated disposable database whose name
+contains `test`:
+
+```bash
+TEST_DATABASE_URL=postgres://.../nettiauto_test bun run test:integration
 ```
 
 Service-specific development commands:

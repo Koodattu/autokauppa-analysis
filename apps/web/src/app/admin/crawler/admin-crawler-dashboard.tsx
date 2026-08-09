@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   AdminCrawlerDiagnosticsResponse,
+  AdminCrawlerControlResponse,
   AdminCrawlerRunResponse,
   AdminCrawlerRunTarget,
   AdminCrawlerStatusResponse,
 } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
 import { SiteHeader } from "../../site-header";
 
 type Notice = {
@@ -25,6 +28,7 @@ export function AdminCrawlerDashboard({
   initialStatus,
   initialNotice,
 }: AdminCrawlerDashboardProps) {
+  const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
   const [diagnostics, setDiagnostics] = useState<AdminCrawlerDiagnosticsResponse | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
@@ -33,6 +37,7 @@ export function AdminCrawlerDashboard({
   const [notice, setNotice] = useState<Notice | null>(initialNotice);
   const [pollError, setPollError] = useState<string | null>(null);
   const [runPending, setRunPending] = useState(false);
+  const [controlPending, setControlPending] = useState(false);
   const [selectedCrawlTarget, setSelectedCrawlTarget] = useState<AdminCrawlerRunTarget>("all");
   const canRunCrawler = status.crawlerState.enabled && !status.crawlerState.paused && !runPending;
   const problemCount = useMemo(
@@ -60,7 +65,7 @@ export function AdminCrawlerDashboard({
       }
       inFlight = true;
       try {
-        const nextStatus = await fetchCrawlerStatus();
+        const nextStatus = await fetchCrawlerStatus(() => router.push("/admin/login"));
         if (!active) {
           return;
         }
@@ -94,11 +99,11 @@ export function AdminCrawlerDashboard({
       window.clearTimeout(timeout);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     let active = true;
-    void fetchCrawlerDiagnostics()
+    void fetchCrawlerDiagnostics(() => router.push("/admin/login"))
       .then((nextDiagnostics) => {
         if (active) {
           setDiagnostics(nextDiagnostics);
@@ -118,12 +123,12 @@ export function AdminCrawlerDashboard({
     return () => {
       active = false;
     };
-  }, []);
+  }, [router]);
 
   async function refreshDiagnostics() {
     setDiagnosticsPending(true);
     try {
-      setDiagnostics(await fetchCrawlerDiagnostics());
+      setDiagnostics(await fetchCrawlerDiagnostics(() => router.push("/admin/login")));
       setDiagnosticsError(null);
     } catch (error) {
       setDiagnosticsError(error instanceof Error ? error.message : "Diagnostics could not be loaded.");
@@ -143,7 +148,7 @@ export function AdminCrawlerDashboard({
       });
 
       if (response.status === 401) {
-        window.location.assign("/admin/login");
+        router.push("/admin/login");
         return;
       }
 
@@ -158,7 +163,7 @@ export function AdminCrawlerDashboard({
         message: `Crawl queued for ${labelRunTarget(body.crawlKind)}${body.jobId ? ` as job ${body.jobId}` : ""}.`,
       });
       try {
-        setStatus(await fetchCrawlerStatus());
+        setStatus(await fetchCrawlerStatus(() => router.push("/admin/login")));
         setLastUpdatedAt(new Date());
         setPollError(null);
       } catch (error) {
@@ -171,6 +176,42 @@ export function AdminCrawlerDashboard({
       });
     } finally {
       setRunPending(false);
+    }
+  }
+
+  async function updateCrawlerControl(action: "pause" | "resume") {
+    setControlPending(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/crawler/control", {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify({ action, crawlKind: selectedCrawlTarget }),
+      });
+      if (response.status === 401) {
+        router.push("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        setNotice({ kind: "error", message: formatRunError(await readRunError(response)) });
+        return;
+      }
+      const body = (await response.json()) as AdminCrawlerControlResponse;
+      setNotice({
+        kind: "success",
+        message: action === "pause"
+          ? `${labelRunTarget(body.crawlKind)} paused until ${formatDate(body.pausedUntil)}.`
+          : `${labelRunTarget(body.crawlKind)} resumed.`,
+      });
+      setStatus(await fetchCrawlerStatus(() => router.push("/admin/login")));
+      setLastUpdatedAt(new Date());
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Crawler control could not be updated.",
+      });
+    } finally {
+      setControlPending(false);
     }
   }
 
@@ -203,6 +244,22 @@ export function AdminCrawlerDashboard({
           <button type="button" disabled={!canRunCrawler} onClick={runCrawlerNow}>
             {runPending ? "Queueing..." : "Run crawl now"}
           </button>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={controlPending}
+            onClick={() => updateCrawlerControl("pause")}
+          >
+            Pause 6 hours
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={controlPending}
+            onClick={() => updateCrawlerControl("resume")}
+          >
+            Resume
+          </button>
           <form action="/api/admin/logout" method="post">
             <button type="submit" className="secondary-button">
               Sign out
@@ -226,6 +283,10 @@ export function AdminCrawlerDashboard({
         <Metric label="Paused" value={status.crawlerState.paused ? "Yes" : "No"} />
         <Metric label="Delay" value={`${status.crawlerState.delayMs} ms`} />
         <Metric label="Max pages" value={status.crawlerState.maxPagesPerRun === 0 ? "All" : String(status.crawlerState.maxPagesPerRun)} />
+        <Metric
+          label="Detail jobs"
+          value={status.crawlerState.detailEnabled ? `Up to ${status.crawlerState.detailMaxPerRun}` : "Disabled"}
+        />
         <Metric label="Pending jobs" value={String(status.queueBacklog.pendingJobs)} />
         <Metric label="Problems" value={String(problemCount)} tone={problemCount > 0 ? "danger" : "default"} />
       </section>
@@ -255,7 +316,9 @@ export function AdminCrawlerDashboard({
                 key={segment.crawlKind}
                 label={labelKind(segment.crawlKind)}
                 value={formatDate(segment.lastSuccessAt)}
-                detail={freshnessDetail(status, segment)}
+                detail={segment.pausedUntil
+                  ? `paused until ${formatDate(segment.pausedUntil)} · ${segment.pauseReason ?? "no reason"}`
+                  : freshnessDetail(status, segment)}
               />
             ))}
           </div>
@@ -272,6 +335,7 @@ export function AdminCrawlerDashboard({
         </button>
       </div>
       {diagnosticsError ? <p className="notice error-state">{diagnosticsError}</p> : null}
+      {diagnostics ? <DataQualityPanel quality={diagnostics.dataQuality} /> : null}
       {diagnostics ? <section className="admin-grid">
         <ErrorPanel
           title="Crawl failures · 30 days"
@@ -360,14 +424,70 @@ export function AdminCrawlerDashboard({
   );
 }
 
-async function fetchCrawlerStatus() {
+function DataQualityPanel({ quality }: { quality: AdminCrawlerDiagnosticsResponse["dataQuality"] }) {
+  const detailCoverage = quality.totalListings === 0
+    ? 0
+    : Math.round((quality.detailEnrichedListings / quality.totalListings) * 1_000) / 10;
+  return (
+    <section className="panel data-quality-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Data quality</h2>
+          <p>Coverage of the latest listing snapshot and parser activity from the last 30 days.</p>
+        </div>
+        <span>{formatNumber(quality.totalListings)} listings</span>
+      </div>
+      <div className="data-quality-summary">
+        <Metric label="Detail enriched" value={`${formatNumber(quality.detailEnrichedListings)} · ${formatNumber(detailCoverage)}%`} />
+        <Metric label="Raw records · 30 days" value={formatNumber(quality.rawRecordsLast30Days)} />
+        <Metric
+          label="Failed parses · 30 days"
+          value={formatNumber(quality.failedRawRecordsLast30Days)}
+          tone={quality.failedRawRecordsLast30Days > 0 ? "danger" : "default"}
+        />
+      </div>
+      <div className="data-quality-grid">
+        <div>
+          <h3>Latest-field coverage</h3>
+          <ul className="coverage-list">
+            {quality.fieldCoverage.map((field) => (
+              <li key={field.field}>
+                <span>{field.field}</span>
+                <progress max={100} value={field.percentage}>{field.percentage}%</progress>
+                <strong>{formatNumber(field.percentage)}%</strong>
+                <small>{formatNumber(field.presentCount)}</small>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h3>Parser versions · 30 days</h3>
+          {quality.parserVersions.length === 0 ? <p className="muted">No raw records captured.</p> : (
+            <div className="trend-list">
+              {quality.parserVersions.map((version) => (
+                <AdminRow
+                  key={version.parserVersion}
+                  label={version.parserVersion}
+                  value={formatNumber(version.recordCount)}
+                  detail={`${formatNumber(version.failedCount)} failed · latest ${formatDate(version.latestCapturedAt)}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+async function fetchCrawlerStatus(onUnauthorized: () => void) {
   const response = await fetch("/api/admin/crawler/status", {
     headers: { accept: "application/json" },
     cache: "no-store",
   });
 
   if (response.status === 401) {
-    window.location.assign("/admin/login");
+    onUnauthorized();
     throw new Error("Sign in required.");
   }
 
@@ -378,14 +498,14 @@ async function fetchCrawlerStatus() {
   return response.json() as Promise<AdminCrawlerStatusResponse>;
 }
 
-async function fetchCrawlerDiagnostics() {
+async function fetchCrawlerDiagnostics(onUnauthorized: () => void) {
   const response = await fetch("/api/admin/crawler/diagnostics", {
     headers: { accept: "application/json" },
     cache: "no-store",
   });
 
   if (response.status === 401) {
-    window.location.assign("/admin/login");
+    onUnauthorized();
     throw new Error("Sign in required.");
   }
   if (!response.ok) {

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { randomUUID } from "node:crypto";
 import { getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -17,10 +18,12 @@ import {
   getMarketOverview,
   getPublicListingDetail,
   searchListings,
+  setSourceSearchQueriesPaused,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
 import {
   adminCrawlerRunRequestSchema,
+  adminCrawlerControlRequestSchema,
   adminLoginRequestSchema,
   listingIdSchema,
   listingFiltersQuerySchema,
@@ -28,6 +31,7 @@ import {
   type ListingFiltersQuery,
 } from "@nettiauto/schemas";
 import { ResponseCache } from "./analytics-cache";
+import { FixedWindowRateLimiter } from "./rate-limit";
 
 const RESPONSE_CACHE_TTL_MS = 5 * 60 * 1000;
 const RESPONSE_CACHE_MAX_ENTRIES = 32;
@@ -63,6 +67,9 @@ const analyticsTimeSeriesCache = new ResponseCache({
 const defaultAnalyticsFilters = listingFiltersQuerySchema.parse({});
 
 const app = new Hono();
+const publicQueryLimiter = new FixedWindowRateLimiter({ limit: 120, windowMs: 60_000 });
+const loginLimiter = new FixedWindowRateLimiter({ limit: 5, windowMs: 15 * 60_000 });
+const adminMutationLimiter = new FixedWindowRateLimiter({ limit: 20, windowMs: 60_000 });
 
 void prewarmDefaultResponses();
 setInterval(() => {
@@ -81,6 +88,33 @@ const adminOnly = createMiddleware(async (c, next) => {
   await next();
 });
 
+app.use("*", async (c, next) => {
+  const requestId = c.req.header("x-request-id")?.slice(0, 100) || randomUUID();
+  const startedAt = performance.now();
+  c.header("X-Request-Id", requestId);
+  await next();
+  logger.info(
+    {
+      requestId,
+      method: c.req.method,
+      path: c.req.path,
+      status: c.res.status,
+      durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+    },
+    "API request completed",
+  );
+});
+
+const publicQueryRateLimit = createRateLimitMiddleware(publicQueryLimiter, "public-query");
+app.use("/filters", publicQueryRateLimit);
+app.use("/analytics/*", publicQueryRateLimit);
+app.use("/market/*", publicQueryRateLimit);
+app.use("/listings", publicQueryRateLimit);
+app.use("/listings/*", publicQueryRateLimit);
+app.use("/admin/login", createRateLimitMiddleware(loginLimiter, "admin-login"));
+app.use("/admin/crawler/run", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation"));
+app.use("/admin/crawler/control", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation"));
+
 app.onError((error, c) => {
   if (error instanceof HTTPException) {
     return error.getResponse();
@@ -95,6 +129,18 @@ app.get("/health", (c) => {
     service: "api",
     status: "ok",
   });
+});
+
+app.get("/ready", async (c) => {
+  const [row] = await sql<{ databaseReady: boolean; migrationsReady: boolean }[]>`
+    select
+      true as "databaseReady",
+      to_regclass('drizzle.__drizzle_migrations') is not null as "migrationsReady"
+  `;
+  if (!row?.databaseReady || !row.migrationsReady) {
+    return c.json({ service: "api", status: "not_ready" }, 503);
+  }
+  return c.json({ service: "api", status: "ready" });
 });
 
 app.get("/filters", async (c) => {
@@ -241,6 +287,8 @@ app.get("/admin/crawler/status", adminOnly, async (c) => {
       paused: config.CRAWLER_PAUSED,
       delayMs: config.CRAWLER_DELAY_MS,
       maxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
+      detailEnabled: config.CRAWLER_DETAIL_ENABLED,
+      detailMaxPerRun: config.CRAWLER_DETAIL_MAX_PER_RUN,
     }),
   );
 });
@@ -305,6 +353,38 @@ app.post("/admin/crawler/run", adminOnly, async (c) => {
   });
 });
 
+app.post("/admin/crawler/control", adminOnly, async (c) => {
+  const body = await readOptionalJsonBody(c.req);
+  if (body === invalidJsonBody) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+
+  const result = adminCrawlerControlRequestSchema.safeParse(body);
+  if (!result.success) {
+    return c.json({ error: "invalid_request", issues: result.error.issues }, 400);
+  }
+
+  const pausedUntil = result.data.action === "pause"
+    ? new Date(Date.now() + result.data.pauseMinutes * 60 * 1_000)
+    : null;
+  const affectedQueryCount = await setSourceSearchQueriesPaused(sql, {
+    crawlKind: result.data.crawlKind,
+    pausedUntil,
+    reason: result.data.action === "pause" ? "admin_pause" : null,
+  });
+  logger.info(
+    { action: result.data.action, crawlKind: result.data.crawlKind, affectedQueryCount },
+    "Nettiauto crawler control updated",
+  );
+  return c.json({
+    ok: true,
+    action: result.data.action,
+    crawlKind: result.data.crawlKind,
+    affectedQueryCount,
+    pausedUntil: pausedUntil?.toISOString() ?? null,
+  });
+});
+
 const invalidJsonBody = Symbol("invalidJsonBody");
 
 async function readOptionalJsonBody(req: {
@@ -325,6 +405,19 @@ async function readOptionalJsonBody(req: {
 
 function wantsJson(acceptHeader: string | undefined) {
   return acceptHeader?.includes("application/json") ?? false;
+}
+
+function createRateLimitMiddleware(limiter: FixedWindowRateLimiter, scope: string) {
+  return createMiddleware(async (c, next) => {
+    const clientAddress = c.req.header("x-forwarded-for")?.split(",", 1)[0]?.trim() || "unknown";
+    const result = limiter.check(`${scope}:${clientAddress}`);
+    c.header("X-RateLimit-Remaining", String(result.remaining));
+    if (!result.allowed) {
+      c.header("Retry-After", String(result.retryAfterSeconds));
+      return c.json({ error: "rate_limited" }, 429);
+    }
+    await next();
+  });
 }
 
 async function prewarmDefaultResponses() {
@@ -353,6 +446,7 @@ function analyticsSnapshotCacheKey(query: ListingFiltersQuery) {
     mileageMax: query.mileageMax ?? null,
     availability: query.availability,
     sellerType: query.sellerType ?? null,
+    fuelType: query.fuelType ?? null,
     transmission: query.transmission ?? null,
   });
 }

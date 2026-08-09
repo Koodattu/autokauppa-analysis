@@ -54,13 +54,16 @@ services:
       CRAWLER_DELAY_MS: ${CRAWLER_DELAY_MS:-2500}
       CRAWLER_REQUEST_TIMEOUT_MS: ${CRAWLER_REQUEST_TIMEOUT_MS:-30000}
       CRAWLER_MAX_PAGES_PER_RUN: ${CRAWLER_MAX_PAGES_PER_RUN:-2}
+      CRAWLER_BLOCK_PAUSE_MS: ${CRAWLER_BLOCK_PAUSE_MS:-21600000}
+      CRAWLER_DETAIL_ENABLED: ${CRAWLER_DETAIL_ENABLED:-false}
+      CRAWLER_DETAIL_MAX_PER_RUN: ${CRAWLER_DETAIL_MAX_PER_RUN:-50}
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "bun", "--eval", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "bun", "--eval", "fetch('http://localhost:3001/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -80,6 +83,9 @@ services:
       CRAWLER_DELAY_MS: ${CRAWLER_DELAY_MS:-2500}
       CRAWLER_REQUEST_TIMEOUT_MS: ${CRAWLER_REQUEST_TIMEOUT_MS:-30000}
       CRAWLER_MAX_PAGES_PER_RUN: ${CRAWLER_MAX_PAGES_PER_RUN:-2}
+      CRAWLER_BLOCK_PAUSE_MS: ${CRAWLER_BLOCK_PAUSE_MS:-21600000}
+      CRAWLER_DETAIL_ENABLED: ${CRAWLER_DETAIL_ENABLED:-false}
+      CRAWLER_DETAIL_MAX_PER_RUN: ${CRAWLER_DETAIL_MAX_PER_RUN:-50}
     depends_on:
       postgres:
         condition: service_healthy

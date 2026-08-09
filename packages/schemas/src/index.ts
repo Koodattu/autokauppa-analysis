@@ -63,6 +63,7 @@ const listingFilterShape = {
   mileageMax: optionalInteger({ min: 0, max: 2_000_000 }),
   availability: availabilityFilterSchema,
   sellerType: optionalTrimmed(80),
+  fuelType: optionalTrimmed(80),
   transmission: optionalTrimmed(80),
   from: optionalDate,
   to: optionalDate,
@@ -88,6 +89,12 @@ export const adminLoginRequestSchema = z.object({
 
 export const adminCrawlerRunRequestSchema = z.object({
   crawlKind: z.enum(["all", "current", "sold"]).default("all"),
+});
+
+export const adminCrawlerControlRequestSchema = z.object({
+  action: z.enum(["pause", "resume"]),
+  crawlKind: z.enum(["all", "current", "sold"]).default("all"),
+  pauseMinutes: z.coerce.number().int().min(1).max(7 * 24 * 60).default(6 * 60),
 });
 
 export const nettiautoCrawlKindSchema = z.enum(["current", "sold"]);
@@ -136,6 +143,7 @@ export type ListingFiltersQuery = z.infer<typeof listingFiltersQuerySchema>;
 export type ListingSearchQuery = z.infer<typeof listingSearchQuerySchema>;
 export type AdminLoginRequest = z.infer<typeof adminLoginRequestSchema>;
 export type AdminCrawlerRunRequest = z.infer<typeof adminCrawlerRunRequestSchema>;
+export type AdminCrawlerControlRequest = z.infer<typeof adminCrawlerControlRequestSchema>;
 export type NettiautoAjaxResponse = z.infer<typeof nettiautoAjaxResponseSchema>;
 export type NettiautoDataLayer = z.infer<typeof nettiautoDataLayerSchema>;
 export type CoverageMetadata = z.infer<typeof coverageMetadataSchema>;

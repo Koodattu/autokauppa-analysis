@@ -20,6 +20,7 @@ export interface FilterMetadata {
   models: string[];
   yearRange: { min: number | null; max: number | null };
   sellerTypes: string[];
+  fuelTypes: string[];
   transmissions: string[];
   availability: Array<"current" | "sold" | "all">;
 }
@@ -27,9 +28,11 @@ export interface FilterMetadata {
 export interface MarketOverTimePoint {
   bucket: string;
   listingCount: number;
-  activeCount: number;
-  soldCount: number;
+  activeCount: number | null;
+  soldCount: number | null;
   newListingCount: number;
+  includesCurrentRun: boolean;
+  includesSoldRun: boolean;
   medianAskingPriceEur: number | null;
   medianObservedSoldPriceEur: number | null;
   sampleSize: number;
@@ -80,6 +83,20 @@ export interface PriceByTransmissionPoint {
   observedSoldPriceP75Eur: number | null;
 }
 
+export interface PriceByFuelTypePoint {
+  fuelType: string;
+  listingCount: number;
+  askingPriceSampleSize: number;
+  observedSoldPriceSampleSize: number;
+  medianMileageKm: number | null;
+  askingPriceP25Eur: number | null;
+  medianAskingPriceEur: number | null;
+  askingPriceP75Eur: number | null;
+  observedSoldPriceP25Eur: number | null;
+  medianObservedSoldPriceEur: number | null;
+  observedSoldPriceP75Eur: number | null;
+}
+
 export interface AnalyticsTrendResponse {
   appliedFilters: ListingFiltersQuery;
   coverage: CoverageMetadata;
@@ -98,6 +115,7 @@ export interface AnalyticsTrendResponse {
     marketOverTime: MarketOverTimePoint[];
     priceByYear: PriceByYearPoint[];
     priceByMileageBucket: PriceByMileageBucketPoint[];
+    priceByFuelType: PriceByFuelTypePoint[];
     priceByTransmission: PriceByTransmissionPoint[];
   };
 }
@@ -207,6 +225,17 @@ export interface PublicListingDetailResponse {
     width: number | null;
     height: number | null;
   }>;
+  marketContext: {
+    cohortDescription: string;
+    priceBasis: "asking" | "observed_sold" | null;
+    sampleSize: number;
+    priceP25Eur: number | null;
+    medianPriceEur: number | null;
+    priceP75Eur: number | null;
+    pricePercentile: number | null;
+    observedDays: number;
+    recordedPriceChangeCount: number;
+  };
   vehicleDetails: PublicVehicleDetails | null;
 }
 
@@ -216,6 +245,8 @@ export interface AdminCrawlerStatusResponse {
     paused: boolean;
     delayMs: number;
     maxPagesPerRun: number;
+    detailEnabled: boolean;
+    detailMaxPerRun: number;
   };
   lastSuccessfulCrawls: Array<{
     crawlKind: "current" | "sold";
@@ -237,6 +268,8 @@ export interface AdminCrawlerStatusResponse {
     lastSuccessAt: string | null;
     lastFailureAt: string | null;
     enabled: boolean;
+    pausedUntil: string | null;
+    pauseReason: string | null;
   }>;
   queueBacklog: {
     pendingJobs: number;
@@ -272,6 +305,23 @@ export interface AdminCrawlerDiagnosticsResponse {
     createdAt: string;
     updatedAt: string | null;
   }>;
+  dataQuality: {
+    totalListings: number;
+    detailEnrichedListings: number;
+    rawRecordsLast30Days: number;
+    failedRawRecordsLast30Days: number;
+    fieldCoverage: Array<{
+      field: string;
+      presentCount: number;
+      percentage: number;
+    }>;
+    parserVersions: Array<{
+      parserVersion: string;
+      recordCount: number;
+      failedCount: number;
+      latestCapturedAt: string;
+    }>;
+  };
 }
 
 type Sql = postgres.Sql<Record<string, unknown>>;
@@ -316,6 +366,7 @@ export async function getAnalyticsSnapshot(
   const summaryAndCoverage = await getSummaryAndCoverage(sql, filters);
   const priceByYear = await getPriceByYear(sql, filters);
   const priceByMileageBucket = await getPriceByMileageBucket(sql, filters);
+  const priceByFuelType = await getPriceByFuelType(sql, filters);
   const priceByTransmission = await getPriceByTransmission(sql, filters);
   const { summary, coverage } = summaryAndCoverage;
   const analyticsCoverage: CoverageMetadata = {
@@ -331,6 +382,7 @@ export async function getAnalyticsSnapshot(
     charts: {
       priceByYear,
       priceByMileageBucket,
+      priceByFuelType,
       priceByTransmission,
     },
   };
@@ -544,7 +596,7 @@ export async function getPublicListingDetail(
       ? "Search Result and Detail Page Data"
       : "Search Result Data";
 
-  const [history, images] = await Promise.all([
+  const [history, images, marketPriceContext] = await Promise.all([
     sql<
       {
         observedAt: string;
@@ -587,7 +639,10 @@ export async function getPublicListingDetail(
       where image.listing_id = ${listingId}
       order by raw_record.captured_at desc, image.position nulls last, image.last_seen_at desc
     `,
+    getListingMarketPriceContext(sql, listingId),
   ]);
+
+  const observationContext = getListingObservationContext(history, firstSeenAt, listing.lastSeenAt);
 
   return {
     listing: {
@@ -602,8 +657,113 @@ export async function getPublicListingDetail(
     },
     history,
     imageMetadata: selectPublicListingImages(images),
+    marketContext: {
+      cohortDescription: "Same make and model, within one model year, matching known fuel type and transmission",
+      ...marketPriceContext,
+      ...observationContext,
+    },
     vehicleDetails,
   };
+}
+
+async function getListingMarketPriceContext(sql: Sql, listingId: string) {
+  const [row] = await sql.unsafe<
+    Array<{
+      priceBasis: "asking" | "observed_sold" | null;
+      sampleSize: number;
+      priceP25Eur: number | string | null;
+      medianPriceEur: number | string | null;
+      priceP75Eur: number | string | null;
+      pricePercentile: number | string | null;
+    }>
+  >(
+    `
+      with latest_snapshots as (${latestSnapshotSql()}),
+      target as (
+        select
+          snapshot.make_source_label,
+          snapshot.model_source_label,
+          snapshot.year_model,
+          snapshot.fuel_type_source_label,
+          snapshot.transmission_source_label,
+          snapshot.asking_price_eur,
+          snapshot.observed_sold_price_eur,
+          case
+            when snapshot.asking_price_eur is not null then 'asking'
+            when snapshot.observed_sold_price_eur is not null then 'observed_sold'
+            else null
+          end as price_basis,
+          coalesce(snapshot.asking_price_eur, snapshot.observed_sold_price_eur) as target_price
+        from latest_snapshots snapshot
+        where snapshot.listing_id = $1
+      ),
+      comparable_prices as (
+        select
+          case
+            when target.price_basis = 'asking' then candidate.asking_price_eur
+            when target.price_basis = 'observed_sold' then candidate.observed_sold_price_eur
+            else null
+          end as price,
+          target.target_price,
+          target.price_basis
+        from target
+        join latest_snapshots candidate
+          on candidate.make_source_label = target.make_source_label
+          and candidate.model_source_label = target.model_source_label
+          and (target.year_model is null or candidate.year_model between target.year_model - 1 and target.year_model + 1)
+          and (target.fuel_type_source_label is null or candidate.fuel_type_source_label = target.fuel_type_source_label)
+          and (target.transmission_source_label is null or candidate.transmission_source_label = target.transmission_source_label)
+        where target.make_source_label is not null
+          and target.model_source_label is not null
+      )
+      select
+        min(price_basis) as "priceBasis",
+        count(price)::int as "sampleSize",
+        (percentile_cont(0.25) within group (order by price)
+          filter (where price is not null))::int as "priceP25Eur",
+        (percentile_cont(0.5) within group (order by price)
+          filter (where price is not null))::int as "medianPriceEur",
+        (percentile_cont(0.75) within group (order by price)
+          filter (where price is not null))::int as "priceP75Eur",
+        round(
+          100.0 * count(price) filter (where price <= target_price)
+          / nullif(count(price), 0)
+        )::int as "pricePercentile"
+      from comparable_prices
+    `,
+    [listingId],
+  );
+
+  return {
+    priceBasis: row?.priceBasis ?? null,
+    sampleSize: row?.sampleSize ?? 0,
+    priceP25Eur: nullableNumber(row?.priceP25Eur ?? null),
+    medianPriceEur: nullableNumber(row?.medianPriceEur ?? null),
+    priceP75Eur: nullableNumber(row?.priceP75Eur ?? null),
+    pricePercentile: nullableNumber(row?.pricePercentile ?? null),
+  };
+}
+
+export function getListingObservationContext(
+  history: PublicListingDetailResponse["history"],
+  firstSeenAt: string,
+  lastSeenAt: string,
+) {
+  const observedDays = Math.max(
+    1,
+    Math.ceil((Date.parse(lastSeenAt) - Date.parse(firstSeenAt)) / (24 * 60 * 60 * 1_000)),
+  );
+  const prices = [...history]
+    .sort((left, right) => left.observedAt.localeCompare(right.observedAt))
+    .map((row) => row.askingPriceEur ?? row.observedSoldPriceEur)
+    .filter((price): price is number => price !== null);
+  let recordedPriceChangeCount = 0;
+  for (let index = 1; index < prices.length; index += 1) {
+    if (prices[index] !== prices[index - 1]) {
+      recordedPriceChangeCount += 1;
+    }
+  }
+  return { observedDays, recordedPriceChangeCount };
 }
 
 function buildPublicVehicleDetails(input: {
@@ -660,7 +820,14 @@ function buildPublicVehicleDetails(input: {
 
 export async function getAdminCrawlerStatus(
   sql: Sql,
-  state: { enabled: boolean; paused: boolean; delayMs: number; maxPagesPerRun: number },
+  state: {
+    enabled: boolean;
+    paused: boolean;
+    delayMs: number;
+    maxPagesPerRun: number;
+    detailEnabled: boolean;
+    detailMaxPerRun: number;
+  },
 ): Promise<AdminCrawlerStatusResponse> {
   const [lastSuccessfulCrawls, recentRuns, freshnessBySegment, queueBacklog] = await Promise.all([
     sql<AdminCrawlerStatusResponse["lastSuccessfulCrawls"]>`
@@ -691,7 +858,9 @@ export async function getAdminCrawlerStatus(
         crawl_kind as "crawlKind",
         last_success_at::text as "lastSuccessAt",
         last_failure_at::text as "lastFailureAt",
-        enabled
+        enabled,
+        paused_until::text as "pausedUntil",
+        pause_reason as "pauseReason"
       from source_search_queries
       order by priority asc, crawl_kind asc
     `,
@@ -710,7 +879,7 @@ export async function getAdminCrawlerStatus(
 export async function getAdminCrawlerDiagnostics(
   sql: Sql,
 ): Promise<AdminCrawlerDiagnosticsResponse> {
-  const [failureCounts, sourceFetchFailures, parserErrors, failedJobs] = await Promise.all([
+  const [failureCounts, sourceFetchFailures, parserErrors, failedJobs, qualityRows, parserVersions] = await Promise.all([
     sql<AdminCrawlerDiagnosticsResponse["failureCounts"]>`
       select coalesce(failure_reason, 'unknown') as "failureReason", count(*)::int as count
       from crawl_runs
@@ -746,13 +915,90 @@ export async function getAdminCrawlerDiagnostics(
       limit 10
     `,
     getLatestFailedJobs(sql),
+    sql<{
+      totalListings: number;
+      detailEnrichedListings: number;
+      makeCount: number;
+      modelCount: number;
+      yearCount: number;
+      priceCount: number;
+      mileageCount: number;
+      fuelCount: number;
+      transmissionCount: number;
+      rawRecordsLast30Days: number;
+      failedRawRecordsLast30Days: number;
+    }[]>`
+      with latest_snapshots as (${sql.unsafe(latestSnapshotSql())})
+      select
+        count(*)::int as "totalListings",
+        count(*) filter (where normalized_data ? 'detailParserVersion')::int as "detailEnrichedListings",
+        count(make_source_label)::int as "makeCount",
+        count(model_source_label)::int as "modelCount",
+        count(year_model)::int as "yearCount",
+        count(coalesce(asking_price_eur, observed_sold_price_eur))::int as "priceCount",
+        count(mileage_km)::int as "mileageCount",
+        count(fuel_type_source_label)::int as "fuelCount",
+        count(transmission_source_label)::int as "transmissionCount",
+        (select count(*)::int from raw_listing_records where captured_at >= now() - interval '30 days') as "rawRecordsLast30Days",
+        (select count(*)::int from raw_listing_records where captured_at >= now() - interval '30 days' and parser_status = 'failed') as "failedRawRecordsLast30Days"
+      from latest_snapshots
+    `,
+    sql<AdminCrawlerDiagnosticsResponse["dataQuality"]["parserVersions"]>`
+      select
+        parser_version as "parserVersion",
+        count(*)::int as "recordCount",
+        count(*) filter (where parser_status = 'failed')::int as "failedCount",
+        max(captured_at)::text as "latestCapturedAt"
+      from raw_listing_records
+      where captured_at >= now() - interval '30 days'
+      group by parser_version
+      order by max(captured_at) desc
+      limit 10
+    `,
   ]);
+
+  const quality = qualityRows[0] ?? {
+    totalListings: 0,
+    detailEnrichedListings: 0,
+    makeCount: 0,
+    modelCount: 0,
+    yearCount: 0,
+    priceCount: 0,
+    mileageCount: 0,
+    fuelCount: 0,
+    transmissionCount: 0,
+    rawRecordsLast30Days: 0,
+    failedRawRecordsLast30Days: 0,
+  };
+  const fieldCoverage = [
+    ["Make", quality.makeCount],
+    ["Model", quality.modelCount],
+    ["Model year", quality.yearCount],
+    ["Price", quality.priceCount],
+    ["Mileage", quality.mileageCount],
+    ["Fuel type", quality.fuelCount],
+    ["Transmission", quality.transmissionCount],
+  ].map(([field, presentCount]) => ({
+    field: String(field),
+    presentCount: Number(presentCount),
+    percentage: quality.totalListings === 0
+      ? 0
+      : Math.round((Number(presentCount) / quality.totalListings) * 1_000) / 10,
+  }));
 
   return {
     failureCounts,
     latestSourceFetchFailures: sourceFetchFailures,
     latestParserErrorSummaries: parserErrors,
     latestFailedJobs: failedJobs,
+    dataQuality: {
+      totalListings: quality.totalListings,
+      detailEnrichedListings: quality.detailEnrichedListings,
+      rawRecordsLast30Days: quality.rawRecordsLast30Days,
+      failedRawRecordsLast30Days: quality.failedRawRecordsLast30Days,
+      fieldCoverage,
+      parserVersions,
+    },
   };
 }
 
@@ -764,6 +1010,7 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
       minYear: number | null;
       maxYear: number | null;
       sellerTypes: string[] | null;
+      fuelTypes: string[] | null;
       transmissions: string[] | null;
     }[]
   >(
@@ -786,6 +1033,14 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
         )::int as "maxYear",
         array_remove(array_agg(distinct seller_type_source_label order by seller_type_source_label), null) as "sellerTypes",
         array_remove(
+          array_agg(distinct fuel_type_source_label order by fuel_type_source_label)
+            filter (
+              where ($1::text is null or make_source_label = $1)
+                and ($2::text is null or model_source_label = $2)
+            ),
+          null
+        ) as "fuelTypes",
+        array_remove(
           array_agg(distinct transmission_source_label order by transmission_source_label)
             filter (
               where ($1::text is null or make_source_label = $1)
@@ -803,6 +1058,7 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
     models: row?.models ?? [],
     yearRange: { min: row?.minYear ?? null, max: row?.maxYear ?? null },
     sellerTypes: row?.sellerTypes ?? [],
+    fuelTypes: row?.fuelTypes ?? [],
     transmissions: row?.transmissions ?? [],
   };
 }
@@ -897,9 +1153,11 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
     {
       bucket: string;
       listingCount: number;
-      activeCount: number;
-      soldCount: number;
+      activeCount: number | null;
+      soldCount: number | null;
       newListingCount: number;
+      includesCurrentRun: boolean;
+      includesSoldRun: boolean;
       medianAskingPriceEur: number | string | null;
       medianObservedSoldPriceEur: number | string | null;
       sampleSize: number;
@@ -918,18 +1176,28 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         ${runTimeFilter.whereSql}
         order by date_trunc('${interval}', cr.finished_at), cr.search_query_id, cr.finished_at desc
       ),
+      run_buckets as (
+        select
+          bucket_start,
+          bool_or(crawl_kind = 'current') as includes_current_run,
+          bool_or(crawl_kind = 'sold') as includes_sold_run
+        from selected_runs
+        group by bucket_start
+      ),
       sighting_buckets as (
         select
           run.bucket_start,
+          run.crawl_kind,
           sighting.listing_id,
           max(sighting.seen_at) as seen_at
         from selected_runs run
         join listing_sightings sighting on sighting.crawl_run_id = run.id
-        group by run.bucket_start, sighting.listing_id
+        group by run.bucket_start, run.crawl_kind, sighting.listing_id
       ),
       bucketed_snapshots as (
         select
           b.bucket_start,
+          b.crawl_kind,
           b.seen_at,
           b.listing_id,
           l.first_seen_at,
@@ -949,40 +1217,55 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         ${whereSql}
       )
       select
-        bucket_start::date::text as "bucket",
-        count(*)::int as "listingCount",
-        count(*) filter (where availability = 'active')::int as "activeCount",
-        count(*) filter (where availability = 'sold')::int as "soldCount",
-        count(*) filter (
-          where first_seen_at >= bucket_start
-            and first_seen_at < bucket_start + interval '${bucketStep}'
+        run_bucket.bucket_start::date::text as "bucket",
+        count(distinct snapshot.listing_id)::int as "listingCount",
+        case when run_bucket.includes_current_run then
+          count(distinct snapshot.listing_id) filter (
+            where snapshot.crawl_kind = 'current' and snapshot.availability = 'active'
+          )::int
+        end as "activeCount",
+        case when run_bucket.includes_sold_run then
+          count(distinct snapshot.listing_id) filter (
+            where snapshot.crawl_kind = 'sold' and snapshot.availability = 'sold'
+          )::int
+        end as "soldCount",
+        count(distinct snapshot.listing_id) filter (
+          where snapshot.first_seen_at >= run_bucket.bucket_start
+            and snapshot.first_seen_at < run_bucket.bucket_start + interval '${bucketStep}'
         )::int as "newListingCount",
-        (percentile_cont(0.5) within group (order by asking_price_eur)
-          filter (where asking_price_eur is not null))::int as "medianAskingPriceEur",
-        (percentile_cont(0.5) within group (order by observed_sold_price_eur)
-          filter (where observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
-        count(*)::int as "sampleSize",
-        count(asking_price_eur)::int as "askingPriceSampleSize",
-        count(observed_sold_price_eur)::int as "observedSoldPriceSampleSize"
-      from bucketed_snapshots
-      group by bucket_start
-      order by bucket_start
+        run_bucket.includes_current_run as "includesCurrentRun",
+        run_bucket.includes_sold_run as "includesSoldRun",
+        (percentile_cont(0.5) within group (order by snapshot.asking_price_eur)
+          filter (where snapshot.asking_price_eur is not null))::int as "medianAskingPriceEur",
+        (percentile_cont(0.5) within group (order by snapshot.observed_sold_price_eur)
+          filter (where snapshot.observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
+        count(distinct snapshot.listing_id)::int as "sampleSize",
+        count(snapshot.asking_price_eur)::int as "askingPriceSampleSize",
+        count(snapshot.observed_sold_price_eur)::int as "observedSoldPriceSampleSize"
+      from run_buckets run_bucket
+      left join bucketed_snapshots snapshot on snapshot.bucket_start = run_bucket.bucket_start
+      group by run_bucket.bucket_start, run_bucket.includes_current_run, run_bucket.includes_sold_run
+      order by run_bucket.bucket_start
     `,
     params,
   );
 
-  return rows.map((row) => ({
-    bucket: row.bucket,
-    listingCount: row.listingCount,
-    activeCount: row.activeCount,
-    soldCount: row.soldCount,
-    newListingCount: row.newListingCount,
+  return rows.map(normalizeMarketOverTimePoint);
+}
+
+export function normalizeMarketOverTimePoint(
+  row: Omit<MarketOverTimePoint, "medianAskingPriceEur" | "medianObservedSoldPriceEur"> & {
+    medianAskingPriceEur: number | string | null;
+    medianObservedSoldPriceEur: number | string | null;
+  },
+): MarketOverTimePoint {
+  return {
+    ...row,
+    activeCount: row.includesCurrentRun ? row.activeCount ?? 0 : null,
+    soldCount: row.includesSoldRun ? row.soldCount ?? 0 : null,
     medianAskingPriceEur: nullableNumber(row.medianAskingPriceEur),
     medianObservedSoldPriceEur: nullableNumber(row.medianObservedSoldPriceEur),
-    sampleSize: row.sampleSize,
-    askingPriceSampleSize: row.askingPriceSampleSize,
-    observedSoldPriceSampleSize: row.observedSoldPriceSampleSize,
-  }));
+  };
 }
 
 async function getPriceByYear(sql: Sql, filters: ListingFiltersQuery): Promise<PriceByYearPoint[]> {
@@ -1178,6 +1461,67 @@ async function getPriceByTransmission(
   }));
 }
 
+async function getPriceByFuelType(
+  sql: Sql,
+  filters: ListingFiltersQuery,
+): Promise<PriceByFuelTypePoint[]> {
+  const { whereSql, params } = buildFilterWhere(filters);
+  const analyticsMileageSql = validAnalyticsMileageSql("s");
+  const rows = await sql.unsafe<
+    Array<
+      Omit<PriceByFuelTypePoint, "medianMileageKm" | "askingPriceP25Eur" | "medianAskingPriceEur" | "askingPriceP75Eur" | "observedSoldPriceP25Eur" | "medianObservedSoldPriceEur" | "observedSoldPriceP75Eur"> & {
+        medianMileageKm: number | string | null;
+        askingPriceP25Eur: number | string | null;
+        medianAskingPriceEur: number | string | null;
+        askingPriceP75Eur: number | string | null;
+        observedSoldPriceP25Eur: number | string | null;
+        medianObservedSoldPriceEur: number | string | null;
+        observedSoldPriceP75Eur: number | string | null;
+      }
+    >
+  >(
+    `
+      with latest_snapshots as (${latestSnapshotSql()})
+      select
+        s.fuel_type_source_label as "fuelType",
+        count(*)::int as "listingCount",
+        count(s.asking_price_eur)::int as "askingPriceSampleSize",
+        count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
+        (percentile_cont(0.5) within group (order by ${analyticsMileageSql})
+          filter (where ${analyticsMileageSql} is not null))::int as "medianMileageKm",
+        (percentile_cont(0.25) within group (order by s.asking_price_eur)
+          filter (where s.asking_price_eur is not null))::int as "askingPriceP25Eur",
+        (percentile_cont(0.5) within group (order by s.asking_price_eur)
+          filter (where s.asking_price_eur is not null))::int as "medianAskingPriceEur",
+        (percentile_cont(0.75) within group (order by s.asking_price_eur)
+          filter (where s.asking_price_eur is not null))::int as "askingPriceP75Eur",
+        (percentile_cont(0.25) within group (order by s.observed_sold_price_eur)
+          filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP25Eur",
+        (percentile_cont(0.5) within group (order by s.observed_sold_price_eur)
+          filter (where s.observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
+        (percentile_cont(0.75) within group (order by s.observed_sold_price_eur)
+          filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP75Eur"
+      from latest_snapshots s
+      ${appendWhereCondition(whereSql, "s.fuel_type_source_label is not null")}
+      group by s.fuel_type_source_label
+      order by "listingCount" desc, "fuelType" asc
+      limit 12
+    `,
+    params,
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    medianMileageKm: nullableNumber(row.medianMileageKm),
+    askingPriceP25Eur: nullableNumber(row.askingPriceP25Eur),
+    medianAskingPriceEur: nullableNumber(row.medianAskingPriceEur),
+    askingPriceP75Eur: nullableNumber(row.askingPriceP75Eur),
+    observedSoldPriceP25Eur: nullableNumber(row.observedSoldPriceP25Eur),
+    medianObservedSoldPriceEur: nullableNumber(row.medianObservedSoldPriceEur),
+    observedSoldPriceP75Eur: nullableNumber(row.observedSoldPriceP75Eur),
+  }));
+}
+
 async function getSearchCoverage(
   sql: Sql,
   filters: Partial<ListingFiltersQuery>,
@@ -1243,6 +1587,7 @@ function emptyAnalyticsTrend(
       marketOverTime: [],
       priceByYear: [],
       priceByMileageBucket: [],
+      priceByFuelType: [],
       priceByTransmission: [],
     },
   };
@@ -1393,6 +1738,9 @@ function buildFilterWhere(
   if (filters.sellerType) {
     add(`${column("seller_type_source_label")} = ?`, filters.sellerType);
   }
+  if (filters.fuelType) {
+    add(`${column("fuel_type_source_label")} = ?`, filters.fuelType);
+  }
   if (filters.transmission) {
     add(`${column("transmission_source_label")} = ?`, filters.transmission);
   }
@@ -1470,6 +1818,7 @@ function hasSnapshotFilters(filters: ListingSearchQuery) {
     filters.mileageMin !== undefined ||
     filters.mileageMax !== undefined ||
     filters.sellerType !== undefined ||
+    filters.fuelType !== undefined ||
     filters.transmission !== undefined
   );
 }

@@ -65,17 +65,20 @@ describe("ResponseCache", () => {
     });
   });
 
-  it("keeps exact year and transmission filters in separate entries", async () => {
+  it("keeps exact year, fuel, and transmission filters in separate entries", async () => {
     const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>>(
-      (input) => Promise.resolve(responseWithCount((input.modelYear ?? 0) + (input.transmission ? 1 : 0))),
+      (input) => Promise.resolve(responseWithCount(
+        (input.modelYear ?? 0) + (input.fuelType ? 1 : 0) + (input.transmission ? 1 : 0),
+      )),
     );
     const cache = createCache(loader);
 
     await cache.get({ ...query, modelYear: 2018 });
     await cache.get({ ...query, modelYear: 2019 });
+    await cache.get({ ...query, modelYear: 2019, fuelType: "Diesel" });
     await cache.get({ ...query, modelYear: 2019, transmission: "Automatic" });
 
-    expect(loader).toHaveBeenCalledTimes(3);
+    expect(loader).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -107,6 +110,8 @@ function responseWithCount(listingCount: number): AnalyticsTimeSeriesResponse {
         activeCount: listingCount,
         soldCount: 0,
         newListingCount: 0,
+        includesCurrentRun: true,
+        includesSoldRun: true,
         medianAskingPriceEur: null,
         medianObservedSoldPriceEur: null,
         sampleSize: listingCount,

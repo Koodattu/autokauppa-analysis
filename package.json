@@ -18,7 +18,8 @@
     "typecheck:api": "bun --cwd apps/api typecheck",
     "typecheck:worker": "bun --cwd apps/worker typecheck",
     "typecheck:packages": "bun --cwd packages/config typecheck && bun --cwd packages/db typecheck && bun --cwd packages/domain typecheck && bun --cwd packages/logging typecheck && bun --cwd packages/schemas typecheck && bun --cwd packages/ui typecheck",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "vitest run packages/domain/src/product.integration.test.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

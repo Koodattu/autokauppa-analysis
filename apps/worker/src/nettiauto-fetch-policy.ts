@@ -3,6 +3,12 @@ export const NETTIAUTO_DETAIL_MAX_ATTEMPTS = 3;
 export const NETTIAUTO_DETAIL_PRIORITY_OFFSET = 100;
 
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const CIRCUIT_BREAKER_FAILURES = new Set([
+  "blocked",
+  "rate_limited",
+  "redirected",
+  "unexpected_response_body_shape",
+]);
 
 export class RetryableNettiautoFetchError extends Error {
   constructor(
@@ -16,6 +22,10 @@ export class RetryableNettiautoFetchError extends Error {
 
 export function isRetryableNettiautoHttpStatus(statusCode: number) {
   return RETRYABLE_HTTP_STATUSES.has(statusCode);
+}
+
+export function shouldPauseNettiautoSource(failureReason: string) {
+  return CIRCUIT_BREAKER_FAILURES.has(failureReason);
 }
 
 export function terminalSearchRunStatus(pageNumber: number): "failed" | "partial" {

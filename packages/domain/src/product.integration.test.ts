@@ -1,0 +1,262 @@
+import postgres from "postgres";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { listingFiltersQuerySchema } from "@nettiauto/schemas";
+import {
+  getAdminCrawlerDiagnostics,
+  getAnalyticsTimeSeries,
+  getPublicListingDetail,
+  getSchedulableSourceSearchQueries,
+  reserveCrawlRunDetailJobs,
+  setSourceSearchQueriesPaused,
+} from "./index";
+
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const describeDatabase = testDatabaseUrl ? describe : describe.skip;
+
+describeDatabase("PostgreSQL product integration", () => {
+  if (!testDatabaseUrl) {
+    return;
+  }
+  const databaseName = new URL(testDatabaseUrl).pathname.slice(1);
+  if (!databaseName.includes("test")) {
+    throw new Error("Integration tests require a database name containing 'test'.");
+  }
+
+  const sql = postgres(testDatabaseUrl, { max: 1, prepare: false });
+
+  beforeAll(async () => {
+    const [migrationTable] = await sql<{ relationName: string | null }[]>`
+      select to_regclass('drizzle.__drizzle_migrations')::text as "relationName"
+    `;
+    if (!migrationTable?.relationName) {
+      throw new Error("Test database migrations have not been applied.");
+    }
+  });
+
+  beforeEach(async () => {
+    await sql.unsafe(`
+      truncate table
+        listing_events,
+        listing_images,
+        listing_sightings,
+        listing_snapshots,
+        listings,
+        raw_listing_records,
+        source_fetches,
+        crawl_runs,
+        source_search_queries,
+        reprocessing_runs
+      restart identity cascade
+    `);
+  });
+
+  afterAll(async () => {
+    await sql.end({ timeout: 5 });
+  });
+
+  it("distinguishes an unobserved sold period from an observed zero", async () => {
+    const currentQueryId = await insertSourceQuery("current", "current-test");
+    const soldQueryId = await insertSourceQuery("sold", "sold-test");
+    const currentRunOne = await insertRun(currentQueryId, "current", "2026-08-03T10:00:00Z");
+    const soldRunOne = await insertRun(soldQueryId, "sold", "2026-08-03T11:00:00Z");
+    const currentRunTwo = await insertRun(currentQueryId, "current", "2026-08-10T10:00:00Z");
+
+    await insertObservation(currentRunOne, currentQueryId, "current", "active-1", "active", "2026-08-03T09:00:00Z", 20_000);
+    await insertObservation(currentRunTwo, currentQueryId, "current", "active-1", "active", "2026-08-10T09:00:00Z", 20_000);
+    await insertObservation(soldRunOne, soldQueryId, "sold", "sold-1", "sold", "2026-08-03T09:30:00Z", 18_000);
+
+    const result = await getAnalyticsTimeSeries(
+      sql,
+      listingFiltersQuerySchema.parse({
+        availability: "all",
+        interval: "week",
+        from: "2026-08-03",
+        to: "2026-08-16",
+      }),
+    );
+
+    expect(result.marketOverTime).toHaveLength(2);
+    expect(result.marketOverTime[0]).toMatchObject({
+      includesCurrentRun: true,
+      includesSoldRun: true,
+      activeCount: 1,
+      soldCount: 1,
+    });
+    expect(result.marketOverTime[1]).toMatchObject({
+      includesCurrentRun: true,
+      includesSoldRun: false,
+      activeCount: 1,
+      soldCount: null,
+    });
+  });
+
+  it("enforces detail budgets and excludes administratively paused queries", async () => {
+    const queryId = await insertSourceQuery("current", "budget-test");
+    const [run] = await sql<{ id: string }[]>`
+      insert into crawl_runs (
+        source, search_query_id, crawl_kind, vehicle_category, status, started_at
+      ) values ('nettiauto', ${queryId}, 'current', 'passenger_car', 'running', now())
+      returning id
+    `;
+    if (!run) throw new Error("Failed to create test Crawl Run.");
+
+    expect(await reserveCrawlRunDetailJobs(sql, run.id, 4, 5)).toBe(4);
+    expect(await reserveCrawlRunDetailJobs(sql, run.id, 4, 5)).toBe(1);
+    expect(await reserveCrawlRunDetailJobs(sql, run.id, 1, 5)).toBe(0);
+    await sql`
+      update crawl_runs
+      set status = 'partial', finished_at = now(), failure_reason = 'integration_test'
+      where id = ${run.id}
+    `;
+
+    await setSourceSearchQueriesPaused(sql, {
+      crawlKind: "current",
+      pausedUntil: new Date(Date.now() + 60_000),
+      reason: "integration_test",
+    });
+    expect(await getSchedulableSourceSearchQueries(sql, { force: true })).toEqual([]);
+
+    await setSourceSearchQueriesPaused(sql, {
+      crawlKind: "current",
+      pausedUntil: null,
+      reason: null,
+    });
+    expect(await getSchedulableSourceSearchQueries(sql, { force: true })).toHaveLength(1);
+  });
+
+  it("computes listing market context and data-quality coverage from PostgreSQL", async () => {
+    const queryId = await insertSourceQuery("current", "context-test");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const listingId = await insertObservation(runId, queryId, "current", "context-1", "active", "2026-08-03T09:00:00Z", 20_000);
+    await insertObservation(runId, queryId, "current", "context-2", "active", "2026-08-03T09:01:00Z", 18_000);
+    await insertObservation(runId, queryId, "current", "context-3", "active", "2026-08-03T09:02:00Z", 22_000);
+
+    const detail = await getPublicListingDetail(sql, listingId);
+    expect(detail?.marketContext).toMatchObject({
+      priceBasis: "asking",
+      sampleSize: 3,
+      medianPriceEur: 20_000,
+      pricePercentile: 67,
+      observedDays: 1,
+      recordedPriceChangeCount: 0,
+    });
+
+    const diagnostics = await getAdminCrawlerDiagnostics(sql);
+    expect(diagnostics.dataQuality).toMatchObject({
+      totalListings: 3,
+      rawRecordsLast30Days: 3,
+      failedRawRecordsLast30Days: 0,
+    });
+    expect(diagnostics.dataQuality.fieldCoverage.find((field) => field.field === "Fuel type"))
+      .toMatchObject({ presentCount: 3, percentage: 100 });
+  });
+
+  async function insertSourceQuery(crawlKind: "current" | "sold", searchHash: string) {
+    const [row] = await sql<{ id: string }[]>`
+      insert into source_search_queries (
+        source, vehicle_category, crawl_kind, entry_path, source_search_hash,
+        query_params, enabled, priority, target_cadence_interval
+      ) values (
+        'nettiauto', 'passenger_car', ${crawlKind}, '/test', ${searchHash},
+        '{}'::jsonb, true, 10, interval '1 day'
+      ) returning id
+    `;
+    if (!row) throw new Error("Failed to create test Source Search Query.");
+    return row.id;
+  }
+
+  async function insertRun(searchQueryId: string, crawlKind: "current" | "sold", finishedAt: string) {
+    const [row] = await sql<{ id: string }[]>`
+      insert into crawl_runs (
+        source, search_query_id, crawl_kind, vehicle_category, status,
+        started_at, finished_at, expected_page_count, fetched_page_count,
+        source_total_ads, is_complete
+      ) values (
+        'nettiauto', ${searchQueryId}, ${crawlKind}, 'passenger_car', 'completed',
+        ${finishedAt}::timestamptz - interval '5 minutes', ${finishedAt}, 1, 1, 1, true
+      ) returning id
+    `;
+    if (!row) throw new Error("Failed to create test Crawl Run.");
+    return row.id;
+  }
+
+  async function insertObservation(
+    crawlRunId: string,
+    searchQueryId: string,
+    crawlKind: "current" | "sold",
+    sourceListingId: string,
+    availability: "active" | "sold",
+    observedAt: string,
+    priceEur: number,
+  ) {
+    const [pageRow] = await sql<{ pageNumber: number }[]>`
+      select (coalesce(max(page_number), 0) + 1)::int as "pageNumber"
+      from source_fetches
+      where crawl_run_id = ${crawlRunId}
+    `;
+    const pageNumber = pageRow?.pageNumber ?? 1;
+    const [fetchRow] = await sql<{ id: string }[]>`
+      insert into source_fetches (
+        crawl_run_id, search_query_id, source, fetch_kind, page_number,
+        source_url, request_headers, response_status, response_body_shape, fetched_at
+      ) values (
+        ${crawlRunId}, ${searchQueryId}, 'nettiauto', 'search_result_page', ${pageNumber},
+        'https://example.invalid/test', '{}'::jsonb, 200, 'ajax_json', ${observedAt}
+      ) returning id
+    `;
+    if (!fetchRow) throw new Error("Failed to create test Source Fetch.");
+
+    const [rawRow] = await sql<{ id: string }[]>`
+      insert into raw_listing_records (
+        source, source_listing_id, crawl_run_id, source_fetch_id, record_kind,
+        source_payload, source_payload_sha256, parser_version, parser_status, captured_at
+      ) values (
+        'nettiauto', ${sourceListingId}, ${crawlRunId}, ${fetchRow.id}, 'search_result_card',
+        '{}'::jsonb, ${`${crawlRunId}-${sourceListingId}`}, 'integration-test', 'parsed', ${observedAt}
+      ) returning id
+    `;
+    if (!rawRow) throw new Error("Failed to create test Raw Listing Record.");
+
+    const [listingRow] = await sql<{ id: string }[]>`
+      insert into listings (
+        source, source_listing_id, vehicle_category, current_availability,
+        availability_last_confirmed_at, first_seen_at, last_seen_at, last_raw_listing_record_id
+      ) values (
+        'nettiauto', ${sourceListingId}, 'passenger_car', ${availability},
+        ${observedAt}, ${observedAt}, ${observedAt}, ${rawRow.id}
+      )
+      on conflict (source, source_listing_id) do update set
+        last_seen_at = excluded.last_seen_at,
+        last_raw_listing_record_id = excluded.last_raw_listing_record_id
+      returning id
+    `;
+    if (!listingRow) throw new Error("Failed to create test Listing.");
+
+    const [snapshotRow] = await sql<{ id: string }[]>`
+      insert into listing_snapshots (
+        listing_id, raw_listing_record_id, parser_version, observed_at, availability,
+        asking_price_eur, observed_sold_price_eur, mileage_km, year_model,
+        make_source_label, model_source_label, fuel_type_source_label,
+        transmission_source_label, normalized_data, change_hash
+      ) values (
+        ${listingRow.id}, ${rawRow.id}, 'integration-test', ${observedAt}, ${availability},
+        ${availability === "active" ? priceEur : null},
+        ${availability === "sold" ? priceEur : null},
+        100000, 2020, 'Toyota', 'Corolla', 'Hybrid', 'Automatic',
+        '{}'::jsonb, ${`${crawlRunId}-${sourceListingId}`}
+      ) returning id
+    `;
+    if (!snapshotRow) throw new Error("Failed to create test Listing Snapshot.");
+    await sql`update listings set latest_snapshot_id = ${snapshotRow.id} where id = ${listingRow.id}`;
+    await sql`
+      insert into listing_sightings (
+        listing_id, crawl_run_id, search_query_id, source_fetch_id, raw_listing_record_id,
+        crawl_kind, seen_at, page_number
+      ) values (
+        ${listingRow.id}, ${crawlRunId}, ${searchQueryId}, ${fetchRow.id}, ${rawRow.id},
+        ${crawlKind}, ${observedAt}, ${pageNumber}
+      )
+    `;
+    return listingRow.id;
+  }
+});

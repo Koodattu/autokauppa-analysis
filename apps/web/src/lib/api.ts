@@ -21,6 +21,7 @@ export interface FilterMetadata {
   models: string[];
   yearRange: { min: number | null; max: number | null };
   sellerTypes: string[];
+  fuelTypes: string[];
   transmissions: string[];
   availability: Array<"current" | "sold" | "all">;
 }
@@ -46,9 +47,11 @@ export interface AnalyticsTrendResponse {
     marketOverTime: Array<{
       bucket: string;
       listingCount: number;
-      activeCount: number;
-      soldCount: number;
+      activeCount: number | null;
+      soldCount: number | null;
       newListingCount: number;
+      includesCurrentRun: boolean;
+      includesSoldRun: boolean;
       medianAskingPriceEur: number | null;
       medianObservedSoldPriceEur: number | null;
       sampleSize: number;
@@ -84,6 +87,19 @@ export interface AnalyticsTrendResponse {
     }>;
     priceByTransmission: Array<{
       transmission: string;
+      listingCount: number;
+      askingPriceSampleSize: number;
+      observedSoldPriceSampleSize: number;
+      medianMileageKm: number | null;
+      askingPriceP25Eur: number | null;
+      medianAskingPriceEur: number | null;
+      askingPriceP75Eur: number | null;
+      observedSoldPriceP25Eur: number | null;
+      medianObservedSoldPriceEur: number | null;
+      observedSoldPriceP75Eur: number | null;
+    }>;
+    priceByFuelType: Array<{
+      fuelType: string;
       listingCount: number;
       askingPriceSampleSize: number;
       observedSoldPriceSampleSize: number;
@@ -203,6 +219,17 @@ export interface PublicListingDetailResponse {
     width: number | null;
     height: number | null;
   }>;
+  marketContext: {
+    cohortDescription: string;
+    priceBasis: "asking" | "observed_sold" | null;
+    sampleSize: number;
+    priceP25Eur: number | null;
+    medianPriceEur: number | null;
+    priceP75Eur: number | null;
+    pricePercentile: number | null;
+    observedDays: number;
+    recordedPriceChangeCount: number;
+  };
   vehicleDetails: PublicVehicleDetails | null;
 }
 
@@ -212,6 +239,8 @@ export interface AdminCrawlerStatusResponse {
     paused: boolean;
     delayMs: number;
     maxPagesPerRun: number;
+    detailEnabled: boolean;
+    detailMaxPerRun: number;
   };
   lastSuccessfulCrawls: Array<{
     crawlKind: "current" | "sold";
@@ -233,6 +262,8 @@ export interface AdminCrawlerStatusResponse {
     lastSuccessAt: string | null;
     lastFailureAt: string | null;
     enabled: boolean;
+    pausedUntil: string | null;
+    pauseReason: string | null;
   }>;
   queueBacklog: {
     pendingJobs: number;
@@ -268,6 +299,23 @@ export interface AdminCrawlerDiagnosticsResponse {
     createdAt: string;
     updatedAt: string | null;
   }>;
+  dataQuality: {
+    totalListings: number;
+    detailEnrichedListings: number;
+    rawRecordsLast30Days: number;
+    failedRawRecordsLast30Days: number;
+    fieldCoverage: Array<{
+      field: string;
+      presentCount: number;
+      percentage: number;
+    }>;
+    parserVersions: Array<{
+      parserVersion: string;
+      recordCount: number;
+      failedCount: number;
+      latestCapturedAt: string;
+    }>;
+  };
 }
 
 export type AdminCrawlerRunTarget = "all" | "current" | "sold";
@@ -278,6 +326,14 @@ export interface AdminCrawlerRunResponse {
   crawlKind: AdminCrawlerRunTarget;
   jobId: string | null;
   runAt: string | null;
+}
+
+export interface AdminCrawlerControlResponse {
+  ok: boolean;
+  action: "pause" | "resume";
+  crawlKind: AdminCrawlerRunTarget;
+  affectedQueryCount: number;
+  pausedUntil: string | null;
 }
 
 export function apiPath(path: string) {

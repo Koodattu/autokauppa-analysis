@@ -53,6 +53,9 @@ const sharedConfigSchema = z.object({
   CRAWLER_DELAY_MS: integerEnvSchema(2_500),
   CRAWLER_REQUEST_TIMEOUT_MS: integerEnvSchema(30_000),
   CRAWLER_MAX_PAGES_PER_RUN: integerEnvSchema(2),
+  CRAWLER_BLOCK_PAUSE_MS: integerEnvSchema(6 * 60 * 60 * 1_000),
+  CRAWLER_DETAIL_ENABLED: booleanEnvSchema.optional().transform((value) => value ?? false),
+  CRAWLER_DETAIL_MAX_PER_RUN: integerEnvSchema(50),
 });
 
 const adminConfigSchema = z.object({
@@ -117,6 +120,9 @@ export function safeConfigSnapshot(config: SharedServiceConfig) {
     crawlerDelayMs: config.CRAWLER_DELAY_MS,
     crawlerRequestTimeoutMs: config.CRAWLER_REQUEST_TIMEOUT_MS,
     crawlerMaxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
+    crawlerBlockPauseMs: config.CRAWLER_BLOCK_PAUSE_MS,
+    crawlerDetailEnabled: config.CRAWLER_DETAIL_ENABLED,
+    crawlerDetailMaxPerRun: config.CRAWLER_DETAIL_MAX_PER_RUN,
     sentryConfigured: config.SENTRY_DSN.length > 0,
   };
 }

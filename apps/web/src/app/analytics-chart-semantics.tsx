@@ -189,16 +189,44 @@ export function PriceByMileageTable({ data }: { data: Charts["priceByMileageBuck
 }
 
 export function TransmissionComparison({ data }: { data: Charts["priceByTransmission"] }) {
+  return (
+    <CategoryPriceComparison
+      data={data.map((row) => ({ ...row, category: row.transmission }))}
+      ariaLabel="Median asking price by transmission"
+    />
+  );
+}
+
+export function FuelTypeComparison({ data }: { data: Charts["priceByFuelType"] }) {
+  return (
+    <CategoryPriceComparison
+      data={data.map((row) => ({ ...row, category: row.fuelType }))}
+      ariaLabel="Median asking price by fuel type"
+    />
+  );
+}
+
+type CategoryPricePoint = Omit<Charts["priceByTransmission"][number], "transmission"> & {
+  category: string;
+};
+
+function CategoryPriceComparison({
+  data,
+  ariaLabel,
+}: {
+  data: CategoryPricePoint[];
+  ariaLabel: string;
+}) {
   const maxAskingPrice = Math.max(1, ...data.map((row) => row.medianAskingPriceEur ?? 0));
   return (
-    <div className="transmission-comparison" aria-label="Median asking price by transmission">
+    <div className="transmission-comparison" aria-label={ariaLabel}>
       {data.map((row) => {
         const width = ((row.medianAskingPriceEur ?? 0) / maxAskingPrice) * 100;
         const style = { "--comparison-width": `${width}%` } as CSSProperties;
         return (
-          <div className="transmission-row" key={row.transmission}>
+          <div className="transmission-row" key={row.category}>
             <div className="transmission-label">
-              <strong>{row.transmission}</strong>
+              <strong>{row.category}</strong>
               <span>{formatNumber(row.listingCount)} listings</span>
             </div>
             <div className="transmission-value">
@@ -221,13 +249,37 @@ export function TransmissionComparison({ data }: { data: Charts["priceByTransmis
 
 export function TransmissionTable({ data }: { data: Charts["priceByTransmission"] }) {
   return (
+    <CategoryPriceTable
+      data={data.map((row) => ({ ...row, category: row.transmission }))}
+      categoryLabel="Transmission"
+    />
+  );
+}
+
+export function FuelTypeTable({ data }: { data: Charts["priceByFuelType"] }) {
+  return (
+    <CategoryPriceTable
+      data={data.map((row) => ({ ...row, category: row.fuelType }))}
+      categoryLabel="Fuel type"
+    />
+  );
+}
+
+function CategoryPriceTable({
+  data,
+  categoryLabel,
+}: {
+  data: CategoryPricePoint[];
+  categoryLabel: string;
+}) {
+  return (
     <details className="chart-data">
-      <summary>View exact transmission data</summary>
+      <summary>View exact {categoryLabel.toLowerCase()} data</summary>
       <div className="chart-table-wrap">
         <table className="chart-table">
           <thead>
             <tr>
-              <th scope="col">Transmission</th>
+              <th scope="col">{categoryLabel}</th>
               <th scope="col">Listings</th>
               <th scope="col">Median asking</th>
               <th scope="col">Middle 50%</th>
@@ -237,8 +289,8 @@ export function TransmissionTable({ data }: { data: Charts["priceByTransmission"
           </thead>
           <tbody>
             {data.map((row) => (
-              <tr key={row.transmission}>
-                <th scope="row">{row.transmission}</th>
+              <tr key={row.category}>
+                <th scope="row">{row.category}</th>
                 <td>{formatNumber(row.listingCount)}</td>
                 <td>{formatCurrency(row.medianAskingPriceEur)}</td>
                 <td>{formatPriceRange(row.askingPriceP25Eur, row.askingPriceP75Eur)}</td>
@@ -272,8 +324,8 @@ export function ActivityTable({ data }: { data: Charts["marketOverTime"] }) {
             {data.map((row) => (
               <tr key={row.bucket}>
                 <th scope="row">{formatObservedDate(row.bucket)}</th>
-                <td>{formatNumber(row.activeCount)}</td>
-                <td>{formatNumber(row.soldCount)}</td>
+                <td>{formatObservedCount(row.activeCount)}</td>
+                <td>{formatObservedCount(row.soldCount)}</td>
                 <td>{formatNumber(row.newListingCount)}</td>
                 <td>{formatNumber(row.listingCount)}</td>
               </tr>
@@ -328,4 +380,8 @@ export function formatKmBucket(value: string | number) {
 
 function formatPriceRange(start: number | null, end: number | null) {
   return start === null || end === null ? "–" : `${formatCurrency(start)}–${formatCurrency(end)}`;
+}
+
+function formatObservedCount(value: number | null) {
+  return value === null ? "Not observed" : formatNumber(value);
 }

@@ -8,6 +8,8 @@ import {
   ChartLoadingCanvas,
   ChartPanel,
   EmptyChart,
+  FuelTypeComparison,
+  FuelTypeTable,
   HistoricalPriceTable,
   PriceByMileageTable,
   PriceByYearTable,
@@ -83,6 +85,13 @@ export function LazyAnalyticsSnapshotCharts({ analytics }: { analytics: Analytic
     (sum, point) => sum + point.listingCount,
     0,
   );
+  const fuelTypeRows = analytics.charts.priceByFuelType.filter(
+    (point) => point.medianAskingPriceEur !== null || point.medianObservedSoldPriceEur !== null,
+  );
+  const knownFuelTypeCount = analytics.charts.priceByFuelType.reduce(
+    (sum, point) => sum + point.listingCount,
+    0,
+  );
 
   return (
     <section className="analytics-grid" aria-label="Market charts">
@@ -126,6 +135,18 @@ export function LazyAnalyticsSnapshotCharts({ analytics }: { analytics: Analytic
         >
           <TransmissionComparison data={transmissionRows} />
           <TransmissionTable data={transmissionRows} />
+        </ChartPanel>
+      )}
+      {fuelTypeRows.length === 0 ? (
+        <EmptyChart title="Fuel-type comparison" message="No fuel-type price data for these filters." full />
+      ) : (
+        <ChartPanel
+          title="Fuel-type comparison"
+          meta={`${formatNumber(knownFuelTypeCount)} of ${formatNumber(analytics.summary.listingCount)} listings include fuel-type data · vehicle mix can affect prices`}
+          full
+        >
+          <FuelTypeComparison data={fuelTypeRows} />
+          <FuelTypeTable data={fuelTypeRows} />
         </ChartPanel>
       )}
     </section>

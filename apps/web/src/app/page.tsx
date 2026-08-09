@@ -27,8 +27,12 @@ type PageProps = {
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
-  const queryString = searchParamsToQueryString(params);
-  const result = await loadHomeData(queryString);
+  const queryString = primaryQueryString(params);
+  const comparisonQueryString = buildComparisonQueryString(params);
+  const [result, comparisonResult] = await Promise.all([
+    loadHomeData(queryString),
+    comparisonQueryString ? loadHomeData(comparisonQueryString) : Promise.resolve(null),
+  ]);
 
   if (!result.ok) {
     return <HomeError error={result.error} />;
@@ -62,6 +66,14 @@ export default async function Home({ searchParams }: PageProps) {
         filters={filters}
         params={params}
         variant="analytics"
+      />
+
+      <MarketComparison
+        params={params}
+        primaryTitle={title}
+        primaryAnalytics={analytics}
+        primaryFilters={filters}
+        comparisonResult={comparisonResult}
       />
 
       <section className="analysis-chapter signal-chapter">
@@ -118,7 +130,7 @@ export default async function Home({ searchParams }: PageProps) {
       <section className="analysis-chapter">
         <AnalyticsSectionHeading
           title="What shapes the price"
-          description="Compare model year and mileage first, then use transmission to check whether the pattern still holds."
+          description="Compare model year and mileage first, then use fuel type and transmission to check whether the pattern still holds."
         />
         <LazyAnalyticsSnapshotCharts analytics={analytics} />
       </section>
@@ -143,6 +155,144 @@ export default async function Home({ searchParams }: PageProps) {
         </Link>
       </section>
     </main>
+  );
+}
+
+function MarketComparison({
+  params,
+  primaryTitle,
+  primaryAnalytics,
+  primaryFilters,
+  comparisonResult,
+}: {
+  params: PageSearchParams;
+  primaryTitle: string;
+  primaryAnalytics: AnalyticsSnapshotResponse;
+  primaryFilters: FilterMetadata;
+  comparisonResult: Awaited<ReturnType<typeof loadHomeData>> | null;
+}) {
+  const compareMake = single(params.compareMake);
+  const comparisonOptionsMatch = single(params.compareOptionsForMake) === compareMake;
+  const compareModel = comparisonOptionsMatch ? single(params.compareModel) : "";
+  const comparisonData = comparisonResult?.ok ? comparisonResult.data : null;
+  const comparisonTitle = analysisTitle({
+    make: compareMake,
+    model: compareModel,
+    modelYear: comparisonOptionsMatch ? single(params.compareModelYear) : "",
+  });
+
+  return (
+    <section className="comparison-section" aria-labelledby="comparison-title">
+      <div className="comparison-heading">
+        <div>
+          <span className="heading-context">Side-by-side scope</span>
+          <h2 id="comparison-title">Compare another market segment</h2>
+          <p>The availability, price, mileage, seller, and observation-window filters above apply to both sides.</p>
+        </div>
+        {compareMake ? <Link href={comparisonClearHref(params)}>Clear comparison</Link> : null}
+      </div>
+
+      <form className="comparison-form" action="/" method="get">
+        {primaryHiddenInputs(params)}
+        <input type="hidden" name="compareOptionsForMake" value={compareMake} />
+        <FilterSelect label="Comparison make" name="compareMake" value={compareMake} options={primaryFilters.makes} />
+        <FilterSelect
+          label="Comparison model"
+          name="compareModel"
+          value={compareModel}
+          options={comparisonData?.filters.models ?? []}
+          disabled={!compareMake}
+        />
+        <label>
+          <span>Exact model year</span>
+          <input
+            name="compareModelYear"
+            type="number"
+            inputMode="numeric"
+            min={comparisonData?.filters.yearRange.min ?? 1886}
+            max={comparisonData?.filters.yearRange.max ?? 2100}
+            defaultValue={comparisonOptionsMatch ? single(params.compareModelYear) : ""}
+            disabled={!compareMake}
+          />
+        </label>
+        <FilterSelect
+          label="Fuel type"
+          name="compareFuelType"
+          value={comparisonOptionsMatch ? single(params.compareFuelType) : ""}
+          options={comparisonData?.filters.fuelTypes ?? []}
+          disabled={!compareMake}
+        />
+        <button type="submit">{compareMake ? "Update comparison" : "Add comparison"}</button>
+      </form>
+
+      {compareMake && !comparisonData ? (
+        <p className="comparison-error">Comparison data is unavailable for this scope. Check the comparison values and try again.</p>
+      ) : null}
+      {comparisonData ? (
+        <div className="comparison-results">
+          <ComparisonScope title={primaryTitle} analytics={primaryAnalytics} />
+          <ComparisonScope title={comparisonTitle} analytics={comparisonData.analytics} />
+          <ComparisonDifference
+            primary={primaryAnalytics.summary.medianAskingPriceEur}
+            comparison={comparisonData.analytics.summary.medianAskingPriceEur}
+          />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function FilterSelect({
+  label,
+  name,
+  value,
+  options,
+  disabled = false,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  options: string[];
+  disabled?: boolean;
+}) {
+  return (
+    <label>
+      <span>{label}</span>
+      <select name={name} defaultValue={value} disabled={disabled}>
+        <option value="">Any</option>
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function ComparisonScope({ title, analytics }: { title: string; analytics: AnalyticsSnapshotResponse }) {
+  return (
+    <article className="comparison-scope">
+      <h3>{title}</h3>
+      <dl>
+        <Metric label="Listings" value={formatNumber(analytics.summary.listingCount)} detail="matching observed listings" />
+        <Metric label="Median asking" value={formatCurrency(analytics.summary.medianAskingPriceEur)} detail={`${formatNumber(analytics.summary.askingPriceSampleSize)} priced listings`} />
+        <Metric label="Median mileage" value={formatKm(analytics.summary.medianMileageKm)} detail={`${formatNumber(analytics.summary.mileageSampleSize)} listings with mileage`} />
+        <Metric label="Observed-sold price" value={formatCurrency(analytics.summary.medianObservedSoldPriceEur)} detail="listing evidence, not a transaction price" />
+      </dl>
+    </article>
+  );
+}
+
+function ComparisonDifference({ primary, comparison }: { primary: number | null; comparison: number | null }) {
+  if (primary === null || comparison === null || primary === 0) {
+    return <p className="comparison-difference">Both scopes need asking-price evidence before a price difference can be calculated.</p>;
+  }
+  const difference = comparison - primary;
+  const percentage = (difference / primary) * 100;
+  const direction = difference === 0 ? "the same as" : difference > 0 ? "higher than" : "lower than";
+  return (
+    <p className="comparison-difference">
+      The comparison scope median asking price is <strong>{formatCurrency(Math.abs(difference))} ({formatNumber(Math.abs(Number(percentage.toFixed(1))))}%) {direction}</strong> the primary scope. This is an unadjusted comparison; vehicle mix can explain the difference.
+    </p>
   );
 }
 
@@ -343,10 +493,56 @@ function analysisTitle(params: PageSearchParams) {
 }
 
 function filteredListingsHref(params: PageSearchParams) {
-  const query = new URLSearchParams(searchParamsToQueryString(params));
+  const query = new URLSearchParams(primaryQueryString(params));
   for (const key of ["from", "to", "interval", "page", "pageSize", "sort"]) {
     query.delete(key);
   }
   const value = query.toString();
   return value ? `/listings?${value}` : "/listings";
+}
+
+const comparisonKeys = ["compareMake", "compareModel", "compareModelYear", "compareFuelType", "compareOptionsForMake"] as const;
+
+function primaryQueryString(params: PageSearchParams) {
+  const query = new URLSearchParams(searchParamsToQueryString(params));
+  for (const key of comparisonKeys) {
+    query.delete(key);
+  }
+  return query.toString();
+}
+
+function buildComparisonQueryString(params: PageSearchParams) {
+  const make = single(params.compareMake);
+  if (!make) {
+    return "";
+  }
+
+  const query = new URLSearchParams(primaryQueryString(params));
+  for (const key of ["make", "model", "modelYear", "fuelType"]) {
+    query.delete(key);
+  }
+  query.set("make", make);
+  const comparisonOptionsMatch = single(params.compareOptionsForMake) === make;
+  for (const [source, target] of [
+    ["compareModel", "model"],
+    ["compareModelYear", "modelYear"],
+    ["compareFuelType", "fuelType"],
+  ] as const) {
+    const value = comparisonOptionsMatch ? single(params[source]) : "";
+    if (value) {
+      query.set(target, value);
+    }
+  }
+  return query.toString();
+}
+
+function comparisonClearHref(params: PageSearchParams) {
+  const query = primaryQueryString(params);
+  return query ? `/?${query}` : "/";
+}
+
+function primaryHiddenInputs(params: PageSearchParams) {
+  return Array.from(new URLSearchParams(primaryQueryString(params))).map(([name, value], index) => (
+    <input key={`${name}-${index}`} type="hidden" name={name} value={value} />
+  ));
 }

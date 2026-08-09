@@ -316,12 +316,14 @@ function CountTooltip({ active, payload, label }: TooltipContentProps) {
   return (
     <div className="chart-tooltip">
       <strong>{formatObservedDate(String(label ?? ""))}</strong>
-      {payload.map((entry) => (
+      {payload
+        .filter((entry) => entry.value !== null && entry.value !== undefined)
+        .map((entry) => (
         <div key={String(entry.dataKey)}>
           <span>
             <i style={{ background: entry.color }} /> {entry.name}
           </span>
-          <b>{formatNumber(Number(entry.value ?? 0))}</b>
+          <b>{formatNumber(Number(entry.value))}</b>
         </div>
       ))}
     </div>

@@ -107,6 +107,8 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
         </aside>
       </section>
 
+      <MarketContext context={data.marketContext} />
+
       <section className="panel history-panel">
         <div className="panel-heading">
           <div>
@@ -212,6 +214,45 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
       </section>
     </main>
   );
+}
+
+function MarketContext({ context }: { context: PublicListingDetailResponse["marketContext"] }) {
+  const priceBasis = context.priceBasis === "asking"
+    ? "asking-price"
+    : context.priceBasis === "observed_sold"
+      ? "observed-sold listing-price"
+      : "price";
+  return (
+    <section className="panel market-context-panel" aria-labelledby="market-context-title">
+      <div className="panel-heading">
+        <div>
+          <h2 id="market-context-title">Market context</h2>
+          <p>{context.cohortDescription}. Comparisons are unadjusted for other equipment and condition differences.</p>
+        </div>
+        <span>{formatNumber(context.sampleSize)} comparable prices</span>
+      </div>
+      <dl className="market-context-values">
+        <SummaryRow label={`Median ${priceBasis}`} value={formatCurrency(context.medianPriceEur)} />
+        <SummaryRow label="Middle 50%" value={formatPriceRange(context.priceP25Eur, context.priceP75Eur)} />
+        <SummaryRow label="Price position" value={formatPricePosition(context.pricePercentile)} />
+        <SummaryRow label="Observed duration" value={`${formatNumber(context.observedDays)} day${context.observedDays === 1 ? "" : "s"}`} />
+        <SummaryRow label="Recorded price changes" value={formatNumber(context.recordedPriceChangeCount)} />
+      </dl>
+      {context.sampleSize > 0 && context.sampleSize < 5 ? (
+        <p className="market-context-caveat">The comparable sample is very small; treat the price position as directional only.</p>
+      ) : null}
+    </section>
+  );
+}
+
+function formatPriceRange(low: number | null, high: number | null) {
+  return low === null || high === null ? "–" : `${formatCurrency(low)}–${formatCurrency(high)}`;
+}
+
+function formatPricePosition(percentile: number | null) {
+  return percentile === null
+    ? "–"
+    : `At or above ${formatNumber(percentile)}% of comparable prices`;
 }
 
 function HistoryInsight({ history }: { history: PublicListingDetailResponse["history"] }) {

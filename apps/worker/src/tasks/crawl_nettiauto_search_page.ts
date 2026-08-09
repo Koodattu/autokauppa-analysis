@@ -8,8 +8,10 @@ import {
   emptyNettiautoSearchResultPage,
   markCrawlRunFinished,
   nettiautoAjaxRequestHeaders,
+  pauseSourceSearchQuery,
   parseNettiautoAjaxSearchResult,
   persistSearchResultPage,
+  reserveCrawlRunDetailJobs,
   sha256,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
@@ -21,6 +23,7 @@ import {
   classifyRequestError,
   createNettiautoRequestSignal,
   isRetryableNettiautoHttpStatus,
+  shouldPauseNettiautoSource,
   terminalSearchRunStatus,
 } from "../nettiauto-fetch-policy";
 
@@ -75,6 +78,8 @@ const task: Task = async (payload, helpers) => {
         crawlRunStatus: "planned" | "running" | "completed" | "partial" | "failed" | "cancelled";
         sourceSearchHash: string;
         queryParams: Record<string, unknown>;
+        pausedUntil: string | null;
+        pauseReason: string | null;
       }[]
     >`
       select
@@ -86,7 +91,9 @@ const task: Task = async (payload, helpers) => {
         source_query.enabled,
         run.status as "crawlRunStatus",
         source_query.source_search_hash as "sourceSearchHash",
-        source_query.query_params as "queryParams"
+        source_query.query_params as "queryParams",
+        source_query.paused_until::text as "pausedUntil",
+        source_query.pause_reason as "pauseReason"
       from crawl_runs run
       join source_search_queries source_query on source_query.id = run.search_query_id
       where run.id = ${taskPayload.crawlRunId}
@@ -120,6 +127,17 @@ const task: Task = async (payload, helpers) => {
         expectedPageCount: null,
         sourceTotalAds: null,
         failureReason: `Nettiauto source query disabled: ${taskPayload.sourceQueryId}`,
+      });
+      return;
+    }
+
+    if (sourceQuery.pausedUntil && new Date(sourceQuery.pausedUntil).getTime() > Date.now()) {
+      await markCrawlRunFinished(sql, {
+        crawlRunId: taskPayload.crawlRunId,
+        status: "partial",
+        expectedPageCount: null,
+        sourceTotalAds: null,
+        failureReason: sourceQuery.pauseReason ?? "source_query_paused",
       });
       return;
     }
@@ -235,6 +253,21 @@ const task: Task = async (payload, helpers) => {
         },
         "Nettiauto search result fetch stopped crawl",
       );
+      if (shouldPauseNettiautoSource(failureReason)) {
+        const pausedUntil = await pauseSourceSearchQuery(sql, sourceQuery.id, {
+          pauseMs: config.CRAWLER_BLOCK_PAUSE_MS,
+          reason: failureReason,
+        });
+        await markCrawlRunFinished(sql, {
+          crawlRunId: taskPayload.crawlRunId,
+          status: terminalSearchRunStatus(taskPayload.pageNumber),
+          expectedPageCount: null,
+          sourceTotalAds: null,
+          failureReason,
+        });
+        logger.warn({ sourceQueryId: sourceQuery.id, pausedUntil, failureReason }, "Nettiauto source query paused");
+        return;
+      }
       if (isRetryableNettiautoHttpStatus(response.status)) {
         throw new RetryableNettiautoFetchError(
           failureReason,
@@ -302,6 +335,10 @@ const task: Task = async (payload, helpers) => {
         },
         "Nettiauto search result response shape stopped crawl",
       );
+      await pauseSourceSearchQuery(sql, sourceQuery.id, {
+        pauseMs: config.CRAWLER_BLOCK_PAUSE_MS,
+        reason: failureReason,
+      });
       return;
     }
 
@@ -327,10 +364,16 @@ const task: Task = async (payload, helpers) => {
       parsedPage,
     });
 
-    for (const [index, listing] of parsedPage.listings.entries()) {
-      if (!listing.normalized.sourceUrl) {
-        continue;
-      }
+    const detailCandidates = config.CRAWLER_DETAIL_ENABLED
+      ? parsedPage.listings.filter((listing) => listing.normalized.sourceUrl)
+      : [];
+    const detailJobCount = await reserveCrawlRunDetailJobs(
+      sql,
+      taskPayload.crawlRunId,
+      detailCandidates.length,
+      config.CRAWLER_DETAIL_MAX_PER_RUN,
+    );
+    for (const [index, listing] of detailCandidates.slice(0, detailJobCount).entries()) {
 
       await helpers.addJob(
         "crawl_nettiauto_detail_page",
@@ -470,5 +513,6 @@ function classifyFetchFailure(statusCode: number, redirected: boolean, bodyShape
 
   return "fetch_failed";
 }
+
 
 export default task;

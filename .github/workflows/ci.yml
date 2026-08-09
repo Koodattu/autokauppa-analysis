@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_DB: nettiauto_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nettiauto_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/nettiauto_test
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/nettiauto_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun --cwd packages/db migrate
+      - run: bun run test
+      - run: bun run typecheck:packages
+      - run: bun run typecheck:web
+      - run: bun run typecheck:api
+      - run: bun run typecheck:worker
+      - run: bun --cwd apps/web lint
+      - run: bun run build:web
+      - run: bun run build:api
+      - run: bun run build:worker

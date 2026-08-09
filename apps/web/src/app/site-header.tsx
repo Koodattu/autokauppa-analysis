@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export function SiteHeader({ active }: { active?: "analyze" | "listings" | "admin" }) {
+export function SiteHeader({ active }: { active?: "analyze" | "listings" | "methodology" | "admin" }) {
   return (
     <header className="site-header">
       <Link className="brand" href="/" aria-label="Nettiauto Analytics home">
@@ -35,6 +35,13 @@ export function SiteHeader({ active }: { active?: "analyze" | "listings" | "admi
           aria-current={active === "listings" ? "page" : undefined}
         >
           Listings
+        </Link>
+        <Link
+          className={active === "methodology" ? "active" : undefined}
+          href="/methodology"
+          aria-current={active === "methodology" ? "page" : undefined}
+        >
+          Methodology
         </Link>
       </nav>
       {active === "admin" ? (
