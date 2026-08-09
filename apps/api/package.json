@@ -9,18 +9,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@hono/zod-validator": "^0.8.0",
     "@nettiauto/config": "workspace:*",
     "@nettiauto/db": "workspace:*",
     "@nettiauto/domain": "workspace:*",
     "@nettiauto/logging": "workspace:*",
     "@nettiauto/schemas": "workspace:*",
-    "@sentry/bun": "^10.62.0",
-    "hono": "^4.12.27",
-    "pino": "^10.3.1",
-    "zod": "^4.4.3"
+    "hono": "^4.13.1"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "^1.3.14"
   }
 }

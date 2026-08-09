@@ -9,11 +9,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@nettiauto/db": "workspace:*",
     "@nettiauto/schemas": "workspace:*",
-    "cheerio": "^1.1.2",
-    "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9",
-    "zod": "^4.4.3"
+    "cheerio": "^1.1.2"
+  },
+  "devDependencies": {
+    "postgres": "^3.4.9"
   }
 }
