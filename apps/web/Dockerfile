@@ -20,6 +20,7 @@ COPY tsconfig.base.json ./
 COPY apps/web/next.config.ts apps/web/postcss.config.mjs apps/web/tsconfig.json apps/web/
 COPY apps/web/public apps/web/public
 COPY apps/web/src apps/web/src
+COPY packages/schemas/src packages/schemas/src
 
 WORKDIR /app/apps/web
 ENV NEXT_TELEMETRY_DISABLED=1
