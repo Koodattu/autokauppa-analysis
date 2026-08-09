@@ -28,10 +28,6 @@ export function shouldPauseNettiautoSource(failureReason: string) {
   return CIRCUIT_BREAKER_FAILURES.has(failureReason);
 }
 
-export function terminalSearchRunStatus(pageNumber: number): "failed" | "partial" {
-  return pageNumber === 1 ? "failed" : "partial";
-}
-
 export function classifyRequestError(input: {
   timeoutAborted: boolean;
   workerAborted: boolean;

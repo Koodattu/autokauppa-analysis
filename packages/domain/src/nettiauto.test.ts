@@ -246,7 +246,7 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.sourceUpdatedDateSource).toBe("detail_field");
     expect(page.normalizedData.sourceLocationLabel).toBe("Kuopio, Pohjois-Savo");
     expect(page.normalizedData.registrationNumber).toBe("GLU-494");
-    expect(page.normalizedData.vin).toBe("WV1ZZZ7HZGH061848");
+    expect(page.normalizedData).not.toHaveProperty("vin");
     expect(page.normalizedData.officeFeeEur).toBe(299);
     expect(page.normalizedData.mileageKm).toBe(120000);
     expect(page.normalizedData.engineSourceLabel).toBe("2,0 l, Diesel");
@@ -279,9 +279,7 @@ describe("Nettiauto Search Result parser", () => {
         items: ["Nahkaverhoilu", "Ohjaustehostin"],
       },
     ]);
-    expect(page.normalizedData.additionalSourceFields).toEqual([
-      { label: "Akseliväli", value: "3 000 mm" },
-    ]);
+    expect(page.normalizedData).not.toHaveProperty("additionalSourceFields");
     expect(page.normalizedData.jsonLdPriceEur).toBe(17099);
     expect(page.images.map((image) => image.imageUrl)).toEqual([
       "https://images.nettiauto.com/live/15848827/front-large.jpg",

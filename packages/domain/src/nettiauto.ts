@@ -8,7 +8,7 @@ import {
 
 export const NETTIAUTO_SOURCE = "nettiauto" as const;
 export const NETTIAUTO_PARSER_VERSION = "nettiauto-search-result-v1";
-export const NETTIAUTO_DETAIL_PARSER_VERSION = "nettiauto-detail-v2";
+export const NETTIAUTO_DETAIL_PARSER_VERSION = "nettiauto-detail-v3";
 export const NETTIAUTO_BASE_URL = "https://www.nettiauto.com";
 export const NETTIAUTO_BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
@@ -103,7 +103,6 @@ export interface NettiautoDetailNormalizedData {
   detailPriceSourceLabel: string | null;
   uniqueSellingPointSourceLabel: string | null;
   registrationNumber: string | null;
-  vin: string | null;
   officeFeeEur: number | null;
   mileageKm: number | null;
   engineSourceLabel: string | null;
@@ -135,7 +134,6 @@ export interface NettiautoDetailNormalizedData {
   fuelConsumptionCombinedL100Km: number | null;
   sellerNotes: string | null;
   equipmentGroups: ParsedNettiautoDetailEquipmentGroup[];
-  additionalSourceFields: ParsedNettiautoDetailField[];
   jsonLdAvailability: string | null;
   jsonLdPriceEur: number | null;
   jsonLdSellerName: string | null;
@@ -724,9 +722,6 @@ function normalizeNettiautoDetailData(
     detailPriceSourceLabel: detailHeader.priceLabel,
     uniqueSellingPointSourceLabel: detailHeader.uniqueSellingPoint,
     registrationNumber: detailFieldValue(fields, "Rekisterinumero"),
-    vin:
-      detailFieldValue(fields, "VIN-numero") ??
-      jsonLdString(carJsonLd, "vehicleIdentificationNumber"),
     officeFeeEur: parseInteger(detailFieldValue(fields, "Toimistomaksu")),
     mileageKm:
       parseInteger(jsonLdValue(carJsonLd, "mileageFromOdometer.value")) ??
@@ -762,7 +757,6 @@ function normalizeNettiautoDetailData(
     fuelConsumptionCombinedL100Km: parseConsumptionValue(fuelConsumptionSourceLabel, "Yhdistetty"),
     sellerNotes,
     equipmentGroups,
-    additionalSourceFields: fields.filter((field) => !isKnownDetailFieldLabel(field.label)),
     jsonLdAvailability: jsonLdString(carJsonLd, "offers.availability"),
     jsonLdPriceEur: parseInteger(jsonLdValue(carJsonLd, "offers.price")),
     jsonLdSellerName: jsonLdString(carJsonLd, "offers.seller.name"),

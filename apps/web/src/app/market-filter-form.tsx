@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useRef, useState, useTransition } from "react";
+import { analysisQueryUrlFilter, listingSearchUrlFilter } from "@nettiauto/schemas";
 import { singleSearchParam as single, type FilterMetadata } from "@/lib/api";
 
 export type PageSearchParams = Record<string, string | string[] | undefined>;
@@ -100,7 +101,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
         }
       }}
       onSubmit={(event) => {
-        const validation = validateFilterRanges(event.currentTarget);
+        const validation = validateFilterForm(event.currentTarget, variant);
         if (validation) {
           event.preventDefault();
           setFormError(validation.message);
@@ -509,60 +510,40 @@ function distanceFilterLabel(value: string) {
   return value ? `${value} km` : "";
 }
 
-function validateFilterRanges(form: HTMLFormElement) {
-  const data = new FormData(form);
-  const value = (name: string) => String(data.get(name) ?? "").trim();
-  const exactYear = value("modelYear");
-  const yearFrom = value("modelYearFrom");
-  const yearTo = value("modelYearTo");
-
-  if (exactYear && (yearFrom || yearTo)) {
-    return {
-      message: "Use either an exact model year or a year range, not both.",
-      fields: ["modelYear", ...(yearFrom ? ["modelYearFrom"] : []), ...(yearTo ? ["modelYearTo"] : [])],
-    };
+function validateFilterForm(form: HTMLFormElement, variant: MarketFilterFormProps["variant"]) {
+  const result = urlFilterFor(variant).parse(formSearchParams(form));
+  if (result.ok) {
+    return null;
   }
 
-  const numericPairs = [
-    [yearFrom, yearTo, "model year", "modelYearFrom", "modelYearTo"],
-    [value("priceMin"), value("priceMax"), "price", "priceMin", "priceMax"],
-    [value("mileageMin"), value("mileageMax"), "mileage", "mileageMin", "mileageMax"],
-  ];
-  for (const [from, to, label, fromName, toName] of numericPairs) {
-    if (from && to && Number(from) > Number(to)) {
-      return {
-        message: `The ${label} minimum must not be greater than the maximum.`,
-        fields: [fromName, toName],
-      };
-    }
-  }
-
-  const dateFrom = value("from");
-  const dateTo = value("to");
-  if (dateFrom && dateTo && dateFrom > dateTo) {
-    return {
-      message: "The trend start date must not be after the end date.",
-      fields: ["from", "to"],
-    };
-  }
-
-  return null;
+  return {
+    message: result.issues[0]?.message ?? "Check the filter values and try again.",
+    fields: [...new Set(result.issues.flatMap((issue) => issue.path.map(String)))],
+  };
 }
 
 function cleanFilterHref(event: FormEvent<HTMLFormElement>, action: string) {
   event.preventDefault();
-  const query = new URLSearchParams();
-  for (const [key, rawValue] of new FormData(event.currentTarget).entries()) {
-    const value = String(rawValue).trim();
-    if (!value || (key === "availability" && value === "all") || (key === "interval" && value === "week")) {
-      continue;
-    }
-    if (key === "sort" && value === "lastSeenDesc") {
-      continue;
-    }
-    query.set(key, value);
+  const variant = action === "/listings" ? "listings" : "analytics";
+  const result = urlFilterFor(variant).parse(formSearchParams(event.currentTarget));
+  if (!result.ok) {
+    return action;
   }
-
-  const value = query.toString();
+  const value = urlFilterFor(variant).format(result.query).toString();
   return value ? `${action}?${value}` : action;
+}
+
+function formSearchParams(form: HTMLFormElement) {
+  const query = new URLSearchParams();
+  for (const [key, rawValue] of new FormData(form).entries()) {
+    const value = String(rawValue).trim();
+    if (value) {
+      query.set(key, value);
+    }
+  }
+  return query;
+}
+
+function urlFilterFor(variant: MarketFilterFormProps["variant"]) {
+  return variant === "listings" ? listingSearchUrlFilter : analysisQueryUrlFilter;
 }

@@ -210,42 +210,35 @@ export async function createCrawlRunForSourceQuery(sql: SqlClient, searchQueryId
   });
 }
 
-export async function markStaleCrawlRunsPartial(
+export async function recoverStaleCrawlRuns(
   sql: SqlClient,
   options: { staleAfterInterval?: string } = {},
 ) {
   const staleAfterInterval = options.staleAfterInterval ?? "2 hours";
-  return sql<{ id: string }[]>`
-    with recovered as (
-      update crawl_runs run
-      set
-        status = 'partial',
-        finished_at = now(),
-        is_complete = false,
-        failure_reason = 'stale_running_crawl_recovered',
-        updated_at = now()
-      where run.status in ('planned', 'running')
-        and run.updated_at < now() - ${staleAfterInterval}::interval
-        and not exists (
-          select 1
-          from graphile_worker.jobs job
-          where job.payload->>'crawlRunId' = run.id::text
-            and job.task_identifier = 'crawl_nettiauto_search_page'
-            and (job.attempts < job.max_attempts or job.locked_at is not null)
-        )
-      returning run.id, run.search_query_id
-    ),
-    updated_queries as (
-      update source_search_queries query
-      set
-        last_failure_at = now(),
-        updated_at = now()
-      from recovered
-      where query.id = recovered.search_query_id
-      returning query.id
-    )
-    select id from recovered
+  const staleRuns = await sql<{ id: string }[]>`
+    select run.id
+    from crawl_runs run
+    where run.status in ('planned', 'running')
+      and run.updated_at < now() - ${staleAfterInterval}::interval
+      and not exists (
+        select 1
+        from graphile_worker.jobs job
+        where job.payload->>'crawlRunId' = run.id::text
+          and job.task_identifier = 'crawl_nettiauto_search_page'
+          and (job.attempts < job.max_attempts or job.locked_at is not null)
+      )
   `;
+  const recoveredRuns: Array<{ id: string }> = [];
+  for (const run of staleRuns) {
+    const result = await completeCrawlRun(sql, {
+      crawlRunId: run.id,
+      cause: { kind: "stale_recovery", reason: "stale_running_crawl_recovered" },
+    });
+    if (result.changed) {
+      recoveredRuns.push(run);
+    }
+  }
+  return recoveredRuns;
 }
 
 export async function getEnabledSourceSearchQueries(sql: SqlClient) {
@@ -446,14 +439,18 @@ export function shouldScheduleSourceSearchQuery(
   return lastAttemptMs + query.targetCadenceSeconds * 1000 <= now.getTime();
 }
 
-export async function markCrawlRunFinished(
+export type CrawlRunCompletionCause =
+  | { kind: "source_exhausted" }
+  | { kind: "page_limit_reached"; reason?: string }
+  | { kind: "source_failure"; reason: string }
+  | { kind: "operator_stop"; reason: string }
+  | { kind: "stale_recovery"; reason?: string };
+
+export async function completeCrawlRun(
   sql: SqlClient,
   input: {
     crawlRunId: string;
-    status: "completed" | "partial" | "failed";
-    expectedPageCount: number | null;
-    sourceTotalAds: number | null;
-    failureReason?: string | null;
+    cause: CrawlRunCompletionCause;
   },
 ) {
   return sql.begin(async (tx) => {
@@ -465,8 +462,8 @@ export async function markCrawlRunFinished(
         run.status,
         run.started_at as "startedAt",
         run.failure_reason as "failureReason",
-        coalesce(${input.expectedPageCount}, run.expected_page_count) as "expectedPageCount",
-        coalesce(${input.sourceTotalAds}, run.source_total_ads) as "sourceTotalAds"
+        run.expected_page_count as "expectedPageCount",
+        run.source_total_ads as "sourceTotalAds"
       from crawl_runs run
       join source_search_queries source_query on source_query.id = run.search_query_id
       where run.id = ${input.crawlRunId}
@@ -488,77 +485,93 @@ export async function markCrawlRunFinished(
     }
 
     if (run.status !== "planned" && run.status !== "running") {
-      return { status: run.status, failureReason: run.failureReason, changed: false };
+      return {
+        status: run.status,
+        failureReason: run.failureReason,
+        listingAvailabilityReconciled: 0,
+        changed: false,
+      };
     }
 
-    let effectiveStatus = input.status;
-    let effectiveFailureReason = input.failureReason ?? null;
-    let observedListingCount = 0;
-
-    if (input.status === "completed") {
-      const evidenceRows = (await tx`
-        select
-          count(distinct page_number) filter (
-            where fetch_kind = 'search_result_page'
-              and response_status between 200 and 299
-              and response_body_shape = 'ajax_json'
-          )::int as "successfulPageCount",
-          min(page_number) filter (
-            where fetch_kind = 'search_result_page'
-              and response_status between 200 and 299
-              and response_body_shape = 'ajax_json'
-          )::int as "minimumSuccessfulPage",
-          max(page_number) filter (
-            where fetch_kind = 'search_result_page'
-              and response_status between 200 and 299
-              and response_body_shape = 'ajax_json'
-          )::int as "maximumSuccessfulPage"
-        from source_fetches
-        where crawl_run_id = ${run.id}
-      `) as unknown as Array<{
-        successfulPageCount: number;
-        minimumSuccessfulPage: number | null;
-        maximumSuccessfulPage: number | null;
-      }>;
-      const sightingRows = (await tx`
-        select count(distinct listing_id)::int as count
-        from listing_sightings
-        where crawl_run_id = ${run.id}
-      `) as unknown as Array<{ count: number }>;
-      const evidence = evidenceRows[0] ?? {
-        successfulPageCount: 0,
-        minimumSuccessfulPage: null,
-        maximumSuccessfulPage: null,
-      };
-      observedListingCount = sightingRows[0]?.count ?? 0;
-      const completionFailure = evaluateCrawlRunCompletionQuality({
-        expectedPageCount: run.expectedPageCount,
-        sourceTotalAds: run.sourceTotalAds,
-        observedListingCount,
-        ...evidence,
-      });
-
-      if (completionFailure) {
-        effectiveStatus = "partial";
-        effectiveFailureReason = completionFailure;
+    if (input.cause.kind === "stale_recovery") {
+      const [activeJob] = await tx<{ active: boolean }[]>`
+        select exists (
+          select 1
+          from graphile_worker.jobs job
+          where job.payload->>'crawlRunId' = ${run.id}::text
+            and job.task_identifier = 'crawl_nettiauto_search_page'
+            and (job.attempts < job.max_attempts or job.locked_at is not null)
+        ) as active
+      `;
+      if (activeJob?.active) {
+        return {
+          status: run.status,
+          failureReason: run.failureReason,
+          listingAvailabilityReconciled: 0,
+          changed: false,
+        };
       }
     }
+
+    const evidenceRows = (await tx`
+      select
+        count(distinct page_number) filter (
+          where fetch_kind = 'search_result_page'
+            and response_status between 200 and 299
+            and response_body_shape = 'ajax_json'
+        )::int as "successfulPageCount",
+        min(page_number) filter (
+          where fetch_kind = 'search_result_page'
+            and response_status between 200 and 299
+            and response_body_shape = 'ajax_json'
+        )::int as "minimumSuccessfulPage",
+        max(page_number) filter (
+          where fetch_kind = 'search_result_page'
+            and response_status between 200 and 299
+            and response_body_shape = 'ajax_json'
+        )::int as "maximumSuccessfulPage"
+      from source_fetches
+      where crawl_run_id = ${run.id}
+    `) as unknown as Array<{
+      successfulPageCount: number;
+      minimumSuccessfulPage: number | null;
+      maximumSuccessfulPage: number | null;
+    }>;
+    const sightingRows = (await tx`
+      select count(distinct listing_id)::int as count
+      from listing_sightings
+      where crawl_run_id = ${run.id}
+    `) as unknown as Array<{ count: number }>;
+    const evidence = evidenceRows[0] ?? {
+      successfulPageCount: 0,
+      minimumSuccessfulPage: null,
+      maximumSuccessfulPage: null,
+    };
+    const observedListingCount = sightingRows[0]?.count ?? 0;
+    const completion = classifyCrawlRunCompletion({
+      cause: input.cause,
+      expectedPageCount: run.expectedPageCount,
+      sourceTotalAds: run.sourceTotalAds,
+      observedListingCount,
+      ...evidence,
+    });
 
     await tx`
       update crawl_runs
       set
-        status = ${effectiveStatus},
+        status = ${completion.status},
         finished_at = now(),
         expected_page_count = ${run.expectedPageCount},
         source_total_ads = ${run.sourceTotalAds},
-        is_complete = ${effectiveStatus === "completed"},
-        failure_reason = ${effectiveFailureReason},
+        is_complete = ${completion.status === "completed"},
+        failure_reason = ${completion.failureReason},
         updated_at = now()
       where id = ${run.id}
         and status in ('planned', 'running')
     `;
 
-    if (effectiveStatus === "completed") {
+    let listingAvailabilityReconciled = 0;
+    if (completion.status === "completed") {
       await tx`
         update source_search_queries
         set
@@ -569,7 +582,7 @@ export async function markCrawlRunFinished(
       `;
 
       if (run.crawlKind === "current" && run.startedAt) {
-        await reconcileMissingCurrentListings(tx, {
+        listingAvailabilityReconciled = await reconcileMissingCurrentListings(tx, {
           crawlRunId: run.id,
           searchQueryId: run.searchQueryId,
           startedAt: run.startedAt,
@@ -577,7 +590,7 @@ export async function markCrawlRunFinished(
           sourceTotalAds: run.sourceTotalAds ?? 0,
         });
       }
-    } else {
+    } else if (completion.status !== "cancelled") {
       await tx`
         update source_search_queries
         set
@@ -588,11 +601,48 @@ export async function markCrawlRunFinished(
     }
 
     return {
-      status: effectiveStatus,
-      failureReason: effectiveFailureReason,
+      status: completion.status,
+      failureReason: completion.failureReason,
+      listingAvailabilityReconciled,
       changed: true,
     };
   });
+}
+
+export function classifyCrawlRunCompletion(input: {
+  cause: CrawlRunCompletionCause;
+  expectedPageCount: number | null;
+  sourceTotalAds: number | null;
+  successfulPageCount: number;
+  minimumSuccessfulPage: number | null;
+  maximumSuccessfulPage: number | null;
+  observedListingCount: number;
+}): {
+  status: "completed" | "partial" | "failed" | "cancelled";
+  failureReason: string | null;
+} {
+  if (input.cause.kind === "operator_stop") {
+    return { status: "cancelled", failureReason: input.cause.reason };
+  }
+
+  if (input.cause.kind !== "source_exhausted") {
+    const failureReason = input.cause.kind === "source_failure"
+      ? input.cause.reason
+      : input.cause.reason ?? input.cause.kind;
+    return {
+      status: input.successfulPageCount > 0 ? "partial" : "failed",
+      failureReason,
+    };
+  }
+
+  const failureReason = evaluateCrawlRunCompletionQuality(input);
+  if (!failureReason) {
+    return { status: "completed", failureReason: null };
+  }
+  return {
+    status: input.successfulPageCount > 0 ? "partial" : "failed",
+    failureReason,
+  };
 }
 
 const MINIMUM_CRAWL_LISTING_COVERAGE = 0.98;
@@ -642,7 +692,7 @@ async function reconcileMissingCurrentListings(
     sourceTotalAds: number;
   },
 ) {
-  await tx`
+  const removed = await tx<{ listingId: string }[]>`
     with removed_candidates as (
       select listing.id
       from listings listing
@@ -703,9 +753,10 @@ async function reconcileMissingCurrentListings(
       )
     from removed
     on conflict do nothing
+    returning listing_id as "listingId"
   `;
 
-  await tx`
+  const stale = await tx<{ listingId: string }[]>`
     with stale_candidates as (
       select listing.id
       from listings listing
@@ -754,7 +805,10 @@ async function reconcileMissingCurrentListings(
       )
     from marked_stale
     on conflict do nothing
+    returning listing_id as "listingId"
   `;
+
+  return removed.length + stale.length;
 }
 
 export async function persistSearchResultPage(
@@ -1283,7 +1337,11 @@ async function updateListingFromDetailPage(
 ) {
   const sourceUpdatedDate = input.parsedDetail.sourceUpdatedDate;
   const detailData = input.parsedDetail.normalizedData;
-  const detailPayload = jsonValue(detailData);
+  const detailPayload = jsonValue(
+    Object.fromEntries(
+      DETAIL_SNAPSHOT_NORMALIZED_KEYS.map((key) => [key, detailData[key]]),
+    ),
+  );
 
   const listingRows = sourceUpdatedDate
     ? ((await tx`
@@ -1327,6 +1385,53 @@ async function updateListingFromDetailPage(
 
   return listing.id;
 }
+
+const DETAIL_SNAPSHOT_NORMALIZED_KEYS = [
+  "detailParserVersion",
+  "sourceUpdatedDate",
+  "sourceUpdatedDateLabel",
+  "sourceUpdatedDateSource",
+  "sourceLocationLabel",
+  "detailTitleSourceLabel",
+  "detailSubtitleSourceLabel",
+  "detailPriceSourceLabel",
+  "uniqueSellingPointSourceLabel",
+  "registrationNumber",
+  "officeFeeEur",
+  "mileageKm",
+  "engineSourceLabel",
+  "fuelTypeSourceLabel",
+  "yearModel",
+  "firstRegistrationDate",
+  "transmissionSourceLabel",
+  "drivetrainSourceLabel",
+  "inspectionDateLabel",
+  "bodyTypeSourceLabel",
+  "vehicleTypeSourceLabel",
+  "colorSourceLabel",
+  "powerKw",
+  "powerHp",
+  "topSpeedKmh",
+  "acceleration0To100S",
+  "seatCount",
+  "doorCount",
+  "steeringSideSourceLabel",
+  "curbWeightKg",
+  "grossWeightKg",
+  "towingWeightBrakedKg",
+  "towingWeightUnbrakedKg",
+  "co2GKm",
+  "energyEfficiencyClassSourceLabel",
+  "fuelConsumptionSourceLabel",
+  "fuelConsumptionCityL100Km",
+  "fuelConsumptionHighwayL100Km",
+  "fuelConsumptionCombinedL100Km",
+  "sellerNotes",
+  "equipmentGroups",
+  "jsonLdAvailability",
+  "jsonLdPriceEur",
+  "jsonLdSellerName",
+] as const satisfies readonly (keyof ParsedNettiautoDetailPage["normalizedData"])[];
 
 async function persistDetailImages(
   tx: TransactionSqlClient,

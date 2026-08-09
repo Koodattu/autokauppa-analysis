@@ -22,12 +22,24 @@ import {
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
 import {
+  analysisQueryUrlFilter,
+  adminCrawlerControlResponseSchema,
+  adminCrawlerDiagnosticsResponseSchema,
+  adminCrawlerRunResponseSchema,
+  adminCrawlerStatusResponseSchema,
   adminCrawlerRunRequestSchema,
   adminCrawlerControlRequestSchema,
   adminLoginRequestSchema,
+  analyticsSnapshotResponseSchema,
+  analyticsTimeSeriesResponseSchema,
+  analyticsTrendResponseSchema,
+  filterMetadataResponseSchema,
   listingIdSchema,
   listingFiltersQuerySchema,
-  listingSearchQuerySchema,
+  listingSearchResponseSchema,
+  listingSearchUrlFilter,
+  marketOverviewResponseSchema,
+  publicListingDetailResponseSchema,
   type ListingFiltersQuery,
 } from "@nettiauto/schemas";
 import { ResponseCache } from "./analytics-cache";
@@ -144,81 +156,87 @@ app.get("/ready", async (c) => {
 });
 
 app.get("/filters", async (c) => {
-  const result = listingFiltersQuerySchema.safeParse(c.req.query());
-  if (!result.success) {
-    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  const result = analysisQueryUrlFilter.parse(new URL(c.req.url).searchParams);
+  if (!result.ok) {
+    return c.json({ error: "invalid_query", issues: result.issues }, 400);
   }
 
-  const cached = await filterMetadataCache.get(result.data);
+  const cached = await filterMetadataCache.get(result.query);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   c.header("X-Filter-Cache", cached.status);
   c.header("X-Filter-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
-  return c.json(cached.value);
+  return c.json(filterMetadataResponseSchema.parse(cached.value));
 });
 
 app.get("/analytics/trends", async (c) => {
-  const result = listingFiltersQuerySchema.safeParse(c.req.query());
-  if (!result.success) {
-    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  const result = analysisQueryUrlFilter.parse(new URL(c.req.url).searchParams);
+  if (!result.ok) {
+    return c.json({ error: "invalid_query", issues: result.issues }, 400);
   }
 
-  const snapshot = await analyticsSnapshotCache.get(result.data);
-  const timeSeries = await analyticsTimeSeriesCache.get(result.data);
+  const snapshot = await analyticsSnapshotCache.get(result.query);
+  const timeSeries = await analyticsTimeSeriesCache.get(result.query);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   c.header("X-Analytics-Cache", timeSeries.status);
   c.header("X-Analytics-Cache-Age", String(Math.floor(timeSeries.ageMs / 1000)));
-  return c.json({
-    ...snapshot.value,
-    appliedFilters: result.data,
-    charts: {
-      marketOverTime: timeSeries.value.marketOverTime,
-      ...snapshot.value.charts,
-    },
-  });
+  return c.json(
+    analyticsTrendResponseSchema.parse({
+      ...snapshot.value,
+      appliedFilters: result.query,
+      charts: {
+        marketOverTime: timeSeries.value.marketOverTime,
+        ...snapshot.value.charts,
+      },
+    }),
+  );
 });
 
 app.get("/analytics/time-series", async (c) => {
-  const result = listingFiltersQuerySchema.safeParse(c.req.query());
-  if (!result.success) {
-    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  const result = analysisQueryUrlFilter.parse(new URL(c.req.url).searchParams);
+  if (!result.ok) {
+    return c.json({ error: "invalid_query", issues: result.issues }, 400);
   }
 
-  const cached = await analyticsTimeSeriesCache.get(result.data);
+  const cached = await analyticsTimeSeriesCache.get(result.query);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   c.header("X-Analytics-Cache", cached.status);
   c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
-  return c.json({ ...cached.value, appliedFilters: result.data });
+  return c.json(
+    analyticsTimeSeriesResponseSchema.parse({ ...cached.value, appliedFilters: result.query }),
+  );
 });
 
 app.get("/analytics/snapshot", async (c) => {
-  const result = listingFiltersQuerySchema.safeParse(c.req.query());
-  if (!result.success) {
-    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  const result = analysisQueryUrlFilter.parse(new URL(c.req.url).searchParams);
+  if (!result.ok) {
+    return c.json({ error: "invalid_query", issues: result.issues }, 400);
   }
 
-  const cached = await analyticsSnapshotCache.get(result.data);
+  const cached = await analyticsSnapshotCache.get(result.query);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   c.header("X-Analytics-Cache", cached.status);
   c.header("X-Analytics-Cache-Age", String(Math.floor(cached.ageMs / 1000)));
-  return c.json({ ...cached.value, appliedFilters: result.data });
+  return c.json(
+    analyticsSnapshotResponseSchema.parse({ ...cached.value, appliedFilters: result.query }),
+  );
 });
 
 app.get("/market/overview", async (c) => {
-  const result = listingSearchQuerySchema.safeParse(c.req.query());
-  if (!result.success) {
-    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  const result = listingSearchUrlFilter.parse(new URL(c.req.url).searchParams);
+  if (!result.ok) {
+    return c.json({ error: "invalid_query", issues: result.issues }, 400);
   }
 
-  return c.json(await getMarketOverview(sql, result.data));
+  return c.json(marketOverviewResponseSchema.parse(await getMarketOverview(sql, result.query)));
 });
 
 app.get("/listings", async (c) => {
-  const result = listingSearchQuerySchema.safeParse(c.req.query());
-  if (!result.success) {
-    return c.json({ error: "invalid_query", issues: result.error.issues }, 400);
+  const result = listingSearchUrlFilter.parse(new URL(c.req.url).searchParams);
+  if (!result.ok) {
+    return c.json({ error: "invalid_query", issues: result.issues }, 400);
   }
 
-  return c.json(await searchListings(sql, result.data));
+  return c.json(listingSearchResponseSchema.parse(await searchListings(sql, result.query)));
 });
 
 app.get("/listings/:listingId", async (c) => {
@@ -232,7 +250,7 @@ app.get("/listings/:listingId", async (c) => {
     return c.json({ error: "not_found" }, 404);
   }
 
-  return c.json(listing);
+  return c.json(publicListingDetailResponseSchema.parse(listing));
 });
 
 app.post("/admin/login", async (c) => {
@@ -281,20 +299,21 @@ app.post("/admin/logout", (c) => {
 });
 
 app.get("/admin/crawler/status", adminOnly, async (c) => {
+  const status = await getAdminCrawlerStatus(sql, {
+    enabled: config.CRAWLER_ENABLED,
+    paused: config.CRAWLER_PAUSED,
+    delayMs: config.CRAWLER_DELAY_MS,
+    maxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
+    detailEnabled: config.CRAWLER_DETAIL_ENABLED,
+    detailMaxPerRun: config.CRAWLER_DETAIL_MAX_PER_RUN,
+  });
   return c.json(
-    await getAdminCrawlerStatus(sql, {
-      enabled: config.CRAWLER_ENABLED,
-      paused: config.CRAWLER_PAUSED,
-      delayMs: config.CRAWLER_DELAY_MS,
-      maxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
-      detailEnabled: config.CRAWLER_DETAIL_ENABLED,
-      detailMaxPerRun: config.CRAWLER_DETAIL_MAX_PER_RUN,
-    }),
+    adminCrawlerStatusResponseSchema.parse(status),
   );
 });
 
 app.get("/admin/crawler/diagnostics", adminOnly, async (c) => {
-  return c.json(await getAdminCrawlerDiagnostics(sql));
+  return c.json(adminCrawlerDiagnosticsResponseSchema.parse(await getAdminCrawlerDiagnostics(sql)));
 });
 
 app.post("/admin/crawler/run", adminOnly, async (c) => {
@@ -344,13 +363,15 @@ app.post("/admin/crawler/run", adminOnly, async (c) => {
   `;
 
   logger.info({ jobId: job?.jobId, crawlKind }, "Manual Nettiauto crawl scheduled");
-  return c.json({
-    ok: true,
-    task: "schedule_nettiauto_crawl",
-    crawlKind,
-    jobId: job?.jobId ?? null,
-    runAt: job?.runAt ?? null,
-  });
+  return c.json(
+    adminCrawlerRunResponseSchema.parse({
+      ok: true,
+      task: "schedule_nettiauto_crawl",
+      crawlKind,
+      jobId: job?.jobId ?? null,
+      runAt: job?.runAt ?? null,
+    }),
+  );
 });
 
 app.post("/admin/crawler/control", adminOnly, async (c) => {
@@ -376,13 +397,15 @@ app.post("/admin/crawler/control", adminOnly, async (c) => {
     { action: result.data.action, crawlKind: result.data.crawlKind, affectedQueryCount },
     "Nettiauto crawler control updated",
   );
-  return c.json({
-    ok: true,
-    action: result.data.action,
-    crawlKind: result.data.crawlKind,
-    affectedQueryCount,
-    pausedUntil: pausedUntil?.toISOString() ?? null,
-  });
+  return c.json(
+    adminCrawlerControlResponseSchema.parse({
+      ok: true,
+      action: result.data.action,
+      crawlKind: result.data.crawlKind,
+      affectedQueryCount,
+      pausedUntil: pausedUntil?.toISOString() ?? null,
+    }),
+  );
 });
 
 const invalidJsonBody = Symbol("invalidJsonBody");

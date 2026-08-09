@@ -1,7 +1,8 @@
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { listingFiltersQuerySchema } from "@nettiauto/schemas";
+import { listingFiltersQuerySchema, publicListingDetailResponseSchema } from "@nettiauto/schemas";
 import {
+  completeCrawlRun,
   getAdminCrawlerDiagnostics,
   getAnalyticsTimeSeries,
   getPublicListingDetail,
@@ -151,6 +152,84 @@ describeDatabase("PostgreSQL product integration", () => {
       .toMatchObject({ presentCount: 3, percentage: 100 });
   });
 
+  it("completes idempotently and reconciles missing current listings across complete runs", async () => {
+    const queryId = await insertSourceQuery("current", "lifecycle-test");
+    const priorRunId = await insertRun(queryId, "current", "2026-08-01T10:00:00Z");
+    const listingId = await insertObservation(
+      priorRunId,
+      queryId,
+      "current",
+      "missing-1",
+      "active",
+      "2026-08-01T09:00:00Z",
+      20_000,
+    );
+
+    const staleRunId = await insertRunningRun(queryId, "2026-08-08T10:00:00Z", 1, 0);
+    await insertSuccessfulPage(staleRunId, queryId, "2026-08-08T10:01:00Z");
+    const staleResult = await completeCrawlRun(sql, {
+      crawlRunId: staleRunId,
+      cause: { kind: "source_exhausted" },
+    });
+    expect(staleResult).toMatchObject({
+      status: "completed",
+      changed: true,
+      listingAvailabilityReconciled: 1,
+    });
+    expect(await listingAvailability(listingId)).toBe("stale");
+
+    const removedRunId = await insertRunningRun(queryId, "2026-08-15T10:00:00Z", 1, 0);
+    await insertSuccessfulPage(removedRunId, queryId, "2026-08-15T10:01:00Z");
+    const removedResult = await completeCrawlRun(sql, {
+      crawlRunId: removedRunId,
+      cause: { kind: "source_exhausted" },
+    });
+    expect(removedResult).toMatchObject({
+      status: "completed",
+      changed: true,
+      listingAvailabilityReconciled: 1,
+    });
+    expect(await listingAvailability(listingId)).toBe("removed");
+
+    expect(
+      await completeCrawlRun(sql, {
+        crawlRunId: removedRunId,
+        cause: { kind: "source_failure", reason: "late_retry" },
+      }),
+    ).toMatchObject({ status: "completed", changed: false, listingAvailabilityReconciled: 0 });
+  });
+
+  it("keeps legacy private detail keys outside the Product API response", async () => {
+    const queryId = await insertSourceQuery("current", "privacy-test");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const listingId = await insertObservation(
+      runId,
+      queryId,
+      "current",
+      "privacy-1",
+      "active",
+      "2026-08-03T09:00:00Z",
+      20_000,
+    );
+    await sql`
+      update listing_snapshots
+      set normalized_data = jsonb_build_object(
+        'registrationNumber', 'ABC-123',
+        'vin', 'PRIVATE-VIN',
+        'additionalSourceFields', jsonb_build_array(
+          jsonb_build_object('label', 'Unreviewed', 'value', 'private')
+        )
+      )
+      where listing_id = ${listingId}
+    `;
+
+    const detail = await getPublicListingDetail(sql, listingId);
+    expect(detail?.vehicleDetails).toMatchObject({ registrationNumber: "ABC-123" });
+    expect(detail?.vehicleDetails).not.toHaveProperty("vin");
+    expect(detail?.vehicleDetails).not.toHaveProperty("additionalSourceFields");
+    expect(publicListingDetailResponseSchema.safeParse(detail).success).toBe(true);
+  });
+
   async function insertSourceQuery(crawlKind: "current" | "sold", searchHash: string) {
     const [row] = await sql<{ id: string }[]>`
       insert into source_search_queries (
@@ -178,6 +257,46 @@ describeDatabase("PostgreSQL product integration", () => {
     `;
     if (!row) throw new Error("Failed to create test Crawl Run.");
     return row.id;
+  }
+
+  async function insertRunningRun(
+    searchQueryId: string,
+    startedAt: string,
+    expectedPageCount: number,
+    sourceTotalAds: number,
+  ) {
+    const [row] = await sql<{ id: string }[]>`
+      insert into crawl_runs (
+        source, search_query_id, crawl_kind, vehicle_category, status,
+        started_at, expected_page_count, source_total_ads
+      ) values (
+        'nettiauto', ${searchQueryId}, 'current', 'passenger_car', 'running',
+        ${startedAt}, ${expectedPageCount}, ${sourceTotalAds}
+      ) returning id
+    `;
+    if (!row) throw new Error("Failed to create running test Crawl Run.");
+    return row.id;
+  }
+
+  async function insertSuccessfulPage(crawlRunId: string, searchQueryId: string, fetchedAt: string) {
+    await sql`
+      insert into source_fetches (
+        crawl_run_id, search_query_id, source, fetch_kind, page_number,
+        source_url, request_headers, response_status, response_body_shape, fetched_at
+      ) values (
+        ${crawlRunId}, ${searchQueryId}, 'nettiauto', 'search_result_page', 1,
+        'https://example.invalid/test', '{}'::jsonb, 200, 'ajax_json', ${fetchedAt}
+      )
+    `;
+  }
+
+  async function listingAvailability(listingId: string) {
+    const [row] = await sql<{ availability: string }[]>`
+      select current_availability as availability
+      from listings
+      where id = ${listingId}
+    `;
+    return row?.availability ?? null;
   }
 
   async function insertObservation(

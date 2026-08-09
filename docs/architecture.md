@@ -1,6 +1,32 @@
 # Architecture
 
-Status: planned architecture only. No implementation exists yet.
+Status: implemented baseline with some forward-looking design notes below.
+
+## Implemented Application Boundaries
+
+The architecture uses contracts at boundaries where data or execution ownership actually changes.
+It deliberately does not wrap every database query, parser, configuration value, logger, or clock in
+an interface; those abstractions would add indirection without isolating a meaningful failure mode.
+
+- `packages/schemas` owns the canonical Analysis Query URL parser/formatter and strict runtime
+  Product API and Admin Panel response schemas. The API validates output before sending it, and the
+  web app validates JSON before rendering it.
+- `packages/domain` owns PostgreSQL-backed product queries and the `completeCrawlRun` command. Crawl
+  callers supply a semantic completion cause; persisted page and sighting evidence determines the
+  final status and whether missing-listing reconciliation is safe.
+- The worker has explicit Nettiauto HTTP and Graphile work-queue adapters. Retry counts, task names,
+  scheduling keys, and transport classification live at those external boundaries. PostgreSQL is
+  intentionally not hidden behind a generic repository port.
+- Raw Listing Data remains the provenance/reprocessing store. Detail data enters normalized snapshot
+  JSON through an explicit key allowlist and enters the Product API through a narrower strict public
+  allowlist. See ADR 0039.
+
+The preferred next step is to keep these boundaries small and testable rather than introducing a
+generic service container. A transactional outbox should be considered only if measured failures
+between database commits and Graphile job insertion show that queue idempotency and stale-run
+recovery are insufficient. The legacy `crawl_nettiauto_search_query` and
+`finalize_nettiauto_crawl_run` handlers remain deployment-compatible until existing queued jobs have
+drained; remove them only after checking the production Graphile queue.
 
 ## Goals
 

@@ -3,7 +3,6 @@ import {
   classifyRequestError,
   isRetryableNettiautoHttpStatus,
   shouldPauseNettiautoSource,
-  terminalSearchRunStatus,
 } from "./nettiauto-fetch-policy";
 
 describe("Nettiauto fetch retry policy", () => {
@@ -17,11 +16,6 @@ describe("Nettiauto fetch retry policy", () => {
       expect(isRetryableNettiautoHttpStatus(status)).toBe(false);
     },
   );
-
-  it("uses failed for page one and partial after progress", () => {
-    expect(terminalSearchRunStatus(1)).toBe("failed");
-    expect(terminalSearchRunStatus(2)).toBe("partial");
-  });
 
   it("opens the circuit breaker only for source block signals", () => {
     expect(shouldPauseNettiautoSource("blocked")).toBe(true);

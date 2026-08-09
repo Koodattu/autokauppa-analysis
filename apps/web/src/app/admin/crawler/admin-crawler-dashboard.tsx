@@ -4,10 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   AdminCrawlerDiagnosticsResponse,
-  AdminCrawlerControlResponse,
-  AdminCrawlerRunResponse,
   AdminCrawlerRunTarget,
   AdminCrawlerStatusResponse,
+} from "@/lib/api";
+import {
+  parseAdminCrawlerControl,
+  parseAdminCrawlerDiagnostics,
+  parseAdminCrawlerRun,
+  parseAdminCrawlerStatus,
 } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { SiteHeader } from "../../site-header";
@@ -157,7 +161,7 @@ export function AdminCrawlerDashboard({
         return;
       }
 
-      const body = (await response.json()) as AdminCrawlerRunResponse;
+      const body = parseAdminCrawlerRun(await response.json());
       setNotice({
         kind: "success",
         message: `Crawl queued for ${labelRunTarget(body.crawlKind)}${body.jobId ? ` as job ${body.jobId}` : ""}.`,
@@ -196,7 +200,7 @@ export function AdminCrawlerDashboard({
         setNotice({ kind: "error", message: formatRunError(await readRunError(response)) });
         return;
       }
-      const body = (await response.json()) as AdminCrawlerControlResponse;
+      const body = parseAdminCrawlerControl(await response.json());
       setNotice({
         kind: "success",
         message: action === "pause"
@@ -495,7 +499,7 @@ async function fetchCrawlerStatus(onUnauthorized: () => void) {
     throw new Error(`Status refresh failed with HTTP ${response.status}.`);
   }
 
-  return response.json() as Promise<AdminCrawlerStatusResponse>;
+  return parseAdminCrawlerStatus(await response.json());
 }
 
 async function fetchCrawlerDiagnostics(onUnauthorized: () => void) {
@@ -512,7 +516,7 @@ async function fetchCrawlerDiagnostics(onUnauthorized: () => void) {
     throw new Error(`Diagnostics refresh failed with HTTP ${response.status}.`);
   }
 
-  return response.json() as Promise<AdminCrawlerDiagnosticsResponse>;
+  return parseAdminCrawlerDiagnostics(await response.json());
 }
 
 async function readRunError(response: Response) {

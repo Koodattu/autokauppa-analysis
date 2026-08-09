@@ -1,8 +1,9 @@
 import Link from "next/link";
 import {
   ApiError,
-  apiGet,
   filterMetadataQueryString,
+  getFilterMetadata,
+  getListings,
   listingDetailHref,
   searchParamsToQueryString,
   type FilterMetadata,
@@ -226,8 +227,8 @@ async function loadListingsData(queryString: string): Promise<
     const filterQueryString = filterMetadataQueryString(queryString);
     const filterQuery = filterQueryString ? `?${filterQueryString}` : "";
     const [filters, listings] = await Promise.all([
-      apiGet<FilterMetadata>(`/filters${filterQuery}`, { next: { revalidate: 300 } }),
-      apiGet<ListingSearchResponse>(`/listings${query}`, { next: { revalidate: 60 } }),
+      getFilterMetadata(filterQuery, { next: { revalidate: 300 } }),
+      getListings(query, { next: { revalidate: 60 } }),
     ]);
     return { ok: true, data: { filters, listings } };
   } catch (error) {

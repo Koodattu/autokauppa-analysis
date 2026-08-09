@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateCrawlRunCompletionQuality } from "./persistence";
+import { classifyCrawlRunCompletion, evaluateCrawlRunCompletionQuality } from "./persistence";
 
 const completeEvidence = {
   expectedPageCount: 3,
@@ -42,5 +42,51 @@ describe("crawl completion quality", () => {
         observedListingCount: 0,
       }),
     ).toBeNull();
+  });
+});
+
+describe("crawl completion classification", () => {
+  it("completes only source-exhausted runs with complete evidence", () => {
+    expect(
+      classifyCrawlRunCompletion({ cause: { kind: "source_exhausted" }, ...completeEvidence }),
+    ).toEqual({ status: "completed", failureReason: null });
+  });
+
+  it("downgrades incomplete source exhaustion based on persisted evidence", () => {
+    expect(
+      classifyCrawlRunCompletion({
+        cause: { kind: "source_exhausted" },
+        ...completeEvidence,
+        successfulPageCount: 2,
+        maximumSuccessfulPage: 2,
+      }),
+    ).toEqual({ status: "partial", failureReason: "incomplete_search_page_coverage" });
+  });
+
+  it("classifies source failures by whether any page succeeded", () => {
+    expect(
+      classifyCrawlRunCompletion({
+        cause: { kind: "source_failure", reason: "blocked" },
+        ...completeEvidence,
+        successfulPageCount: 0,
+        minimumSuccessfulPage: null,
+        maximumSuccessfulPage: null,
+      }),
+    ).toEqual({ status: "failed", failureReason: "blocked" });
+    expect(
+      classifyCrawlRunCompletion({
+        cause: { kind: "source_failure", reason: "blocked" },
+        ...completeEvidence,
+      }),
+    ).toEqual({ status: "partial", failureReason: "blocked" });
+  });
+
+  it("records operator stops as cancellations", () => {
+    expect(
+      classifyCrawlRunCompletion({
+        cause: { kind: "operator_stop", reason: "crawler_paused" },
+        ...completeEvidence,
+      }),
+    ).toEqual({ status: "cancelled", failureReason: "crawler_paused" });
   });
 });

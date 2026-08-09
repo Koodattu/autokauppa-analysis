@@ -4,28 +4,27 @@ import { parseWorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import {
   buildNettiautoSearchUrl,
-  classifyNettiautoResponseBody,
   emptyNettiautoSearchResultPage,
-  markCrawlRunFinished,
+  completeCrawlRun,
   nettiautoAjaxRequestHeaders,
   pauseSourceSearchQuery,
   parseNettiautoAjaxSearchResult,
   persistSearchResultPage,
   reserveCrawlRunDetailJobs,
-  sha256,
 } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
 import {
-  NETTIAUTO_DETAIL_MAX_ATTEMPTS,
   NETTIAUTO_DETAIL_PRIORITY_OFFSET,
-  NETTIAUTO_SEARCH_MAX_ATTEMPTS,
   RetryableNettiautoFetchError,
-  classifyRequestError,
-  createNettiautoRequestSignal,
   isRetryableNettiautoHttpStatus,
   shouldPauseNettiautoSource,
-  terminalSearchRunStatus,
 } from "../nettiauto-fetch-policy";
+import { createGraphileCrawlWorkQueue } from "../crawl-work-queue";
+import {
+  createHttpNettiautoSearchPageSource,
+  NettiautoSearchPageSourceError,
+  type NettiautoSearchPageSourceResponse,
+} from "../nettiauto-search-page-source";
 
 const payloadSchema = z.object({
   crawlRunId: z.string().uuid(),
@@ -33,7 +32,7 @@ const payloadSchema = z.object({
   pageNumber: z.number().int().positive(),
 });
 
-const task: Task = async (payload, helpers) => {
+export const executeNettiautoSearchPage: Task = async (payload, helpers) => {
   const config = parseWorkerConfig();
   const logger = createLogger({ service: "worker", env: config.APP_ENV });
   const payloadResult = payloadSchema.safeParse(payload);
@@ -43,14 +42,16 @@ const task: Task = async (payload, helpers) => {
 
   const taskPayload = payloadResult.data;
   const sql = createSqlClient(config.DATABASE_URL, 1);
+  const source = createHttpNettiautoSearchPageSource();
+  const workQueue = createGraphileCrawlWorkQueue(helpers.addJob);
   try {
     if (!config.CRAWLER_ENABLED || config.CRAWLER_PAUSED) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "partial",
-        expectedPageCount: null,
-        sourceTotalAds: null,
-        failureReason: config.CRAWLER_ENABLED ? "crawler_paused" : "crawler_disabled",
+        cause: {
+          kind: "operator_stop",
+          reason: config.CRAWLER_ENABLED ? "crawler_paused" : "crawler_disabled",
+        },
       });
       logger.info(
         {
@@ -121,23 +122,23 @@ const task: Task = async (payload, helpers) => {
     }
 
     if (!sourceQuery.enabled) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "failed",
-        expectedPageCount: null,
-        sourceTotalAds: null,
-        failureReason: `Nettiauto source query disabled: ${taskPayload.sourceQueryId}`,
+        cause: {
+          kind: "operator_stop",
+          reason: `Nettiauto source query disabled: ${taskPayload.sourceQueryId}`,
+        },
       });
       return;
     }
 
     if (sourceQuery.pausedUntil && new Date(sourceQuery.pausedUntil).getTime() > Date.now()) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "partial",
-        expectedPageCount: null,
-        sourceTotalAds: null,
-        failureReason: sourceQuery.pauseReason ?? "source_query_paused",
+        cause: {
+          kind: "operator_stop",
+          reason: sourceQuery.pauseReason ?? "source_query_paused",
+        },
       });
       return;
     }
@@ -157,26 +158,19 @@ const task: Task = async (payload, helpers) => {
       sourceQuery.sourceSearchHash,
       sourceQuery.queryParams,
     );
-    const startedAt = Date.now();
-    const { signal, timeoutSignal } = createNettiautoRequestSignal(
-      helpers.abortSignal,
-      config.CRAWLER_REQUEST_TIMEOUT_MS,
-    );
-    let response: Response;
-    let responseBody: string;
+    let response: NettiautoSearchPageSourceResponse;
     try {
-      response = await fetch(pageUrl, {
-        headers: requestHeaders,
-        redirect: "manual",
-        signal,
+      response = await source.fetchPage({
+        sourceUrl: pageUrl,
+        requestHeaders,
+        parentSignal: helpers.abortSignal,
+        timeoutMs: config.CRAWLER_REQUEST_TIMEOUT_MS,
       });
-      responseBody = await response.text();
-    } catch {
-      const durationMs = Date.now() - startedAt;
-      const failureReason = classifyRequestError({
-        timeoutAborted: timeoutSignal?.aborted ?? false,
-        workerAborted: helpers.abortSignal.aborted,
-      });
+    } catch (error) {
+      const failureReason = error instanceof NettiautoSearchPageSourceError
+        ? error.failureReason
+        : "network_error";
+      const durationMs = error instanceof NettiautoSearchPageSourceError ? error.durationMs : null;
       await persistSearchResultPage(sql, {
         crawlRunId: taskPayload.crawlRunId,
         searchQueryId: sourceQuery.id,
@@ -204,11 +198,12 @@ const task: Task = async (payload, helpers) => {
         `Nettiauto search request failed (${failureReason}).`,
       );
     }
-    const durationMs = Date.now() - startedAt;
-    const responseContentType = response.headers.get("content-type");
-    const responseBodyShape = classifyNettiautoResponseBody(responseBody, responseContentType);
-    const responseBytes = new TextEncoder().encode(responseBody).byteLength;
-    const responseBodySha256 = sha256(responseBody);
+    const responseBody = response.body;
+    const durationMs = response.durationMs;
+    const responseContentType = response.contentType;
+    const responseBodyShape = response.bodyShape;
+    const responseBytes = response.bodyBytes;
+    const responseBodySha256 = response.bodySha256;
 
     if (!response.ok || response.redirected) {
       const failureReason = classifyFetchFailure(response.status, response.redirected, responseBodyShape);
@@ -258,12 +253,9 @@ const task: Task = async (payload, helpers) => {
           pauseMs: config.CRAWLER_BLOCK_PAUSE_MS,
           reason: failureReason,
         });
-        await markCrawlRunFinished(sql, {
+        await completeCrawlRun(sql, {
           crawlRunId: taskPayload.crawlRunId,
-          status: terminalSearchRunStatus(taskPayload.pageNumber),
-          expectedPageCount: null,
-          sourceTotalAds: null,
-          failureReason,
+          cause: { kind: "source_failure", reason: failureReason },
         });
         logger.warn({ sourceQueryId: sourceQuery.id, pausedUntil, failureReason }, "Nettiauto source query paused");
         return;
@@ -274,12 +266,9 @@ const task: Task = async (payload, helpers) => {
           `Nettiauto search request returned transient HTTP ${response.status}.`,
         );
       }
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: terminalSearchRunStatus(taskPayload.pageNumber),
-        expectedPageCount: null,
-        sourceTotalAds: null,
-        failureReason,
+        cause: { kind: "source_failure", reason: failureReason },
       });
       return;
     }
@@ -311,12 +300,9 @@ const task: Task = async (payload, helpers) => {
           pageNumber: taskPayload.pageNumber,
         }),
       });
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: terminalSearchRunStatus(taskPayload.pageNumber),
-        expectedPageCount: null,
-        sourceTotalAds: null,
-        failureReason,
+        cause: { kind: "source_failure", reason: failureReason },
       });
       logger.warn(
         {
@@ -365,7 +351,10 @@ const task: Task = async (payload, helpers) => {
     });
 
     const detailCandidates = config.CRAWLER_DETAIL_ENABLED
-      ? parsedPage.listings.filter((listing) => listing.normalized.sourceUrl)
+      ? parsedPage.listings.flatMap((listing) => {
+          const sourceUrl = listing.normalized.sourceUrl;
+          return sourceUrl ? [{ listing, sourceUrl }] : [];
+        })
       : [];
     const detailJobCount = await reserveCrawlRunDetailJobs(
       sql,
@@ -373,25 +362,27 @@ const task: Task = async (payload, helpers) => {
       detailCandidates.length,
       config.CRAWLER_DETAIL_MAX_PER_RUN,
     );
-    for (const [index, listing] of detailCandidates.slice(0, detailJobCount).entries()) {
-
-      await helpers.addJob(
-        "crawl_nettiauto_detail_page",
-        {
+    for (const [index, candidate] of detailCandidates.slice(0, detailJobCount).entries()) {
+      try {
+        await workQueue.enqueueDetailPage({
           crawlRunId: taskPayload.crawlRunId,
           searchQueryId: sourceQuery.id,
-          sourceListingId: listing.sourceListingId,
-          sourceUrl: listing.normalized.sourceUrl,
-        },
-        {
-          queueName: "nettiauto",
-          maxAttempts: NETTIAUTO_DETAIL_MAX_ATTEMPTS,
-          jobKey: `nettiauto:detail:${taskPayload.crawlRunId}:${listing.sourceListingId}`,
-          jobKeyMode: "preserve_run_at",
+          sourceListingId: candidate.listing.sourceListingId,
+          sourceUrl: candidate.sourceUrl,
           priority: sourceQuery.priority + NETTIAUTO_DETAIL_PRIORITY_OFFSET,
           runAt: new Date(Date.now() + index * config.CRAWLER_DELAY_MS),
-        },
-      );
+        });
+      } catch (error) {
+        logger.warn(
+          {
+            error,
+            crawlRunId: taskPayload.crawlRunId,
+            sourceQueryId: sourceQuery.id,
+            sourceListingId: candidate.listing.sourceListingId,
+          },
+          "Optional Nettiauto detail enrichment could not be scheduled",
+        );
+      }
     }
 
     logger.info(
@@ -411,77 +402,57 @@ const task: Task = async (payload, helpers) => {
     );
 
     if (parsedPage.issues.some((issue) => issue.code === "invalid_ajax_json")) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: terminalSearchRunStatus(taskPayload.pageNumber),
-        expectedPageCount: parsedPage.totalPages,
-        sourceTotalAds: parsedPage.totalAds,
-        failureReason: "invalid_ajax_json",
+        cause: { kind: "source_failure", reason: "invalid_ajax_json" },
       });
       return;
     }
 
     if (crawlAllPages && parsedPage.totalPages === null) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "partial",
-        expectedPageCount: parsedPage.totalPages,
-        sourceTotalAds: parsedPage.totalAds,
-        failureReason: "missing_total_page_for_uncapped_crawl",
+        cause: { kind: "source_failure", reason: "missing_total_page_for_uncapped_crawl" },
       });
       return;
     }
 
     if (parsedPage.totalPages !== null && taskPayload.pageNumber >= parsedPage.totalPages) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "completed",
-        expectedPageCount: parsedPage.totalPages,
-        sourceTotalAds: parsedPage.totalAds,
+        cause: { kind: "source_exhausted" },
       });
       return;
     }
 
     if (Number.isFinite(maxPages) && taskPayload.pageNumber >= maxPages) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: "partial",
-        expectedPageCount: parsedPage.totalPages,
-        sourceTotalAds: parsedPage.totalAds,
-        failureReason: "max_pages_per_run_reached",
+        cause: { kind: "page_limit_reached", reason: "max_pages_per_run_reached" },
       });
       return;
     }
 
-    await helpers.addJob(
-      "crawl_nettiauto_search_page",
-      {
-        crawlRunId: taskPayload.crawlRunId,
-        sourceQueryId: sourceQuery.id,
-        pageNumber: taskPayload.pageNumber + 1,
-      },
-      {
-        queueName: "nettiauto",
-        maxAttempts: NETTIAUTO_SEARCH_MAX_ATTEMPTS,
-        jobKey: `nettiauto:search-page:${taskPayload.crawlRunId}:${taskPayload.pageNumber + 1}`,
-        jobKeyMode: "preserve_run_at",
-        priority: sourceQuery.priority,
-        runAt: new Date(Date.now() + config.CRAWLER_DELAY_MS),
-      },
-    );
+    await workQueue.enqueueSearchPage({
+      crawlRunId: taskPayload.crawlRunId,
+      sourceQueryId: sourceQuery.id,
+      pageNumber: taskPayload.pageNumber + 1,
+      priority: sourceQuery.priority,
+      runAt: new Date(Date.now() + config.CRAWLER_DELAY_MS),
+    });
   } catch (error) {
     if (helpers.job.attempts >= helpers.job.max_attempts) {
-      await markCrawlRunFinished(sql, {
+      await completeCrawlRun(sql, {
         crawlRunId: taskPayload.crawlRunId,
-        status: terminalSearchRunStatus(taskPayload.pageNumber),
-        expectedPageCount: null,
-        sourceTotalAds: null,
-        failureReason:
-          error instanceof RetryableNettiautoFetchError
-            ? error.failureReason
-            : error instanceof Error
-              ? error.message
-              : "unknown_error",
+        cause: {
+          kind: "source_failure",
+          reason:
+            error instanceof RetryableNettiautoFetchError
+              ? error.failureReason
+              : error instanceof Error
+                ? error.message
+                : "unknown_error",
+        },
       });
     }
     throw error;
@@ -513,6 +484,4 @@ function classifyFetchFailure(statusCode: number, redirected: boolean, bodyShape
 
   return "fetch_failed";
 }
-
-
-export default task;
+export default executeNettiautoSearchPage;

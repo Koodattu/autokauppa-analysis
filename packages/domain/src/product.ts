@@ -1,328 +1,47 @@
 import type postgres from "postgres";
 import {
   MAX_LISTING_PAGE,
+  type AdminCrawlerDiagnosticsResponse,
+  type AdminCrawlerStatusResponse,
+  type AnalyticsSnapshotResponse,
+  type AnalyticsTimeSeriesResponse,
+  type AnalyticsTrendResponse,
+  type CoverageMetadata,
+  type FilterMetadata,
+  type ListingSearchResponse,
+  type ListingTableItem,
   type ListingFiltersQuery,
   type ListingSearchQuery,
+  type MarketOverviewResponse,
+  type MarketOverTimePoint,
+  type PriceByFuelTypePoint,
+  type PriceByMileageBucketPoint,
+  type PriceByTransmissionPoint,
+  type PriceByYearPoint,
+  type PublicListingDetailResponse,
+  type PublicVehicleDetails,
 } from "@nettiauto/schemas";
 import { selectPublicListingImages, type StoredListingImageRow } from "./listing-images";
 
-export interface CoverageMetadata {
-  lastRelevantCrawlAt: string | null;
-  sampleSize: number;
-  includesCurrent: boolean;
-  includesSold: boolean;
-  dataSource: "search_result_data" | "search_and_detail_data";
-  completeness: "complete" | "partial" | "unknown";
-}
-
-export interface FilterMetadata {
-  makes: string[];
-  models: string[];
-  yearRange: { min: number | null; max: number | null };
-  sellerTypes: string[];
-  fuelTypes: string[];
-  transmissions: string[];
-  availability: Array<"current" | "sold" | "all">;
-}
-
-export interface MarketOverTimePoint {
-  bucket: string;
-  listingCount: number;
-  activeCount: number | null;
-  soldCount: number | null;
-  newListingCount: number;
-  includesCurrentRun: boolean;
-  includesSoldRun: boolean;
-  medianAskingPriceEur: number | null;
-  medianObservedSoldPriceEur: number | null;
-  sampleSize: number;
-  askingPriceSampleSize: number;
-  observedSoldPriceSampleSize: number;
-}
-
-export interface PriceByYearPoint {
-  yearModel: number;
-  listingCount: number;
-  askingPriceSampleSize: number;
-  observedSoldPriceSampleSize: number;
-  medianMileageKm: number | null;
-  askingPriceP25Eur: number | null;
-  medianAskingPriceEur: number | null;
-  askingPriceP75Eur: number | null;
-  observedSoldPriceP25Eur: number | null;
-  medianObservedSoldPriceEur: number | null;
-  observedSoldPriceP75Eur: number | null;
-}
-
-export interface PriceByMileageBucketPoint {
-  bucketStartKm: number;
-  bucketEndKm: number;
-  listingCount: number;
-  askingPriceSampleSize: number;
-  observedSoldPriceSampleSize: number;
-  medianYearModel: number | null;
-  askingPriceP25Eur: number | null;
-  medianAskingPriceEur: number | null;
-  askingPriceP75Eur: number | null;
-  observedSoldPriceP25Eur: number | null;
-  medianObservedSoldPriceEur: number | null;
-  observedSoldPriceP75Eur: number | null;
-}
-
-export interface PriceByTransmissionPoint {
-  transmission: string;
-  listingCount: number;
-  askingPriceSampleSize: number;
-  observedSoldPriceSampleSize: number;
-  medianMileageKm: number | null;
-  askingPriceP25Eur: number | null;
-  medianAskingPriceEur: number | null;
-  askingPriceP75Eur: number | null;
-  observedSoldPriceP25Eur: number | null;
-  medianObservedSoldPriceEur: number | null;
-  observedSoldPriceP75Eur: number | null;
-}
-
-export interface PriceByFuelTypePoint {
-  fuelType: string;
-  listingCount: number;
-  askingPriceSampleSize: number;
-  observedSoldPriceSampleSize: number;
-  medianMileageKm: number | null;
-  askingPriceP25Eur: number | null;
-  medianAskingPriceEur: number | null;
-  askingPriceP75Eur: number | null;
-  observedSoldPriceP25Eur: number | null;
-  medianObservedSoldPriceEur: number | null;
-  observedSoldPriceP75Eur: number | null;
-}
-
-export interface AnalyticsTrendResponse {
-  appliedFilters: ListingFiltersQuery;
-  coverage: CoverageMetadata;
-  summary: {
-    listingCount: number;
-    activeCount: number;
-    soldCount: number;
-    medianAskingPriceEur: number | null;
-    medianObservedSoldPriceEur: number | null;
-    medianMileageKm: number | null;
-    askingPriceSampleSize: number;
-    observedSoldPriceSampleSize: number;
-    mileageSampleSize: number;
-  };
-  charts: {
-    marketOverTime: MarketOverTimePoint[];
-    priceByYear: PriceByYearPoint[];
-    priceByMileageBucket: PriceByMileageBucketPoint[];
-    priceByFuelType: PriceByFuelTypePoint[];
-    priceByTransmission: PriceByTransmissionPoint[];
-  };
-}
-
-export interface AnalyticsSnapshotResponse extends Omit<AnalyticsTrendResponse, "charts"> {
-  charts: Omit<AnalyticsTrendResponse["charts"], "marketOverTime">;
-}
-
-export interface AnalyticsTimeSeriesResponse {
-  appliedFilters: ListingFiltersQuery;
-  marketOverTime: MarketOverTimePoint[];
-}
-
-export interface ListingSearchResponse {
-  items: ListingTableItem[];
-  pagination: {
-    page: number;
-    pageSize: number;
-    totalItems: number;
-    totalPages: number;
-  };
-  sort: string;
-  coverage: CoverageMetadata;
-}
-
-export interface MarketOverviewResponse {
-  filters: FilterMetadata;
-  analytics: AnalyticsTrendResponse;
-  listings: ListingSearchResponse;
-}
-
-export interface ListingTableItem {
-  listingId: string;
-  sourceListingId: string;
-  make: string | null;
-  model: string | null;
-  yearModel: number | null;
-  availability: string;
-  askingPriceEur: number | null;
-  observedSoldPriceEur: number | null;
-  mileageKm: number | null;
-  seller: string | null;
-  sellerType: string | null;
-  sourceUpdatedDate: string | null;
-  lastSeenAt: string;
-}
-
-export interface PublicVehicleDetails {
-  sourceUpdatedDate: string | null;
-  sourceLocationLabel: string | null;
-  registrationNumber: string | null;
-  officeFeeEur: number | null;
-  engineSourceLabel: string | null;
-  fuelTypeSourceLabel: string | null;
-  transmissionSourceLabel: string | null;
-  drivetrainSourceLabel: string | null;
-  firstRegistrationDate: string | null;
-  inspectionDateLabel: string | null;
-  bodyTypeSourceLabel: string | null;
-  vehicleTypeSourceLabel: string | null;
-  colorSourceLabel: string | null;
-  powerKw: number | null;
-  powerHp: number | null;
-  topSpeedKmh: number | null;
-  acceleration0To100S: number | null;
-  seatCount: number | null;
-  doorCount: number | null;
-  steeringSideSourceLabel: string | null;
-  curbWeightKg: number | null;
-  grossWeightKg: number | null;
-  towingWeightBrakedKg: number | null;
-  towingWeightUnbrakedKg: number | null;
-  co2GKm: number | null;
-  energyEfficiencyClassSourceLabel: string | null;
-  fuelConsumptionSourceLabel: string | null;
-  fuelConsumptionCityL100Km: number | null;
-  fuelConsumptionHighwayL100Km: number | null;
-  fuelConsumptionCombinedL100Km: number | null;
-  sellerNotes: string | null;
-  equipmentGroups: Array<{ label: string; items: string[] }>;
-  additionalSourceFields: Array<{ label: string; value: string }>;
-}
-
-export interface PublicListingDetailResponse {
-  listing: ListingTableItem & {
-    firstSeenAt: string;
-    sourceAttribution: {
-      source: "Nettiauto";
-      sourceUrl: string | null;
-      sourceListingId: string;
-      observedDataLabel: string;
-    };
-  };
-  history: Array<{
-    observedAt: string;
-    sourceUpdatedDate: string | null;
-    availability: string;
-    askingPriceEur: number | null;
-    observedSoldPriceEur: number | null;
-    mileageKm: number | null;
-  }>;
-  imageMetadata: Array<{
-    imageUrl: string;
-    fallbackImageUrls: string[];
-    role: string | null;
-    position: number | null;
-    width: number | null;
-    height: number | null;
-  }>;
-  marketContext: {
-    cohortDescription: string;
-    priceBasis: "asking" | "observed_sold" | null;
-    sampleSize: number;
-    priceP25Eur: number | null;
-    medianPriceEur: number | null;
-    priceP75Eur: number | null;
-    pricePercentile: number | null;
-    observedDays: number;
-    recordedPriceChangeCount: number;
-  };
-  vehicleDetails: PublicVehicleDetails | null;
-}
-
-export interface AdminCrawlerStatusResponse {
-  crawlerState: {
-    enabled: boolean;
-    paused: boolean;
-    delayMs: number;
-    maxPagesPerRun: number;
-    detailEnabled: boolean;
-    detailMaxPerRun: number;
-  };
-  lastSuccessfulCrawls: Array<{
-    crawlKind: "current" | "sold";
-    finishedAt: string | null;
-    parsedListingCount: number;
-  }>;
-  recentRuns: Array<{
-    id: string;
-    crawlKind: "current" | "sold";
-    status: string;
-    startedAt: string | null;
-    finishedAt: string | null;
-    fetchedPageCount: number;
-    parsedListingCount: number;
-    failureReason: string | null;
-  }>;
-  freshnessBySegment: Array<{
-    crawlKind: "current" | "sold";
-    lastSuccessAt: string | null;
-    lastFailureAt: string | null;
-    enabled: boolean;
-    pausedUntil: string | null;
-    pauseReason: string | null;
-  }>;
-  queueBacklog: {
-    pendingJobs: number;
-    lockedJobs: number;
-    failedJobs: number;
-  };
-}
-
-export interface AdminCrawlerDiagnosticsResponse {
-  failureCounts: Array<{ failureReason: string; count: number }>;
-  latestSourceFetchFailures: Array<{
-    fetchedAt: string;
-    fetchKind: string;
-    pageNumber: number | null;
-    sourceUrl: string;
-    responseStatus: number | null;
-    responseBodyShape: string;
-    errorType: string;
-    errorMessage: string | null;
-  }>;
-  latestParserErrorSummaries: Array<{
-    capturedAt: string;
-    parserVersion: string;
-    parseError: string;
-  }>;
-  latestFailedJobs: Array<{
-    id: string;
-    taskIdentifier: string;
-    attempts: number;
-    maxAttempts: number;
-    runAt: string | null;
-    lastError: string | null;
-    createdAt: string;
-    updatedAt: string | null;
-  }>;
-  dataQuality: {
-    totalListings: number;
-    detailEnrichedListings: number;
-    rawRecordsLast30Days: number;
-    failedRawRecordsLast30Days: number;
-    fieldCoverage: Array<{
-      field: string;
-      presentCount: number;
-      percentage: number;
-    }>;
-    parserVersions: Array<{
-      parserVersion: string;
-      recordCount: number;
-      failedCount: number;
-      latestCapturedAt: string;
-    }>;
-  };
-}
+export type {
+  AdminCrawlerDiagnosticsResponse,
+  AdminCrawlerStatusResponse,
+  AnalyticsSnapshotResponse,
+  AnalyticsTimeSeriesResponse,
+  AnalyticsTrendResponse,
+  CoverageMetadata,
+  FilterMetadata,
+  ListingSearchResponse,
+  ListingTableItem,
+  MarketOverviewResponse,
+  MarketOverTimePoint,
+  PriceByFuelTypePoint,
+  PriceByMileageBucketPoint,
+  PriceByTransmissionPoint,
+  PriceByYearPoint,
+  PublicListingDetailResponse,
+  PublicVehicleDetails,
+} from "@nettiauto/schemas";
 
 type Sql = postgres.Sql<Record<string, unknown>>;
 type SqlParameter = string | number | boolean | Date | null;
@@ -808,7 +527,6 @@ function buildPublicVehicleDetails(input: {
     fuelConsumptionCombinedL100Km: numberValue(data.fuelConsumptionCombinedL100Km),
     sellerNotes: stringValue(data.sellerNotes),
     equipmentGroups: equipmentGroupValues(data.equipmentGroups),
-    additionalSourceFields: detailFieldValues(data.additionalSourceFields),
   };
 
   return Object.values(details).some((value) =>
@@ -1893,21 +1611,5 @@ function equipmentGroupValues(value: unknown) {
         })
       : [];
     return label && items.length > 0 ? [{ label, items }] : [];
-  });
-}
-
-function detailFieldValues(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((item) => {
-    if (!isRecord(item)) {
-      return [];
-    }
-
-    const label = stringValue(item.label);
-    const fieldValue = stringValue(item.value);
-    return label && fieldValue ? [{ label, value: fieldValue }] : [];
   });
 }

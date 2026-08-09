@@ -1,4 +1,15 @@
 import { z } from "zod";
+import {
+  adminCrawlerControlResponseSchema,
+  adminCrawlerDiagnosticsResponseSchema,
+  adminCrawlerRunResponseSchema,
+  adminCrawlerStatusResponseSchema,
+} from "./admin-panel";
+import { createProductApiResponseSchemas } from "./product-api";
+
+export * from "./admin-panel";
+export * from "./product-api";
+export { coverageMetadataResponseSchema as coverageMetadataSchema } from "./product-api";
 
 export const MAX_LISTING_PAGE = 1_000;
 export const MAX_ANALYTICS_DATE_RANGE_DAYS = 730;
@@ -81,6 +92,63 @@ export const listingSearchQuerySchema = z
   })
   .superRefine(validateRanges);
 
+export const {
+  analyticsTrendResponseSchema,
+  analyticsSnapshotResponseSchema,
+  analyticsTimeSeriesResponseSchema,
+  listingSearchResponseSchema,
+  marketOverviewResponseSchema,
+} = createProductApiResponseSchemas(listingFiltersQuerySchema);
+
+const analysisQueryKeys = [
+  "make",
+  "model",
+  "modelYear",
+  "modelYearFrom",
+  "modelYearTo",
+  "priceMin",
+  "priceMax",
+  "mileageMin",
+  "mileageMax",
+  "availability",
+  "sellerType",
+  "fuelType",
+  "transmission",
+  "from",
+  "to",
+  "interval",
+] as const;
+
+const listingViewKeys = [...analysisQueryKeys, "page", "pageSize", "sort"] as const;
+
+export interface UrlFilterIssue {
+  code: string;
+  path: PropertyKey[];
+  message: string;
+}
+
+export type UrlFilterParseResult<T> =
+  | { ok: true; query: T }
+  | { ok: false; issues: UrlFilterIssue[] };
+
+export const analysisQueryUrlFilter = {
+  parse(input: URLSearchParams): UrlFilterParseResult<ListingFiltersQuery> {
+    return parseUrlFilter(input, analysisQueryKeys, listingFiltersQuerySchema);
+  },
+  format(query: ListingFiltersQuery) {
+    return formatUrlFilter(query, analysisQueryKeys);
+  },
+};
+
+export const listingSearchUrlFilter = {
+  parse(input: URLSearchParams): UrlFilterParseResult<ListingSearchQuery> {
+    return parseUrlFilter(input, listingViewKeys, listingSearchQuerySchema);
+  },
+  format(query: ListingSearchQuery) {
+    return formatUrlFilter(query, listingViewKeys);
+  },
+};
+
 export const listingIdSchema = z.string().uuid();
 
 export const adminLoginRequestSchema = z.object({
@@ -130,26 +198,29 @@ export const nettiautoDataLayerSchema = z
   })
   .passthrough();
 
-export const coverageMetadataSchema = z.object({
-  lastRelevantCrawlAt: z.string().nullable(),
-  sampleSize: z.number().int().nonnegative(),
-  includesCurrent: z.boolean(),
-  includesSold: z.boolean(),
-  dataSource: z.enum(["search_result_data", "search_and_detail_data"]),
-  completeness: z.enum(["complete", "partial", "unknown"]),
-});
-
 export type ListingFiltersQuery = z.infer<typeof listingFiltersQuerySchema>;
 export type ListingSearchQuery = z.infer<typeof listingSearchQuerySchema>;
+export type AnalysisQuery = ListingFiltersQuery;
+export type ListingViewQuery = ListingSearchQuery;
+export type AnalyticsTrendResponse = z.infer<typeof analyticsTrendResponseSchema>;
+export type AnalyticsSnapshotResponse = z.infer<typeof analyticsSnapshotResponseSchema>;
+export type AnalyticsTimeSeriesResponse = z.infer<typeof analyticsTimeSeriesResponseSchema>;
+export type ListingSearchResponse = z.infer<typeof listingSearchResponseSchema>;
+export type MarketOverviewResponse = z.infer<typeof marketOverviewResponseSchema>;
+export type AdminCrawlerStatusResponse = z.infer<typeof adminCrawlerStatusResponseSchema>;
+export type AdminCrawlerDiagnosticsResponse = z.infer<typeof adminCrawlerDiagnosticsResponseSchema>;
+export type AdminCrawlerRunResponse = z.infer<typeof adminCrawlerRunResponseSchema>;
+export type AdminCrawlerControlResponse = z.infer<typeof adminCrawlerControlResponseSchema>;
+export type AdminCrawlerRunTarget = AdminCrawlerRunResponse["crawlKind"];
 export type AdminLoginRequest = z.infer<typeof adminLoginRequestSchema>;
 export type AdminCrawlerRunRequest = z.infer<typeof adminCrawlerRunRequestSchema>;
 export type AdminCrawlerControlRequest = z.infer<typeof adminCrawlerControlRequestSchema>;
 export type NettiautoAjaxResponse = z.infer<typeof nettiautoAjaxResponseSchema>;
 export type NettiautoDataLayer = z.infer<typeof nettiautoDataLayerSchema>;
-export type CoverageMetadata = z.infer<typeof coverageMetadataSchema>;
 
 function validateRanges(
   value: {
+    modelYear?: number;
     modelYearFrom?: number;
     modelYearTo?: number;
     priceMin?: number;
@@ -161,6 +232,13 @@ function validateRanges(
   },
   context: z.RefinementCtx,
 ) {
+  if (value.modelYear !== undefined && (value.modelYearFrom !== undefined || value.modelYearTo !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["modelYear"],
+      message: "Use either an exact model year or a year range, not both.",
+    });
+  }
   validateRange(value.modelYearFrom, value.modelYearTo, "modelYearTo", "year", context);
   validateRange(value.priceMin, value.priceMax, "priceMax", "price", context);
   validateRange(value.mileageMin, value.mileageMax, "mileageMax", "mileage", context);
@@ -195,6 +273,63 @@ function validateRanges(
       });
     }
   }
+}
+
+function parseUrlFilter<T>(
+  input: URLSearchParams,
+  keys: readonly string[],
+  schema: z.ZodType<T>,
+): UrlFilterParseResult<T> {
+  const duplicateIssues = keys.flatMap((key) =>
+    input.getAll(key).length > 1
+      ? [{ code: "duplicate", path: [key], message: `${key} must be provided once.` }]
+      : [],
+  );
+  if (duplicateIssues.length > 0) {
+    return { ok: false, issues: duplicateIssues };
+  }
+
+  const values = Object.fromEntries(
+    keys.flatMap((key) => {
+      const value = input.get(key);
+      return value === null ? [] : [[key, value]];
+    }),
+  );
+  const parsed = schema.safeParse(values);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      issues: parsed.error.issues.map((issue) => ({
+        code: issue.code,
+        path: [...issue.path],
+        message: issue.message,
+      })),
+    };
+  }
+  return { ok: true, query: parsed.data };
+}
+
+function formatUrlFilter(
+  query: Record<string, unknown>,
+  keys: readonly string[],
+) {
+  const result = new URLSearchParams();
+  for (const key of keys) {
+    const value = query[key];
+    if (
+      value === undefined ||
+      value === "" ||
+      (key === "availability" && value === "all") ||
+      (key === "interval" && value === "week") ||
+      (key === "page" && value === 1) ||
+      (key === "pageSize" && value === 25) ||
+      (key === "sort" && value === "lastSeenDesc")
+    ) {
+      continue;
+    }
+    result.set(key, String(value));
+  }
+  return result;
 }
 
 function validateRange(

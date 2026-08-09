@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import {
   ApiError,
-  apiGet,
+  getPublicListingDetail,
   safeListingsReturnHref,
   type PublicListingDetailResponse,
 } from "@/lib/api";
@@ -29,7 +29,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
   const [{ listingId }, query] = await Promise.all([params, searchParams]);
   let data: PublicListingDetailResponse;
   try {
-    data = await apiGet<PublicListingDetailResponse>(`/listings/${listingId}`, {
+    data = await getPublicListingDetail(listingId, {
       next: { revalidate: 60 },
     });
   } catch (error) {
@@ -353,12 +353,6 @@ function vehicleDetailGroups(details: NonNullable<PublicListingDetailResponse["v
         ["Braked towing mass", formatUnit(details.towingWeightBrakedKg, "kg")],
         ["Unbraked towing mass", formatUnit(details.towingWeightUnbrakedKg, "kg")],
       ]),
-    },
-    {
-      title: "Other details",
-      rows: compactRows(
-        (details.additionalSourceFields ?? []).map((field) => [field.label, field.value]),
-      ),
     },
   ].filter((group) => group.rows.length > 0);
 }

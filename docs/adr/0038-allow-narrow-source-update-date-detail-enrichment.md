@@ -1,5 +1,7 @@
 # Allow Narrow Source Update Date Detail Enrichment
 
+Superseded by [ADR 0039](./0039-allow-capped-detail-enrichment-with-a-public-allowlist.md).
+
 Nettiauto search result payloads do not expose an exact listing created,
 posted, or updated date. The detail page commonly exposes a visible
 `Päivitetty DD.MM.YYYY` label when fetched with the same AJAX-style request

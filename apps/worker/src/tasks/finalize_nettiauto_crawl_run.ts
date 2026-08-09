@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Task } from "graphile-worker";
 import { parseWorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
-import { markCrawlRunFinished } from "@nettiauto/domain";
+import { completeCrawlRun } from "@nettiauto/domain";
 
 const payloadSchema = z.object({
   crawlRunId: z.string().uuid(),
@@ -21,7 +21,15 @@ const task: Task = async (payload) => {
 
   const sql = createSqlClient(config.DATABASE_URL, 1);
   try {
-    await markCrawlRunFinished(sql, payloadResult.data);
+    await completeCrawlRun(sql, {
+      crawlRunId: payloadResult.data.crawlRunId,
+      cause: payloadResult.data.status === "completed"
+        ? { kind: "source_exhausted" }
+        : {
+            kind: "source_failure",
+            reason: payloadResult.data.failureReason ?? `legacy_${payloadResult.data.status}`,
+          },
+    });
   } finally {
     await closeSqlClient(sql);
   }

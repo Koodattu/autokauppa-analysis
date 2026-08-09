@@ -64,6 +64,13 @@
       "when": 1786295601685,
       "tag": "0008_loud_songbird",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786300000000,
+      "tag": "0009_remove_private_detail_snapshot_keys",
+      "breakpoints": true
     }
   ]
 }

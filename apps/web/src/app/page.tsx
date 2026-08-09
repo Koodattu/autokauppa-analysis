@@ -2,8 +2,10 @@ import Link from "next/link";
 import { cache, Suspense } from "react";
 import {
   ApiError,
-  apiGet,
   filterMetadataQueryString,
+  getAnalyticsSnapshot,
+  getAnalyticsTimeSeries,
+  getFilterMetadata,
   searchParamsToQueryString,
   singleSearchParam as single,
   type AnalyticsSnapshotResponse,
@@ -322,8 +324,8 @@ async function loadHomeData(queryString: string): Promise<
     const filterQueryString = filterMetadataQueryString(queryString);
     const filterQuery = filterQueryString ? `?${filterQueryString}` : "";
     const [filters, analytics] = await Promise.all([
-      apiGet<FilterMetadata>(`/filters${filterQuery}`, { next: { revalidate: 300 } }),
-      apiGet<AnalyticsSnapshotResponse>(`/analytics/snapshot${query}`, { next: { revalidate: 60 } }),
+      getFilterMetadata(filterQuery, { next: { revalidate: 300 } }),
+      getAnalyticsSnapshot(query, { next: { revalidate: 60 } }),
     ]);
     return { ok: true, data: { filters, analytics } };
   } catch (error) {
@@ -333,7 +335,7 @@ async function loadHomeData(queryString: string): Promise<
 
 const loadTimeSeries = cache(async (queryString: string) => {
   const query = queryString ? `?${queryString}` : "";
-  return apiGet<AnalyticsTimeSeriesResponse>(`/analytics/time-series${query}`, {
+  return getAnalyticsTimeSeries(query, {
     next: { revalidate: 60 },
   });
 });

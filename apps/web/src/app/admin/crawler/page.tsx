@@ -3,8 +3,7 @@ import Link from "next/link";
 import { AdminCrawlerDashboard } from "./admin-crawler-dashboard";
 import {
   ApiError,
-  apiGet,
-  type AdminCrawlerStatusResponse,
+  getAdminCrawlerStatus,
 } from "@/lib/api";
 
 type PageProps = {
@@ -36,7 +35,7 @@ export default async function AdminCrawlerPage({ searchParams }: PageProps) {
 
 async function loadCrawlerStatus(cookie: string) {
   try {
-    const status = await apiGet<AdminCrawlerStatusResponse>("/admin/crawler/status", {
+    const status = await getAdminCrawlerStatus({
       headers: { cookie },
     });
     return { ok: true as const, status };
