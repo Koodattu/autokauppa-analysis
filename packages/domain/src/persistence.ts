@@ -223,7 +223,7 @@ export async function recoverStaleCrawlRuns(
       and not exists (
         select 1
         from graphile_worker.jobs job
-        where job.payload->>'crawlRunId' = run.id::text
+        where job.key like 'nettiauto:search-page:' || run.id::text || ':%'
           and job.task_identifier = 'crawl_nettiauto_search_page'
           and (job.attempts < job.max_attempts or job.locked_at is not null)
       )
@@ -498,7 +498,7 @@ export async function completeCrawlRun(
         select exists (
           select 1
           from graphile_worker.jobs job
-          where job.payload->>'crawlRunId' = ${run.id}::text
+          where job.key like 'nettiauto:search-page:' || ${run.id}::text || ':%'
             and job.task_identifier = 'crawl_nettiauto_search_page'
             and (job.attempts < job.max_attempts or job.locked_at is not null)
         ) as active
