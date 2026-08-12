@@ -121,6 +121,57 @@ const analysisQueryKeys = [
 
 const listingViewKeys = [...analysisQueryKeys, "page", "pageSize", "sort"] as const;
 
+type AnalysisProjectionPolicy = {
+  readonly [Key in keyof ListingFiltersQuery]: {
+    listingSearch: "retain" | "drop";
+    filterMetadata: "retain" | "drop";
+  };
+};
+
+const ANALYSIS_PROJECTION_POLICY: AnalysisProjectionPolicy = {
+  make: { listingSearch: "retain", filterMetadata: "retain" },
+  model: { listingSearch: "retain", filterMetadata: "retain" },
+  modelYear: { listingSearch: "retain", filterMetadata: "drop" },
+  modelYearFrom: { listingSearch: "retain", filterMetadata: "drop" },
+  modelYearTo: { listingSearch: "retain", filterMetadata: "drop" },
+  priceMin: { listingSearch: "retain", filterMetadata: "drop" },
+  priceMax: { listingSearch: "retain", filterMetadata: "drop" },
+  mileageMin: { listingSearch: "retain", filterMetadata: "drop" },
+  mileageMax: { listingSearch: "retain", filterMetadata: "drop" },
+  availability: { listingSearch: "retain", filterMetadata: "drop" },
+  sellerType: { listingSearch: "retain", filterMetadata: "drop" },
+  fuelType: { listingSearch: "retain", filterMetadata: "drop" },
+  transmission: { listingSearch: "retain", filterMetadata: "drop" },
+  from: { listingSearch: "drop", filterMetadata: "drop" },
+  to: { listingSearch: "drop", filterMetadata: "drop" },
+  interval: { listingSearch: "drop", filterMetadata: "drop" },
+};
+
+const LISTING_VIEW_TO_ANALYSIS_POLICY: Record<
+  keyof ListingSearchQuery,
+  "retain" | "drop"
+> = {
+  make: "retain",
+  model: "retain",
+  modelYear: "retain",
+  modelYearFrom: "retain",
+  modelYearTo: "retain",
+  priceMin: "retain",
+  priceMax: "retain",
+  mileageMin: "retain",
+  mileageMax: "retain",
+  availability: "retain",
+  sellerType: "retain",
+  fuelType: "retain",
+  transmission: "retain",
+  from: "retain",
+  to: "retain",
+  interval: "retain",
+  page: "drop",
+  pageSize: "drop",
+  sort: "drop",
+};
+
 export interface UrlFilterIssue {
   code: string;
   path: PropertyKey[];
@@ -138,6 +189,23 @@ export const analysisQueryUrlFilter = {
   format(query: ListingFiltersQuery) {
     return formatUrlFilter(query, analysisQueryKeys);
   },
+  toListingSearch(query: ListingFiltersQuery): ListingSearchQuery {
+    return listingSearchQuerySchema.parse(
+      Object.fromEntries(
+        analysisQueryKeys.flatMap((key) =>
+          ANALYSIS_PROJECTION_POLICY[key]!.listingSearch === "retain"
+            ? [[key, query[key]]]
+            : [],
+        ),
+      ),
+    );
+  },
+  formatForFilterMetadata(query: ListingFiltersQuery) {
+    const keys = analysisQueryKeys.filter(
+      (key) => ANALYSIS_PROJECTION_POLICY[key]!.filterMetadata === "retain",
+    );
+    return formatUrlFilter(query, keys);
+  },
 };
 
 export const listingSearchUrlFilter = {
@@ -146,6 +214,18 @@ export const listingSearchUrlFilter = {
   },
   format(query: ListingSearchQuery) {
     return formatUrlFilter(query, listingViewKeys);
+  },
+  toAnalysisQuery(query: ListingSearchQuery): ListingFiltersQuery {
+    return listingFiltersQuerySchema.parse(
+      Object.fromEntries(
+        listingViewKeys.flatMap((key) =>
+          LISTING_VIEW_TO_ANALYSIS_POLICY[key] === "retain" ? [[key, query[key]]] : [],
+        ),
+      ),
+    );
+  },
+  withPage(query: ListingSearchQuery, page: number): ListingSearchQuery {
+    return listingSearchQuerySchema.parse({ ...query, page });
   },
 };
 

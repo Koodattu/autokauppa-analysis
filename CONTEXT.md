@@ -98,6 +98,11 @@ The current operational state of crawling, including recent runs, failures,
 queue backlog, and freshness.
 _Avoid_: Debug status, worker status
 
+**Crawler Control**:
+Operator-directed scheduling, pausing, and resuming of crawling, together with
+the operational state needed to determine how those actions will take effect.
+_Avoid_: Worker control, crawler settings, admin action
+
 **Sample Size**:
 The number of Listings or Listing Snapshots contributing to an analytic result.
 _Avoid_: Count, row count

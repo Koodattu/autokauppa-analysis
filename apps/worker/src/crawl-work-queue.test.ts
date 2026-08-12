@@ -7,7 +7,7 @@ describe("Graphile crawl work queue", () => {
     const addJob = vi.fn(async () => ({})) as unknown as AddJobFunction;
     const queue = createGraphileCrawlWorkQueue(addJob);
 
-    await queue.enqueueSearchPage({
+    await queue.enqueueSearchResultPage({
       crawlRunId: "run-1",
       sourceQueryId: "query-1",
       pageNumber: 2,

@@ -2,17 +2,20 @@ import Link from "next/link";
 import { cache, Suspense } from "react";
 import {
   ApiError,
-  filterMetadataQueryString,
   getAnalyticsSnapshot,
   getAnalyticsTimeSeries,
   getFilterMetadata,
-  searchParamsToQueryString,
-  singleSearchParam as single,
   type AnalyticsSnapshotResponse,
   type AnalyticsTimeSeriesResponse,
   type FilterMetadata,
 } from "@/lib/api";
 import { formatCurrency, formatDate, formatKm, formatNumber } from "@/lib/format";
+import {
+  resolveAnalysisNavigation,
+  singleSearchParam as single,
+  type AnalysisNavigation,
+  type AnalysisRequestScope,
+} from "@/lib/url-filter-navigation";
 import {
   ChartPlaceholder,
   LazyAnalyticsSnapshotCharts,
@@ -29,11 +32,16 @@ type PageProps = {
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
-  const queryString = primaryQueryString(params);
-  const comparisonQueryString = buildComparisonQueryString(params);
+  const navigation = resolveAnalysisNavigation(params);
+  if (!navigation) {
+    return <HomeError error={new ApiError("Invalid Analysis Query", 400)} />;
+  }
+  const queryString = navigation.queryString;
   const [result, comparisonResult] = await Promise.all([
-    loadHomeData(queryString),
-    comparisonQueryString ? loadHomeData(comparisonQueryString) : Promise.resolve(null),
+    loadHomeData(navigation),
+    navigation.comparisonScope
+      ? loadHomeData(navigation.comparisonScope)
+      : Promise.resolve(null),
   ]);
 
   if (!result.ok) {
@@ -42,7 +50,7 @@ export default async function Home({ searchParams }: PageProps) {
 
   const { filters, analytics } = result.data;
   const title = analysisTitle(params);
-  const listingsHref = filteredListingsHref(params);
+  const listingsHref = navigation.listingsHref;
   const timeSeriesPromise = loadTimeSeries(queryString);
 
   return (
@@ -76,6 +84,7 @@ export default async function Home({ searchParams }: PageProps) {
         primaryAnalytics={analytics}
         primaryFilters={filters}
         comparisonResult={comparisonResult}
+        navigation={navigation}
       />
 
       <section className="analysis-chapter signal-chapter">
@@ -166,12 +175,14 @@ function MarketComparison({
   primaryAnalytics,
   primaryFilters,
   comparisonResult,
+  navigation,
 }: {
   params: PageSearchParams;
   primaryTitle: string;
   primaryAnalytics: AnalyticsSnapshotResponse;
   primaryFilters: FilterMetadata;
   comparisonResult: Awaited<ReturnType<typeof loadHomeData>> | null;
+  navigation: AnalysisNavigation;
 }) {
   const compareMake = single(params.compareMake);
   const comparisonOptionsMatch = single(params.compareOptionsForMake) === compareMake;
@@ -191,11 +202,13 @@ function MarketComparison({
           <h2 id="comparison-title">Compare another market segment</h2>
           <p>The availability, price, mileage, seller, and observation-window filters above apply to both sides.</p>
         </div>
-        {compareMake ? <Link href={comparisonClearHref(params)}>Clear comparison</Link> : null}
+        {compareMake ? <Link href={navigation.comparisonClearHref}>Clear comparison</Link> : null}
       </div>
 
       <form className="comparison-form" action="/" method="get">
-        {primaryHiddenInputs(params)}
+        {navigation.primaryHiddenInputs.map(([name, value], index) => (
+          <input key={`${name}-${index}`} type="hidden" name={name} value={value} />
+        ))}
         <input type="hidden" name="compareOptionsForMake" value={compareMake} />
         <FilterSelect label="Comparison make" name="compareMake" value={compareMake} options={primaryFilters.makes} />
         <FilterSelect
@@ -310,19 +323,15 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-async function loadHomeData(queryString: string): Promise<
+async function loadHomeData(scope: AnalysisRequestScope): Promise<
   | { ok: true; data: { filters: FilterMetadata; analytics: AnalyticsSnapshotResponse } }
   | { ok: false; error: unknown }
 > {
   try {
-    const snapshotParams = new URLSearchParams(queryString);
-    for (const key of ["from", "to", "interval"]) {
-      snapshotParams.delete(key);
-    }
-    const snapshotQueryString = snapshotParams.toString();
-    const query = snapshotQueryString ? `?${snapshotQueryString}` : "";
-    const filterQueryString = filterMetadataQueryString(queryString);
-    const filterQuery = filterQueryString ? `?${filterQueryString}` : "";
+    const query = scope.snapshotQueryString ? `?${scope.snapshotQueryString}` : "";
+    const filterQuery = scope.filterMetadataQueryString
+      ? `?${scope.filterMetadataQueryString}`
+      : "";
     const [filters, analytics] = await Promise.all([
       getFilterMetadata(filterQuery, { next: { revalidate: 300 } }),
       getAnalyticsSnapshot(query, { next: { revalidate: 60 } }),
@@ -492,59 +501,4 @@ function analysisTitle(params: PageSearchParams) {
     return `Model year ${modelYear}`;
   }
   return "Passenger car market";
-}
-
-function filteredListingsHref(params: PageSearchParams) {
-  const query = new URLSearchParams(primaryQueryString(params));
-  for (const key of ["from", "to", "interval", "page", "pageSize", "sort"]) {
-    query.delete(key);
-  }
-  const value = query.toString();
-  return value ? `/listings?${value}` : "/listings";
-}
-
-const comparisonKeys = ["compareMake", "compareModel", "compareModelYear", "compareFuelType", "compareOptionsForMake"] as const;
-
-function primaryQueryString(params: PageSearchParams) {
-  const query = new URLSearchParams(searchParamsToQueryString(params));
-  for (const key of comparisonKeys) {
-    query.delete(key);
-  }
-  return query.toString();
-}
-
-function buildComparisonQueryString(params: PageSearchParams) {
-  const make = single(params.compareMake);
-  if (!make) {
-    return "";
-  }
-
-  const query = new URLSearchParams(primaryQueryString(params));
-  for (const key of ["make", "model", "modelYear", "fuelType"]) {
-    query.delete(key);
-  }
-  query.set("make", make);
-  const comparisonOptionsMatch = single(params.compareOptionsForMake) === make;
-  for (const [source, target] of [
-    ["compareModel", "model"],
-    ["compareModelYear", "modelYear"],
-    ["compareFuelType", "fuelType"],
-  ] as const) {
-    const value = comparisonOptionsMatch ? single(params[source]) : "";
-    if (value) {
-      query.set(target, value);
-    }
-  }
-  return query.toString();
-}
-
-function comparisonClearHref(params: PageSearchParams) {
-  const query = primaryQueryString(params);
-  return query ? `/?${query}` : "/";
-}
-
-function primaryHiddenInputs(params: PageSearchParams) {
-  return Array.from(new URLSearchParams(primaryQueryString(params))).map(([name, value], index) => (
-    <input key={`${name}-${index}`} type="hidden" name={name} value={value} />
-  ));
 }

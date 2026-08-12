@@ -22,13 +22,13 @@ export interface DetailPageJob {
 }
 
 export interface CrawlWorkQueue {
-  enqueueSearchPage(job: SearchPageJob): Promise<void>;
+  enqueueSearchResultPage(job: SearchPageJob): Promise<void>;
   enqueueDetailPage(job: DetailPageJob): Promise<void>;
 }
 
 export function createGraphileCrawlWorkQueue(addJob: AddJobFunction): CrawlWorkQueue {
   return {
-    async enqueueSearchPage(job) {
+    async enqueueSearchResultPage(job) {
       await addJob(
         "crawl_nettiauto_search_page",
         {

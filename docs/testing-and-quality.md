@@ -1,6 +1,6 @@
 # Testing and Quality
 
-Status: planned quality strategy only. No implementation exists yet.
+Status: implemented baseline; the sections below remain the continuing quality bar.
 
 ## Quality Bar
 

@@ -87,6 +87,71 @@ describe("listing query schemas", () => {
     expect(listingSearchUrlFilter.format(customized).toString()).toBe("page=2&sort=priceAsc");
   });
 
+  it("projects Analysis Queries into Listing Views and filter metadata", () => {
+    const analysis = listingFiltersQuerySchema.parse({
+      make: "Ford",
+      model: "Mondeo",
+      modelYearFrom: 2018,
+      priceMax: 25_000,
+      mileageMax: 150_000,
+      availability: "current",
+      sellerType: "dealer",
+      fuelType: "Diesel",
+      transmission: "Automatic",
+      from: "2026-01-01",
+      to: "2026-08-01",
+      interval: "month",
+    });
+
+    const listing = analysisQueryUrlFilter.toListingSearch(analysis);
+
+    expect(listing).toMatchObject({
+      make: "Ford",
+      model: "Mondeo",
+      modelYearFrom: 2018,
+      priceMax: 25_000,
+      mileageMax: 150_000,
+      availability: "current",
+      sellerType: "dealer",
+      fuelType: "Diesel",
+      transmission: "Automatic",
+      page: 1,
+      pageSize: 25,
+      sort: "lastSeenDesc",
+      interval: "week",
+    });
+    expect(listing.from).toBeUndefined();
+    expect(listing.to).toBeUndefined();
+    expect(analysisQueryUrlFilter.formatForFilterMetadata(analysis).toString()).toBe(
+      "make=Ford&model=Mondeo",
+    );
+  });
+
+  it("projects Listing Views into Analysis Queries and changes only the page", () => {
+    const listing = listingSearchQuerySchema.parse({
+      make: "Volvo",
+      from: "2026-01-01",
+      to: "2026-02-01",
+      interval: "day",
+      page: 3,
+      pageSize: 50,
+      sort: "priceAsc",
+    });
+
+    const analysis = listingSearchUrlFilter.toAnalysisQuery(listing);
+    const nextPage = listingSearchUrlFilter.withPage(listing, 4);
+
+    expect(analysis).toMatchObject({
+      make: "Volvo",
+      from: "2026-01-01",
+      to: "2026-02-01",
+      interval: "day",
+    });
+    expect("page" in analysis).toBe(false);
+    expect(nextPage).toEqual({ ...listing, page: 4 });
+    expect(listing.page).toBe(3);
+  });
+
   it("validates public listing identifiers", () => {
     expect(listingIdSchema.safeParse("not-a-listing-id").success).toBe(false);
     expect(listingIdSchema.safeParse("d9428888-122b-11e1-b85c-61cd3cbb3210").success).toBe(true);

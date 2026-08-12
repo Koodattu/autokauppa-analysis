@@ -8,18 +8,22 @@ The architecture uses contracts at boundaries where data or execution ownership 
 It deliberately does not wrap every database query, parser, configuration value, logger, or clock in
 an interface; those abstractions would add indirection without isolating a meaningful failure mode.
 
-- `packages/schemas` owns the canonical Analysis Query URL parser/formatter and strict runtime
-  Product API and Admin Panel response schemas. The API validates output before sending it, and the
-  web app validates JSON before rendering it.
+- `packages/schemas` owns the canonical Analysis Query URL parser/formatter, exhaustive Analysis
+  Query-to-Listing View projections, and strict runtime Product API and Admin Panel response
+  schemas. Route paths, comparison state, and safe return navigation remain web-owned.
+- `apps/api/src/api-app.ts` is the import-safe HTTP application boundary. The Bun entry point owns
+  environment parsing, database creation, prewarming, and timers. Crawler Control coordinates
+  status and operator commands, while historical diagnostics remain an adjacent read boundary.
 - `packages/domain` owns PostgreSQL-backed product queries and the `completeCrawlRun` command. Crawl
   callers supply a semantic completion cause; persisted page and sighting evidence determines the
   final status and whether missing-listing reconciliation is safe.
-- The worker has explicit Nettiauto HTTP and Graphile work-queue adapters. Retry counts, task names,
-  scheduling keys, and transport classification live at those external boundaries. PostgreSQL is
-  intentionally not hidden behind a generic repository port.
-- Raw Listing Data remains the provenance/reprocessing store. Detail data enters normalized snapshot
-  JSON through an explicit key allowlist and enters the Product API through a narrower strict public
-  allowlist. See ADR 0039.
+- `NettiautoCrawlExecution` owns scheduling, Search Result Page collection, optional Detail Page
+  Data enrichment, completion ordering, and retry policy. Stable Graphile task files are thin
+  compatibility adapters over that module. Nettiauto HTTP and Graphile work queues remain explicit
+  external adapters; PostgreSQL is intentionally not hidden behind a generic repository port.
+- Raw Listing Data remains the provenance/reprocessing store. Every normalized Detail Page Data
+  output has an exhaustive internal promotion decision for snapshot JSON, typed columns, or raw-only
+  retention. Product API exposure remains a separate, narrower strict allowlist. See ADR 0039.
 
 The preferred next step is to keep these boundaries small and testable rather than introducing a
 generic service container. A transactional outbox should be considered only if measured failures

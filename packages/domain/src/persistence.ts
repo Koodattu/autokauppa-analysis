@@ -1,6 +1,7 @@
 import type postgres from "postgres";
 import { sha256, stableStringify } from "./nettiauto";
 import type {
+  NettiautoDetailNormalizedData,
   NettiautoQueryParams,
   NettiautoResponseBodyShape,
   ParsedNettiautoDetailPage,
@@ -338,9 +339,9 @@ export async function getSchedulableSourceSearchQueries(
 export async function pauseSourceSearchQuery(
   sql: SqlClient,
   sourceQueryId: string,
-  input: { pauseMs: number; reason: string },
+  input: { pauseMs: number; reason: string; now?: Date },
 ) {
-  const pausedUntil = new Date(Date.now() + input.pauseMs);
+  const pausedUntil = new Date((input.now ?? new Date()).getTime() + input.pauseMs);
   const [row] = await sql<{ pausedUntil: string }[]>`
     update source_search_queries
     set
@@ -1386,52 +1387,226 @@ async function updateListingFromDetailPage(
   return listing.id;
 }
 
-const DETAIL_SNAPSHOT_NORMALIZED_KEYS = [
-  "detailParserVersion",
-  "sourceUpdatedDate",
-  "sourceUpdatedDateLabel",
-  "sourceUpdatedDateSource",
-  "sourceLocationLabel",
-  "detailTitleSourceLabel",
-  "detailSubtitleSourceLabel",
-  "detailPriceSourceLabel",
-  "uniqueSellingPointSourceLabel",
-  "registrationNumber",
-  "officeFeeEur",
-  "mileageKm",
-  "engineSourceLabel",
-  "fuelTypeSourceLabel",
-  "yearModel",
-  "firstRegistrationDate",
-  "transmissionSourceLabel",
-  "drivetrainSourceLabel",
-  "inspectionDateLabel",
-  "bodyTypeSourceLabel",
-  "vehicleTypeSourceLabel",
-  "colorSourceLabel",
-  "powerKw",
-  "powerHp",
-  "topSpeedKmh",
-  "acceleration0To100S",
-  "seatCount",
-  "doorCount",
-  "steeringSideSourceLabel",
-  "curbWeightKg",
-  "grossWeightKg",
-  "towingWeightBrakedKg",
-  "towingWeightUnbrakedKg",
-  "co2GKm",
-  "energyEfficiencyClassSourceLabel",
-  "fuelConsumptionSourceLabel",
-  "fuelConsumptionCityL100Km",
-  "fuelConsumptionHighwayL100Km",
-  "fuelConsumptionCombinedL100Km",
-  "sellerNotes",
-  "equipmentGroups",
-  "jsonLdAvailability",
-  "jsonLdPriceEur",
-  "jsonLdSellerName",
-] as const satisfies readonly (keyof ParsedNettiautoDetailPage["normalizedData"])[];
+type DetailPromotionDecision =
+  | {
+      disposition: "snapshot_json";
+      rationale: string;
+    }
+  | {
+      disposition: "snapshot_json_and_typed_column";
+      typedColumn:
+        | "source_updated_date"
+        | "mileage_km"
+        | "year_model"
+        | "fuel_type_source_label"
+        | "transmission_source_label"
+        | "body_type_source_label"
+        | "color_source_label";
+      rationale: string;
+    }
+  | {
+      disposition: "raw_only";
+      rationale: string;
+    };
+
+type DetailPromotionPolicy = {
+  readonly [Key in keyof NettiautoDetailNormalizedData]: DetailPromotionDecision;
+};
+
+// Adding a normalized parser output must include an explicit persistence decision here.
+const NETTIAUTO_DETAIL_PROMOTION_POLICY: DetailPromotionPolicy = {
+  detailParserVersion: {
+    disposition: "snapshot_json",
+    rationale: "Identifies the detail parser that produced the snapshot enrichment.",
+  },
+  sourceUpdatedDate: {
+    disposition: "snapshot_json_and_typed_column",
+    typedColumn: "source_updated_date",
+    rationale: "Supports source chronology while retaining the normalized parser evidence.",
+  },
+  sourceUpdatedDateLabel: {
+    disposition: "snapshot_json",
+    rationale: "Retains the Source label used to derive the normalized date.",
+  },
+  sourceUpdatedDateSource: {
+    disposition: "snapshot_json",
+    rationale: "Retains provenance for the normalized source date.",
+  },
+  sourceLocationLabel: {
+    disposition: "snapshot_json",
+    rationale: "Useful normalized Source evidence without an established typed query need.",
+  },
+  detailTitleSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Useful normalized Source evidence without an established typed query need.",
+  },
+  detailSubtitleSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Useful normalized Source evidence without an established typed query need.",
+  },
+  detailPriceSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Retains price-label evidence without replacing authoritative Listing pricing.",
+  },
+  uniqueSellingPointSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Useful normalized Source evidence without an established typed query need.",
+  },
+  registrationNumber: {
+    disposition: "snapshot_json",
+    rationale: "Established Listing detail attribute; public exposure remains schema-controlled.",
+  },
+  officeFeeEur: {
+    disposition: "snapshot_json",
+    rationale: "Normalized commercial attribute without an established typed query need.",
+  },
+  mileageKm: {
+    disposition: "snapshot_json_and_typed_column",
+    typedColumn: "mileage_km",
+    rationale: "Established typed Listing View and Analysis Query dimension.",
+  },
+  engineSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Useful normalized Source evidence without an established typed query need.",
+  },
+  fuelTypeSourceLabel: {
+    disposition: "snapshot_json_and_typed_column",
+    typedColumn: "fuel_type_source_label",
+    rationale: "Established typed Listing View and Analysis Query dimension.",
+  },
+  yearModel: {
+    disposition: "snapshot_json_and_typed_column",
+    typedColumn: "year_model",
+    rationale: "Established typed Listing View and Analysis Query dimension.",
+  },
+  firstRegistrationDate: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle attribute without an established typed query need.",
+  },
+  transmissionSourceLabel: {
+    disposition: "snapshot_json_and_typed_column",
+    typedColumn: "transmission_source_label",
+    rationale: "Established typed Listing View and Analysis Query dimension.",
+  },
+  drivetrainSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle attribute without an established typed query need.",
+  },
+  inspectionDateLabel: {
+    disposition: "snapshot_json",
+    rationale: "Retains the Source label until a canonical date model is justified.",
+  },
+  bodyTypeSourceLabel: {
+    disposition: "snapshot_json_and_typed_column",
+    typedColumn: "body_type_source_label",
+    rationale: "Established typed Listing View and Analysis Query dimension.",
+  },
+  vehicleTypeSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle attribute without an established typed query need.",
+  },
+  colorSourceLabel: {
+    disposition: "snapshot_json_and_typed_column",
+    typedColumn: "color_source_label",
+    rationale: "Established typed Listing View and Analysis Query dimension.",
+  },
+  powerKw: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  powerHp: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  topSpeedKmh: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  acceleration0To100S: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  seatCount: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  doorCount: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  steeringSideSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle attribute without an established typed query need.",
+  },
+  curbWeightKg: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  grossWeightKg: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  towingWeightBrakedKg: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  towingWeightUnbrakedKg: {
+    disposition: "snapshot_json",
+    rationale: "Normalized vehicle specification without an established typed query need.",
+  },
+  co2GKm: {
+    disposition: "snapshot_json",
+    rationale: "Normalized environmental specification without an established typed query need.",
+  },
+  energyEfficiencyClassSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Normalized environmental attribute without an established typed query need.",
+  },
+  fuelConsumptionSourceLabel: {
+    disposition: "snapshot_json",
+    rationale: "Retains the Source label used to derive normalized consumption values.",
+  },
+  fuelConsumptionCityL100Km: {
+    disposition: "snapshot_json",
+    rationale: "Normalized consumption value without an established typed query need.",
+  },
+  fuelConsumptionHighwayL100Km: {
+    disposition: "snapshot_json",
+    rationale: "Normalized consumption value without an established typed query need.",
+  },
+  fuelConsumptionCombinedL100Km: {
+    disposition: "snapshot_json",
+    rationale: "Normalized consumption value without an established typed query need.",
+  },
+  sellerNotes: {
+    disposition: "snapshot_json",
+    rationale: "Retains normalized Source text; public exposure remains schema-controlled.",
+  },
+  equipmentGroups: {
+    disposition: "snapshot_json",
+    rationale: "Structured enrichment without an established relational query need.",
+  },
+  jsonLdAvailability: {
+    disposition: "snapshot_json",
+    rationale: "Retains supporting JSON-LD evidence without overriding Crawl Run availability.",
+  },
+  jsonLdPriceEur: {
+    disposition: "snapshot_json",
+    rationale: "Retains supporting JSON-LD evidence without overriding authoritative pricing.",
+  },
+  jsonLdSellerName: {
+    disposition: "snapshot_json",
+    rationale: "Retains supporting JSON-LD evidence without an established typed query need.",
+  },
+};
+
+const DETAIL_SNAPSHOT_NORMALIZED_KEYS = (
+  Object.keys(NETTIAUTO_DETAIL_PROMOTION_POLICY) as Array<
+    keyof typeof NETTIAUTO_DETAIL_PROMOTION_POLICY
+  >
+).filter(
+  (key) => NETTIAUTO_DETAIL_PROMOTION_POLICY[key].disposition !== "raw_only",
+);
 
 async function persistDetailImages(
   tx: TransactionSqlClient,

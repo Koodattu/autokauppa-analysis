@@ -1,6 +1,6 @@
 # Crawler Implementation Notes
 
-Status: planned implementation notes only. No crawler implementation exists yet.
+Status: implemented baseline; these notes also record the retained operational invariants.
 
 These notes convert the current Nettiauto source research into the first crawler
 design. The crawler should stay HTTP-first and should not use browser automation
@@ -90,34 +90,29 @@ shape as a fetch-level failure or block signal, not as a parser failure.
 
 Use Graphile Worker tasks instead of a raw loop.
 
-Recommended first task split:
+Deployed task split:
 
 ```text
 schedule_nettiauto_crawl
-  creates crawl_run rows for enabled source_search_queries
-  enqueues crawl_nettiauto_search_query jobs
+  creates Crawl Run rows for due Source Search Queries
+  enqueues the first crawl_nettiauto_search_page job
 
-crawl_nettiauto_search_query
-  fetches page 1
-  records total_page and total_ads
-  enqueues crawl_nettiauto_search_result_page jobs for remaining pages
-  can also process page 1 directly
+crawl_nettiauto_search_page
+  fetches and persists one Search Result Page
+  completes the Crawl Run or schedules the next page
+  optionally schedules capped, lower-priority detail work
 
-crawl_nettiauto_search_result_page
-  fetches one Search Result Page
-  parses Raw Listing Data
-  writes Listings, Sightings, Snapshots, and Images idempotently
-  updates source_fetches and crawl_runs counters
+crawl_nettiauto_detail_page
+  best-effort Detail Page Data enrichment
+  never determines authoritative Crawl Run completion
 
-finalize_nettiauto_crawl_run
-  marks the crawl complete, partial, or failed
-  updates source_search_queries freshness fields
+NettiautoCrawlExecution
+  owns orchestration, evidence ordering, retries, pauses, and completion policy
 ```
 
-For the first version, a simpler `crawl_nettiauto_search_query` job may process
-pages sequentially if that keeps correctness easier. Keep the code structured so
-page-level jobs can be introduced without changing parser or persistence
-contracts.
+The legacy `crawl_nettiauto_search_query` and `finalize_nettiauto_crawl_run`
+handlers remain only for already-queued deployment compatibility. Remove them
+after confirming the production Graphile queue has drained.
 
 ## Parser Strategy
 

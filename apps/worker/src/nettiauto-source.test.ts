@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  createHttpNettiautoSearchPageSource,
-  NettiautoSearchPageSourceError,
-} from "./nettiauto-search-page-source";
+  createHttpNettiautoSource,
+  NettiautoSourceError,
+} from "./nettiauto-source";
 
 const request = {
   sourceUrl: "https://www.nettiauto.com/search",
@@ -11,16 +11,16 @@ const request = {
   timeoutMs: 0,
 };
 
-describe("HTTP Nettiauto search-page source", () => {
+describe("HTTP Nettiauto Source adapter", () => {
   it("returns classified response evidence", async () => {
-    const source = createHttpNettiautoSearchPageSource(async () =>
+    const source = createHttpNettiautoSource(async () =>
       new Response(JSON.stringify({ ad_listing_data: "" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
     );
 
-    const response = await source.fetchPage(request);
+    const response = await source.fetchSearchResultPage(request);
 
     expect(response).toMatchObject({
       ok: true,
@@ -33,12 +33,12 @@ describe("HTTP Nettiauto search-page source", () => {
   });
 
   it("converts transport failures into a stable source error", async () => {
-    const source = createHttpNettiautoSearchPageSource(async () => {
+    const source = createHttpNettiautoSource(async () => {
       throw new Error("socket closed");
     });
 
-    await expect(source.fetchPage(request)).rejects.toMatchObject<NettiautoSearchPageSourceError>({
-      name: "NettiautoSearchPageSourceError",
+    await expect(source.fetchDetailPage(request)).rejects.toMatchObject<NettiautoSourceError>({
+      name: "NettiautoSourceError",
       failureReason: "network_error",
     });
   });

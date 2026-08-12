@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useRef, useState, useTransition } from "react";
 import { analysisQueryUrlFilter, listingSearchUrlFilter } from "@nettiauto/schemas";
-import { singleSearchParam as single, type FilterMetadata } from "@/lib/api";
+import type { FilterMetadata } from "@/lib/api";
+import { singleSearchParam as single, type WebSearchParams } from "@/lib/url-filter-navigation";
 
-export type PageSearchParams = Record<string, string | string[] | undefined>;
+export type PageSearchParams = WebSearchParams;
 
 type MarketFilterFormProps = {
   action: "/" | "/listings";
@@ -525,11 +526,21 @@ function validateFilterForm(form: HTMLFormElement, variant: MarketFilterFormProp
 function cleanFilterHref(event: FormEvent<HTMLFormElement>, action: string) {
   event.preventDefault();
   const variant = action === "/listings" ? "listings" : "analytics";
-  const result = urlFilterFor(variant).parse(formSearchParams(event.currentTarget));
+  const query = formSearchParams(event.currentTarget);
+  if (variant === "listings") {
+    const result = listingSearchUrlFilter.parse(query);
+    if (!result.ok) {
+      return action;
+    }
+    const value = listingSearchUrlFilter.format(result.query).toString();
+    return value ? `${action}?${value}` : action;
+  }
+
+  const result = analysisQueryUrlFilter.parse(query);
   if (!result.ok) {
     return action;
   }
-  const value = urlFilterFor(variant).format(result.query).toString();
+  const value = analysisQueryUrlFilter.format(result.query).toString();
   return value ? `${action}?${value}` : action;
 }
 

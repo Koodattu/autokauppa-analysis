@@ -4,9 +4,9 @@ import { notFound } from "next/navigation";
 import {
   ApiError,
   getPublicListingDetail,
-  safeListingsReturnHref,
   type PublicListingDetailResponse,
 } from "@/lib/api";
+import { safeListingsReturnHref } from "@/lib/url-filter-navigation";
 import {
   formatCurrency,
   formatDate,

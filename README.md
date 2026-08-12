@@ -80,7 +80,7 @@ Deferred:
 apps/
   web/       Next.js + React app, configured for standalone output
   api/       Bun + Hono API service
-  worker/    Graphile Worker task shell
+  worker/    Graphile task adapters and source-specific Crawl Execution
 
 packages/
   config/    shared environment/config package shell

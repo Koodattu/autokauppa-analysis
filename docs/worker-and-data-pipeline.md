@@ -1,6 +1,6 @@
 # Worker and Data Pipeline
 
-Status: planned design only. No implementation exists yet.
+Status: implemented baseline with operational tuning and broader scenario coverage still ongoing.
 
 ## Core Principle
 
@@ -23,9 +23,9 @@ The important distinction is:
 - The project provides source-specific crawling, parsing, normalization, and
   persistence logic.
 
-Use a pure Bun worker only if the first version intentionally avoids Graphile
-Worker and implements a simpler Postgres-backed job loop. That is lower
-dependency surface, but also more custom reliability code.
+The deployed worker uses Graphile Worker. Source-specific execution lives behind
+`NettiautoCrawlExecution`; Graphile task modules validate deployed payloads,
+construct runtime adapters, and close their SQL clients.
 
 ## Worker Responsibilities
 
@@ -241,9 +241,8 @@ The database should expose:
 
 ## Admin Visibility
 
-The first version does not need a full admin console, but the architecture should
-not hide worker state. At minimum, build API endpoints or internal pages later
-that can answer:
+The Admin Panel exposes Crawler Status, diagnostics, manual scheduling, and
+pause/resume controls. These answer:
 
 - Is the worker running?
 - What was the last successful crawl?

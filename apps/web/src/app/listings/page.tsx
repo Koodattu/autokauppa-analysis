@@ -1,11 +1,8 @@
 import Link from "next/link";
 import {
   ApiError,
-  filterMetadataQueryString,
   getFilterMetadata,
   getListings,
-  listingDetailHref,
-  searchParamsToQueryString,
   type FilterMetadata,
   type ListingSearchResponse,
   type ListingTableItem,
@@ -20,6 +17,10 @@ import {
 import { MarketFilterForm, type PageSearchParams } from "../market-filter-form";
 import { MarketCoverage } from "../market-coverage";
 import { SiteHeader } from "../site-header";
+import {
+  resolveListingNavigation,
+  type ListingNavigation,
+} from "@/lib/url-filter-navigation";
 
 type PageProps = {
   searchParams: Promise<PageSearchParams>;
@@ -27,7 +28,11 @@ type PageProps = {
 
 export default async function ListingsPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const result = await loadListingsData(searchParamsToQueryString(params));
+  const navigation = resolveListingNavigation(params);
+  if (!navigation) {
+    return <ListingsError error={new ApiError("Invalid Listing View", 400)} />;
+  }
+  const result = await loadListingsData(navigation);
 
   if (!result.ok) {
     return <ListingsError error={result.error} />;
@@ -46,13 +51,13 @@ export default async function ListingsPage({ searchParams }: PageProps) {
             {formatNumber(listings.pagination.totalItems)} results in this market scope · observed through {formatDateTime(listings.coverage.lastRelevantCrawlAt)}
           </p>
         </div>
-        <Link className="button-link secondary-button" href={analyticsHref(params)}>
+        <Link className="button-link secondary-button" href={navigation.analyticsHref}>
           Analyze this market
         </Link>
       </section>
 
       <MarketFilterForm
-        key={searchParamsToQueryString(params)}
+        key={navigation.queryString}
         action="/listings"
         filters={filters}
         params={params}
@@ -79,7 +84,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
               <Link className="button-link" href="/listings">
                 Reset filters
               </Link>
-              <Link className="button-link secondary-button" href={analyticsHref(params)}>
+              <Link className="button-link secondary-button" href={navigation.analyticsHref}>
                 Return to analysis
               </Link>
             </div>
@@ -101,7 +106,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                 {listings.items.map((listing) => (
                   <tr key={listing.listingId}>
                     <td>
-                      <ListingLink listing={listing} params={params} />
+                      <ListingLink listing={listing} navigation={navigation} />
                     </td>
                     <td><ListingPrice listing={listing} /></td>
                     <td>{formatKm(listing.mileageKm)}</td>
@@ -120,7 +125,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
               {listings.items.map((listing) => (
                 <article className="listing-card" key={listing.listingId}>
                   <div className="listing-card-heading">
-                    <ListingLink listing={listing} params={params} />
+                    <ListingLink listing={listing} navigation={navigation} />
                     <span className={`status-badge status-${statusTone(listing.availability)}`}>
                       {labelAvailability(listing.availability)}
                     </span>
@@ -150,15 +155,21 @@ export default async function ListingsPage({ searchParams }: PageProps) {
         )}
       </section>
 
-      <Pagination listings={listings} params={params} />
+      <Pagination listings={listings} navigation={navigation} />
     </main>
   );
 }
 
-function ListingLink({ listing, params }: { listing: ListingTableItem; params: PageSearchParams }) {
+function ListingLink({
+  listing,
+  navigation,
+}: {
+  listing: ListingTableItem;
+  navigation: ListingNavigation;
+}) {
   const title = [listing.make, listing.model].filter(Boolean).join(" ") || "Unknown listing";
   return (
-    <Link className="listing-link" href={listingDetailHref(listing.listingId, params)}>
+    <Link className="listing-link" href={navigation.detailHref(listing.listingId)}>
       <strong>{title}</strong>
       <span>
         {listing.yearModel ?? "Year unknown"} · {listing.sourceListingId}
@@ -190,7 +201,13 @@ function ListingSeller({ listing }: { listing: ListingTableItem }) {
   );
 }
 
-function Pagination({ listings, params }: { listings: ListingSearchResponse; params: PageSearchParams }) {
+function Pagination({
+  listings,
+  navigation,
+}: {
+  listings: ListingSearchResponse;
+  navigation: ListingNavigation;
+}) {
   const { page, totalPages } = listings.pagination;
   if (totalPages <= 1) {
     return null;
@@ -198,7 +215,7 @@ function Pagination({ listings, params }: { listings: ListingSearchResponse; par
   return (
     <nav className="pagination" aria-label="Listings pagination">
       {page > 1 ? (
-        <Link className="button-link secondary-button" href={pageHref(params, page - 1)} rel="prev">
+        <Link className="button-link secondary-button" href={navigation.pageHref(page - 1)} rel="prev">
           Previous
         </Link>
       ) : (
@@ -208,7 +225,7 @@ function Pagination({ listings, params }: { listings: ListingSearchResponse; par
         {page} / {totalPages}
       </span>
       {page < totalPages ? (
-        <Link className="button-link secondary-button" href={pageHref(params, page + 1)} rel="next">
+        <Link className="button-link secondary-button" href={navigation.pageHref(page + 1)} rel="next">
           Next
         </Link>
       ) : (
@@ -218,14 +235,15 @@ function Pagination({ listings, params }: { listings: ListingSearchResponse; par
   );
 }
 
-async function loadListingsData(queryString: string): Promise<
+async function loadListingsData(navigation: ListingNavigation): Promise<
   | { ok: true; data: { filters: FilterMetadata; listings: ListingSearchResponse } }
   | { ok: false; error: unknown }
 > {
   try {
-    const query = queryString ? `?${queryString}` : "";
-    const filterQueryString = filterMetadataQueryString(queryString);
-    const filterQuery = filterQueryString ? `?${filterQueryString}` : "";
+    const query = navigation.queryString ? `?${navigation.queryString}` : "";
+    const filterQuery = navigation.filterMetadataQueryString
+      ? `?${navigation.filterMetadataQueryString}`
+      : "";
     const [filters, listings] = await Promise.all([
       getFilterMetadata(filterQuery, { next: { revalidate: 300 } }),
       getListings(query, { next: { revalidate: 60 } }),
@@ -234,21 +252,6 @@ async function loadListingsData(queryString: string): Promise<
   } catch (error) {
     return { ok: false, error };
   }
-}
-
-function pageHref(params: PageSearchParams, page: number) {
-  const query = new URLSearchParams(searchParamsToQueryString(params));
-  query.set("page", String(page));
-  return `/listings?${query.toString()}`;
-}
-
-function analyticsHref(params: PageSearchParams) {
-  const query = new URLSearchParams(searchParamsToQueryString(params));
-  for (const key of ["page", "pageSize", "sort"]) {
-    query.delete(key);
-  }
-  const value = query.toString();
-  return value ? `/?${value}` : "/";
 }
 
 function ListingsError({ error }: { error: unknown }) {

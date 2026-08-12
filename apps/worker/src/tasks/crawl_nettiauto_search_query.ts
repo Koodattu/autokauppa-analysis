@@ -65,7 +65,7 @@ const task: Task = async (payload, helpers) => {
       );
       return;
     }
-    await workQueue.enqueueSearchPage({
+    await workQueue.enqueueSearchResultPage({
       crawlRunId,
       sourceQueryId: sourceQuery.id,
       pageNumber: 1,
