@@ -9,6 +9,7 @@ import {
   type CrawlJobContext,
 } from "./nettiauto-crawl-execution";
 import { createHttpNettiautoSource } from "./nettiauto-source";
+import { createListingHeroImageArchiver } from "./hero-image-archiver";
 
 type NettiautoTaskName =
   | "schedule_nettiauto_crawl"
@@ -27,12 +28,16 @@ const searchResultPagePayloadSchema = z.object({
 });
 
 const detailPagePayloadSchema = z.object({
-  crawlRunId: z.string().uuid(),
+  crawlRunId: z.string().uuid().nullable(),
+  detailBackfillRunId: z.string().uuid().nullable().optional().default(null),
   searchQueryId: z.string().uuid(),
   sourceListingId: z.string().min(1),
   sourceUrl: z.string().url(),
   force: z.boolean().optional().default(false),
-});
+}).refine(
+  (value) => Number(value.crawlRunId !== null) + Number(value.detailBackfillRunId !== null) === 1,
+  { message: "Exactly one crawl or detail backfill run is required." },
+);
 
 export function createNettiautoGraphileTask(taskName: NettiautoTaskName): Task {
   return async (payload, helpers) => {
@@ -48,6 +53,12 @@ export function createNettiautoGraphileTask(taskName: NettiautoTaskName): Task {
         logger,
         source: createHttpNettiautoSource(),
         workQueue: createGraphileCrawlWorkQueue(helpers.addJob),
+        heroImageArchiver: createListingHeroImageArchiver({
+          sql,
+          enabled: config.HERO_IMAGE_ARCHIVE_ENABLED,
+          storagePath: config.HERO_IMAGE_STORAGE_PATH,
+          maxSourceBytes: config.HERO_IMAGE_MAX_SOURCE_BYTES,
+        }),
       });
 
       if (command.taskName === "schedule_nettiauto_crawl") {

@@ -10,9 +10,11 @@ import {
 import {
   buildNettiautoSearchUrl,
   classifyNettiautoResponseBody,
+  hasUsableNettiautoDetailEvidence,
   nettiautoAjaxRequestHeaders,
   parseNettiautoDetailPage,
   parseNettiautoAjaxSearchResult,
+  upgradeStoredNettiautoDetailToV4,
 } from "./nettiauto";
 import { shouldScheduleSourceSearchQuery } from "./persistence";
 
@@ -202,6 +204,15 @@ describe("Nettiauto Search Result parser", () => {
           <span class="vehicle-info-box__vehicle-det">WV1ZZZ7HZGH061848</span>
         </div>
         ${box("Teho", "75 kW / 102 Hv")}
+        ${box("Vääntö", "400 Nm")}
+        ${box("Akku&shy;kapasiteetti", "82 kWh")}
+        ${box("Sähköinen kantama", "533 km")}
+        ${box("Lataustyyppi", "CCS\nType 2")}
+        ${box("Latausteho AC", "11 kW")}
+        ${box("Suurin latausteho DC", "150 kW")}
+        ${box("Akkutakuu", "96 kk / 160 000 km")}
+        ${box("Sähkön kulutus", "Yhdistetty: 16,8 kWh/100 km")}
+        ${box("Omistajia", "1")}
         ${box("Huippunopeus", "165 km/h")}
         ${box("Kiihtyvyys (0-100)", "14,9 s")}
         ${box("Henkilömäärä", "3")}
@@ -246,7 +257,7 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.sourceUpdatedDateSource).toBe("detail_field");
     expect(page.normalizedData.sourceLocationLabel).toBe("Kuopio, Pohjois-Savo");
     expect(page.normalizedData.registrationNumber).toBe("GLU-494");
-    expect(page.normalizedData).not.toHaveProperty("vin");
+    expect(page.normalizedData.vin).toBe("WV1ZZZ7HZGH061848");
     expect(page.normalizedData.officeFeeEur).toBe(299);
     expect(page.normalizedData.mileageKm).toBe(120000);
     expect(page.normalizedData.engineSourceLabel).toBe("2,0 l, Diesel");
@@ -257,6 +268,16 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.normalizedData.colorSourceLabel).toBe("Valkoinen");
     expect(page.normalizedData.powerKw).toBe(75);
     expect(page.normalizedData.powerHp).toBe(102);
+    expect(page.normalizedData.torqueNm).toBe(400);
+    expect(page.normalizedData.batteryCapacityKwh).toBe(82);
+    expect(page.normalizedData.electricRangeKm).toBe(533);
+    expect(page.normalizedData.chargingTypeSourceLabel).toBe("CCS\nType 2");
+    expect(page.normalizedData.chargingPowerAcKw).toBe(11);
+    expect(page.normalizedData.chargingPowerDcKw).toBe(150);
+    expect(page.normalizedData.batteryWarrantyMonths).toBe(96);
+    expect(page.normalizedData.batteryWarrantyKm).toBe(160000);
+    expect(page.normalizedData.electricConsumptionCombinedKwh100Km).toBe(16.8);
+    expect(page.normalizedData.ownerCount).toBe(1);
     expect(page.normalizedData.acceleration0To100S).toBe(14.9);
     expect(page.normalizedData.co2GKm).toBe(157);
     expect(page.normalizedData.energyEfficiencyClassSourceLabel).toBe("D");
@@ -297,6 +318,7 @@ describe("Nettiauto Search Result parser", () => {
       key: "description",
       value: "Nyt myynnissä Volkswagen Transporter, 120 000 km, 2016 - Kuopio",
     });
+    expect(hasUsableNettiautoDetailEvidence(page)).toBe(true);
   });
 
   it("keeps parsing the legacy reversed detail field classes", () => {
@@ -321,6 +343,64 @@ describe("Nettiauto Search Result parser", () => {
     expect(page.sourceUpdatedDate).toBeNull();
     expect(page.sourceUpdatedDateLabel).toBeNull();
     expect(page.sourceUpdatedDateSource).toBeNull();
+  });
+
+  it("rejects a generic HTML document as parsed detail evidence", () => {
+    const page = parseNettiautoDetailPage(
+      "<html><head><title>Not found</title></head><body>Listing unavailable</body></html>",
+      { sourceListingId: "123" },
+    );
+
+    expect(hasUsableNettiautoDetailEvidence(page)).toBe(false);
+  });
+
+  it("upgrades bounded v2 additional fields without retaining the generic array", () => {
+    const upgraded = upgradeStoredNettiautoDetailToV4(
+      {
+        fields: [{ label: "Vääntö", value: "400 Nm" }],
+        normalizedData: {
+          detailParserVersion: "nettiauto-detail-v2",
+          vin: "wvwzzz1kz6w000001",
+          additionalSourceFields: [
+            { label: "Akku­kapasiteetti", value: "82 kWh" },
+            { label: "Akkutakuu", value: "96 kk / 160 000 km" },
+            { label: "Omistajia", value: "2" },
+          ],
+        },
+      },
+      "nettiauto-detail-v2",
+    );
+
+    expect(upgraded).toMatchObject({
+      vin: "WVWZZZ1KZ6W000001",
+      torqueNm: 400,
+      batteryCapacityKwh: 82,
+      batteryWarrantyMonths: 96,
+      batteryWarrantyKm: 160000,
+      ownerCount: 2,
+    });
+    expect(upgraded?.normalizedData).not.toHaveProperty("additionalSourceFields");
+    expect(upgraded?.normalizedData).toHaveProperty(
+      "detailNormalizationSchemaVersion",
+      "nettiauto-detail-v4",
+    );
+  });
+
+  it("keeps implausible source specifications out of normalized analytics fields", () => {
+    const upgraded = upgradeStoredNettiautoDetailToV4(
+      {
+        normalizedData: {
+          additionalSourceFields: [
+            { label: "Vääntö", value: "10 000 Nm" },
+            { label: "Akkukapasiteetti", value: "839 kWh" },
+          ],
+        },
+      },
+      "nettiauto-detail-v2",
+    );
+
+    expect(upgraded?.torqueNm).toBeNull();
+    expect(upgraded?.batteryCapacityKwh).toBeNull();
   });
 });
 

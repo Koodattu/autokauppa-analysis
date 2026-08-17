@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun run build && graphile-worker -C graphile.config.mjs",
     "start": "graphile-worker -C graphile.config.mjs",
-    "build": "tsc -p tsconfig.json --tsBuildInfoFile dist/tsconfig.tsbuildinfo && node -e \"require('node:fs').mkdirSync('dist/tasks', { recursive: true })\"",
+    "build": "tsc -p tsconfig.json --tsBuildInfoFile dist/tsconfig.tsbuildinfo && node -e \"const fs=require('node:fs');fs.mkdirSync('dist/tasks',{recursive:true});fs.copyFileSync('src/sharp-encode.mjs','dist/sharp-encode.mjs')\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
@@ -20,6 +20,7 @@
     "@nettiauto/schemas": "workspace:*",
     "graphile-worker": "^0.17.2",
     "pg": "^8.22.0",
+    "sharp": "0.35.3",
     "zod": "^4.4.3"
   }
 }

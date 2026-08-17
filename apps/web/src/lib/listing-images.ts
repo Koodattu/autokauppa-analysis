@@ -16,6 +16,9 @@ export const LISTING_IMAGE_REMOTE_PATTERNS = [
 ];
 
 export function isAllowedListingImageUrl(value: string) {
+  if (/^\/media\/heroes\/[a-z0-9/_-]+\.webp$/i.test(value)) {
+    return true;
+  }
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.port || url.search || url.hash) {

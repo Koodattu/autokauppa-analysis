@@ -29,6 +29,7 @@ COPY packages/schemas/src packages/schemas/src
 RUN bun --cwd apps/worker build
 
 FROM manifests AS runner
+RUN apk add --no-cache nodejs
 RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache,sharing=locked \
     bun install --frozen-lockfile --production --filter '@nettiauto/worker'
 
@@ -41,6 +42,8 @@ COPY packages/db/src packages/db/src
 COPY packages/domain/src packages/domain/src
 COPY packages/logging/src packages/logging/src
 COPY packages/schemas/src packages/schemas/src
+
+RUN mkdir -p /data/hero-images && chown -R bun:bun /data/hero-images
 
 WORKDIR /app/apps/worker
 USER bun

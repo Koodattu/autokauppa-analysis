@@ -2,11 +2,13 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  check,
   date,
   index,
   integer,
   interval,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -132,13 +134,36 @@ export const crawlRuns = pgTable(
   ],
 );
 
+export const detailBackfillRuns = pgTable(
+  "detail_backfill_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: sourceCodeEnum("source").notNull(),
+    targetParserVersion: text("target_parser_version").notNull(),
+    selection: text("selection").notNull().default("missing_or_v1"),
+    status: text("status").notNull().default("planned"),
+    targetCount: integer("target_count").notNull().default(0),
+    scheduledCount: integer("scheduled_count").notNull().default(0),
+    succeededCount: integer("succeeded_count").notNull().default(0),
+    unavailableCount: integer("unavailable_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    notes: text("notes"),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  },
+  (table) => [
+    index("detail_backfill_runs_status_created_idx").on(table.status, table.createdAt.desc()),
+  ],
+);
+
 export const sourceFetches = pgTable(
   "source_fetches",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    crawlRunId: uuid("crawl_run_id")
-      .notNull()
-      .references(() => crawlRuns.id),
+    crawlRunId: uuid("crawl_run_id").references(() => crawlRuns.id),
+    detailBackfillRunId: uuid("detail_backfill_run_id").references(() => detailBackfillRuns.id),
     searchQueryId: uuid("search_query_id")
       .notNull()
       .references(() => sourceSearchQueries.id),
@@ -147,6 +172,7 @@ export const sourceFetches = pgTable(
     pageNumber: integer("page_number"),
     attemptNumber: integer("attempt_number").notNull().default(1),
     sourceUrl: text("source_url").notNull(),
+    sourceListingId: text("source_listing_id"),
     requestHeaders: jsonb("request_headers").notNull().default(jsonbEmptyObject),
     responseStatus: integer("response_status"),
     responseContentType: text("response_content_type"),
@@ -159,6 +185,10 @@ export const sourceFetches = pgTable(
     errorMessage: text("error_message"),
   },
   (table) => [
+    check(
+      "source_fetches_single_run_context_ck",
+      sql`num_nonnulls(${table.crawlRunId}, ${table.detailBackfillRunId}) = 1`,
+    ),
     uniqueIndex("source_fetches_crawl_run_kind_page_uq").on(
       table.crawlRunId,
       table.fetchKind,
@@ -166,6 +196,7 @@ export const sourceFetches = pgTable(
       table.attemptNumber,
     ),
     index("source_fetches_search_query_page_idx").on(table.searchQueryId, table.pageNumber),
+    index("source_fetches_detail_backfill_idx").on(table.detailBackfillRunId, table.fetchedAt),
     index("source_fetches_response_status_idx").on(table.responseStatus),
     index("source_fetches_response_body_shape_idx").on(table.responseBodyShape),
     index("source_fetches_failures_fetched_idx")
@@ -180,9 +211,8 @@ export const rawListingRecords = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     source: sourceCodeEnum("source").notNull(),
     sourceListingId: text("source_listing_id").notNull(),
-    crawlRunId: uuid("crawl_run_id")
-      .notNull()
-      .references(() => crawlRuns.id),
+    crawlRunId: uuid("crawl_run_id").references(() => crawlRuns.id),
+    detailBackfillRunId: uuid("detail_backfill_run_id").references(() => detailBackfillRuns.id),
     sourceFetchId: uuid("source_fetch_id")
       .notNull()
       .references(() => sourceFetches.id),
@@ -198,6 +228,10 @@ export const rawListingRecords = pgTable(
     parseError: text("parse_error"),
   },
   (table) => [
+    check(
+      "raw_listing_records_single_run_context_ck",
+      sql`num_nonnulls(${table.crawlRunId}, ${table.detailBackfillRunId}) = 1`,
+    ),
     uniqueIndex("raw_listing_records_fetch_listing_kind_uq").on(
       table.sourceFetchId,
       table.sourceListingId,
@@ -205,6 +239,7 @@ export const rawListingRecords = pgTable(
     ),
     index("raw_listing_records_source_listing_idx").on(table.source, table.sourceListingId),
     index("raw_listing_records_crawl_run_idx").on(table.crawlRunId),
+    index("raw_listing_records_detail_backfill_idx").on(table.detailBackfillRunId),
     index("raw_listing_records_parser_status_idx").on(table.parserVersion, table.parserStatus),
     index("raw_listing_records_captured_quality_idx").on(
       table.capturedAt.desc(),
@@ -367,6 +402,100 @@ export const listingImages = pgTable(
   ],
 );
 
+export const listingDetails = pgTable(
+  "listing_details",
+  {
+    listingId: uuid("listing_id")
+      .primaryKey()
+      .references(() => listings.id),
+    sourceParserVersion: text("source_parser_version").notNull(),
+    normalizationSchemaVersion: text("normalization_schema_version").notNull(),
+    sourceRawListingRecordId: uuid("source_raw_listing_record_id")
+      .notNull()
+      .references(() => rawListingRecords.id),
+    sourceFetchId: uuid("source_fetch_id")
+      .notNull()
+      .references(() => sourceFetches.id),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+    sourceUpdatedDate: date("source_updated_date"),
+    vin: text("vin"),
+    torqueNm: integer("torque_nm"),
+    batteryCapacityKwh: numeric("battery_capacity_kwh", { precision: 8, scale: 2 }),
+    electricRangeKm: integer("electric_range_km"),
+    chargingTypeSourceLabel: text("charging_type_source_label"),
+    chargingPowerAcKw: numeric("charging_power_ac_kw", { precision: 8, scale: 2 }),
+    chargingPowerDcKw: numeric("charging_power_dc_kw", { precision: 8, scale: 2 }),
+    batteryWarrantySourceLabel: text("battery_warranty_source_label"),
+    batteryWarrantyMonths: integer("battery_warranty_months"),
+    batteryWarrantyKm: integer("battery_warranty_km"),
+    electricConsumptionSourceLabel: text("electric_consumption_source_label"),
+    electricConsumptionCombinedKwh100Km: numeric(
+      "electric_consumption_combined_kwh_100km",
+      { precision: 8, scale: 2 },
+    ),
+    ownerCount: integer("owner_count"),
+    normalizedData: jsonb("normalized_data").notNull().default(jsonbEmptyObject),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  },
+  (table) => [
+    index("listing_details_parser_idx").on(
+      table.sourceParserVersion,
+      table.normalizationSchemaVersion,
+    ),
+    index("listing_details_vin_idx").on(table.vin),
+  ],
+);
+
+export const listingImageAssets = pgTable(
+  "listing_image_assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id),
+    assetPath: text("asset_path").notNull(),
+    variantMask: integer("variant_mask").notNull().default(0),
+    imageRole: text("image_role"),
+    position: integer("position"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    lastRawListingRecordId: uuid("last_raw_listing_record_id")
+      .notNull()
+      .references(() => rawListingRecords.id),
+  },
+  (table) => [
+    uniqueIndex("listing_image_assets_listing_path_uq").on(table.listingId, table.assetPath),
+    index("listing_image_assets_listing_cohort_position_idx").on(
+      table.listingId,
+      table.lastRawListingRecordId,
+      table.position,
+    ),
+  ],
+);
+
+export const listingHeroImages = pgTable(
+  "listing_hero_images",
+  {
+    listingId: uuid("listing_id")
+      .primaryKey()
+      .references(() => listings.id),
+    objectKey: text("object_key").notNull(),
+    contentSha256: text("content_sha256").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    sourceImageAssetPath: text("source_image_asset_path").notNull(),
+    sourceRawListingRecordId: uuid("source_raw_listing_record_id")
+      .notNull()
+      .references(() => rawListingRecords.id),
+    archivedAt: timestamp("archived_at", { withTimezone: true }).notNull(),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  },
+  (table) => [index("listing_hero_images_content_sha_idx").on(table.contentSha256)],
+);
+
 export const listingEvents = pgTable(
   "listing_events",
   {
@@ -412,3 +541,4 @@ export type SourceSearchQuery = typeof sourceSearchQueries.$inferSelect;
 export type CrawlRun = typeof crawlRuns.$inferSelect;
 export type Listing = typeof listings.$inferSelect;
 export type ListingSnapshot = typeof listingSnapshots.$inferSelect;
+export type ListingDetail = typeof listingDetails.$inferSelect;

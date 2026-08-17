@@ -1,6 +1,13 @@
 const MAX_PUBLIC_LISTING_IMAGES = 60;
-const IMAGE_EXTENSION_PATTERN = /\.(?:jpe?g|png|webp)$/i;
-const IMAGE_VARIANT_PATTERN = /-(?:large|\d+x\d+)$/i;
+const NETTIAUTO_IMAGE_HOST = "images.nettiauto.com";
+const NETTIAUTO_IMAGE_BASE_URL = `https://${NETTIAUTO_IMAGE_HOST}`;
+
+export const NETTIAUTO_IMAGE_VARIANT = {
+  largeJpeg: 1,
+  largeWebp: 2,
+  thumbnailWebp: 4,
+  thumbnailJpeg: 8,
+} as const;
 
 export interface StoredListingImageRow {
   imageUrl: string;
@@ -21,6 +28,25 @@ export interface PublicListingImage {
   position: number | null;
   width: number | null;
   height: number | null;
+}
+
+export interface NettiautoImageAsset {
+  assetPath: string;
+  variantMask: number;
+}
+
+export interface StoredCompactListingImageRow extends NettiautoImageAsset {
+  role: string | null;
+  position: number | null;
+  cohortId: string;
+  capturedAt: string;
+  lastSeenAt: string;
+}
+
+export interface StoredListingHeroImage {
+  objectKey: string;
+  width: number;
+  height: number;
 }
 
 interface ValidImageRow extends StoredListingImageRow {
@@ -95,25 +121,125 @@ export function selectPublicListingImages(rows: StoredListingImageRow[]): Public
 }
 
 export function nettiautoImageAssetKey(value: string) {
+  const asset = parseNettiautoImageAsset(value);
+  return asset ? `${NETTIAUTO_IMAGE_HOST}${asset.assetPath}` : null;
+}
+
+export function parseNettiautoImageAsset(value: string): NettiautoImageAsset | null {
   try {
     const url = new URL(value);
     if (
       url.protocol !== "https:" ||
-      url.hostname !== "images.nettiauto.com" ||
+      url.hostname !== NETTIAUTO_IMAGE_HOST ||
       url.port ||
       url.search ||
       url.hash ||
-      !url.pathname.startsWith("/live/") ||
-      !IMAGE_EXTENSION_PATTERN.test(url.pathname)
+      !url.pathname.startsWith("/live/")
     ) {
       return null;
     }
 
-    const withoutExtension = url.pathname.replace(IMAGE_EXTENSION_PATTERN, "");
-    return `${url.hostname}${withoutExtension.replace(IMAGE_VARIANT_PATTERN, "")}`;
+    const variants: Array<[RegExp, number]> = [
+      [/-large\.jpe?g$/i, NETTIAUTO_IMAGE_VARIANT.largeJpeg],
+      [/-large\.webp$/i, NETTIAUTO_IMAGE_VARIANT.largeWebp],
+      [/-289x217\.webp$/i, NETTIAUTO_IMAGE_VARIANT.thumbnailWebp],
+      [/-289x217\.jpe?g$/i, NETTIAUTO_IMAGE_VARIANT.thumbnailJpeg],
+    ];
+    const variant = variants.find(([pattern]) => pattern.test(url.pathname));
+    if (!variant) {
+      return null;
+    }
+
+    return {
+      assetPath: url.pathname.replace(variant[0], ""),
+      variantMask: variant[1],
+    };
   } catch {
     return null;
   }
+}
+
+export function nettiautoImageUrls(assetPath: string, variantMask: number) {
+  if (!assetPath.startsWith("/live/") || /[?#]/.test(assetPath)) {
+    return [];
+  }
+
+  const variants: Array<[number, string]> = [
+    [NETTIAUTO_IMAGE_VARIANT.largeJpeg, "-large.jpg"],
+    [NETTIAUTO_IMAGE_VARIANT.largeWebp, "-large.webp"],
+    [NETTIAUTO_IMAGE_VARIANT.thumbnailWebp, "-289x217.webp"],
+    [NETTIAUTO_IMAGE_VARIANT.thumbnailJpeg, "-289x217.jpg"],
+  ];
+  return variants.flatMap(([flag, suffix]) =>
+    (variantMask & flag) === flag ? [`${NETTIAUTO_IMAGE_BASE_URL}${assetPath}${suffix}`] : [],
+  );
+}
+
+export function selectCompactPublicListingImages(
+  rows: StoredCompactListingImageRow[],
+  hero?: StoredListingHeroImage | null,
+): PublicListingImage[] {
+  if (rows.length === 0) {
+    return hero ? [archivedHeroImage(hero)] : [];
+  }
+
+  const newestCohortId = [...rows].sort((left, right) =>
+    timestamp(right.capturedAt) - timestamp(left.capturedAt) ||
+    timestamp(right.lastSeenAt) - timestamp(left.lastSeenAt),
+  )[0]?.cohortId;
+  const images = rows
+    .filter((row) => row.cohortId === newestCohortId)
+    .sort((left, right) =>
+      (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER) ||
+      left.assetPath.localeCompare(right.assetPath),
+    )
+    .slice(0, MAX_PUBLIC_LISTING_IMAGES)
+    .flatMap((row) => {
+      const [imageUrl, ...fallbackImageUrls] = nettiautoImageUrls(row.assetPath, row.variantMask);
+      return imageUrl
+        ? [{
+            imageUrl,
+            fallbackImageUrls,
+            role: row.role,
+            position: row.position,
+            width: null,
+            height: null,
+          }]
+        : [];
+    });
+
+  return preferArchivedHero(images, hero);
+}
+
+export function preferArchivedHero(
+  images: PublicListingImage[],
+  hero?: StoredListingHeroImage | null,
+) {
+  if (!hero) {
+    return images;
+  }
+  const archivedHero = archivedHeroImage(hero);
+  const [first, ...rest] = images;
+  return first
+    ? [{
+        ...first,
+        imageUrl: archivedHero.imageUrl,
+        fallbackImageUrls: [first.imageUrl, ...first.fallbackImageUrls],
+        width: archivedHero.width,
+        height: archivedHero.height,
+      }, ...rest]
+    : [archivedHero];
+}
+
+function archivedHeroImage(hero: StoredListingHeroImage): PublicListingImage {
+  return {
+    imageUrl: `/media/heroes/${hero.objectKey}`,
+    fallbackImageUrls: [],
+    role: "hero",
+    position: 1,
+    width: hero.width,
+    height: hero.height,
+  };
 }
 
 function newestTimestamp(rows: ValidImageRow[], field: "capturedAt" | "lastSeenAt") {

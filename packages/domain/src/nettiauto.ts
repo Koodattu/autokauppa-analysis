@@ -8,7 +8,8 @@ import {
 
 export const NETTIAUTO_SOURCE = "nettiauto" as const;
 export const NETTIAUTO_PARSER_VERSION = "nettiauto-search-result-v1";
-export const NETTIAUTO_DETAIL_PARSER_VERSION = "nettiauto-detail-v3";
+export const NETTIAUTO_DETAIL_PARSER_VERSION = "nettiauto-detail-v4";
+export const NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION = "nettiauto-detail-v4";
 export const NETTIAUTO_BASE_URL = "https://www.nettiauto.com";
 export const NETTIAUTO_BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
@@ -94,6 +95,7 @@ export interface ParsedNettiautoDetailEquipmentGroup {
 
 export interface NettiautoDetailNormalizedData {
   detailParserVersion: typeof NETTIAUTO_DETAIL_PARSER_VERSION;
+  detailNormalizationSchemaVersion: typeof NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION;
   sourceUpdatedDate: string | null;
   sourceUpdatedDateLabel: string | null;
   sourceUpdatedDateSource: NettiautoDetailUpdatedDateSource | null;
@@ -103,6 +105,7 @@ export interface NettiautoDetailNormalizedData {
   detailPriceSourceLabel: string | null;
   uniqueSellingPointSourceLabel: string | null;
   registrationNumber: string | null;
+  vin: string | null;
   officeFeeEur: number | null;
   mileageKm: number | null;
   engineSourceLabel: string | null;
@@ -117,6 +120,7 @@ export interface NettiautoDetailNormalizedData {
   colorSourceLabel: string | null;
   powerKw: number | null;
   powerHp: number | null;
+  torqueNm: number | null;
   topSpeedKmh: number | null;
   acceleration0To100S: number | null;
   seatCount: number | null;
@@ -132,6 +136,17 @@ export interface NettiautoDetailNormalizedData {
   fuelConsumptionCityL100Km: number | null;
   fuelConsumptionHighwayL100Km: number | null;
   fuelConsumptionCombinedL100Km: number | null;
+  batteryCapacityKwh: number | null;
+  electricRangeKm: number | null;
+  chargingTypeSourceLabel: string | null;
+  chargingPowerAcKw: number | null;
+  chargingPowerDcKw: number | null;
+  batteryWarrantySourceLabel: string | null;
+  batteryWarrantyMonths: number | null;
+  batteryWarrantyKm: number | null;
+  electricConsumptionSourceLabel: string | null;
+  electricConsumptionCombinedKwh100Km: number | null;
+  ownerCount: number | null;
   sellerNotes: string | null;
   equipmentGroups: ParsedNettiautoDetailEquipmentGroup[];
   jsonLdAvailability: string | null;
@@ -156,6 +171,23 @@ export interface ParsedNettiautoDetailSourcePayload {
   sellerNotes: string | null;
   images: ParsedImageMetadata[];
   normalizedData: NettiautoDetailNormalizedData;
+}
+
+export interface NettiautoDetailV4StorageData {
+  normalizedData: Record<string, unknown>;
+  vin: string | null;
+  torqueNm: number | null;
+  batteryCapacityKwh: number | null;
+  electricRangeKm: number | null;
+  chargingTypeSourceLabel: string | null;
+  chargingPowerAcKw: number | null;
+  chargingPowerDcKw: number | null;
+  batteryWarrantySourceLabel: string | null;
+  batteryWarrantyMonths: number | null;
+  batteryWarrantyKm: number | null;
+  electricConsumptionSourceLabel: string | null;
+  electricConsumptionCombinedKwh100Km: number | null;
+  ownerCount: number | null;
 }
 
 export interface ParsedSearchResultPage {
@@ -441,6 +473,85 @@ export function parseNettiautoDetailPage(
   };
 }
 
+export function hasUsableNettiautoDetailEvidence(detail: ParsedNettiautoDetailPage) {
+  const data = detail.normalizedData;
+  const hasVehicleIdentity = [
+    data.detailTitleSourceLabel,
+    data.registrationNumber,
+    data.vin,
+    data.engineSourceLabel,
+    data.yearModel,
+    data.mileageKm,
+  ].some((value) => value !== null);
+  return detail.sourcePayload.fields.length >= 3 && hasVehicleIdentity;
+}
+
+export function upgradeStoredNettiautoDetailToV4(
+  sourcePayload: unknown,
+  sourceParserVersion: string,
+): NettiautoDetailV4StorageData | null {
+  if (!isRecord(sourcePayload) || !isRecord(sourcePayload.normalizedData)) {
+    return null;
+  }
+
+  const legacyNormalizedData = sourcePayload.normalizedData;
+  const sourceFields = [sourcePayload.fields, legacyNormalizedData.additionalSourceFields]
+    .flatMap((value) => Array.isArray(value) ? value : [])
+    .flatMap((value): ParsedNettiautoDetailField[] =>
+      isRecord(value) && typeof value.label === "string" && typeof value.value === "string"
+        ? [{ label: value.label, value: value.value }]
+        : [],
+    );
+  const batteryWarrantySourceLabel = detailFieldValue(sourceFields, "Akkutakuu");
+  const electricConsumptionSourceLabel = detailFieldValue(sourceFields, "Sähkön kulutus");
+  const storageData: NettiautoDetailV4StorageData = {
+    vin: normalizeVin(stringRecordValue(legacyNormalizedData, "vin")),
+    torqueNm: parseBoundedInteger(detailFieldValue(sourceFields, "Vääntö"), 1, 5_000),
+    batteryCapacityKwh: parseBoundedDecimal(
+      detailFieldValue(sourceFields, "Akkukapasiteetti"),
+      0.1,
+      500,
+    ),
+    electricRangeKm: parseBoundedInteger(
+      detailFieldValue(sourceFields, "Sähköinen kantama"),
+      1,
+      2_000,
+    ),
+    chargingTypeSourceLabel: detailFieldValue(sourceFields, "Lataustyyppi"),
+    chargingPowerAcKw: parseBoundedDecimal(
+      detailFieldValue(sourceFields, "Latausteho AC"),
+      0.1,
+      1_000,
+    ),
+    chargingPowerDcKw: parseBoundedDecimal(
+      detailFieldValue(sourceFields, "Suurin latausteho DC"),
+      0.1,
+      1_000,
+    ),
+    batteryWarrantySourceLabel,
+    batteryWarrantyMonths: boundedNumber(parseBatteryWarrantyMonths(batteryWarrantySourceLabel), 1, 600),
+    batteryWarrantyKm: boundedNumber(parseBatteryWarrantyKm(batteryWarrantySourceLabel), 1, 2_000_000),
+    electricConsumptionSourceLabel,
+    electricConsumptionCombinedKwh100Km: boundedNumber(
+      parseConsumptionValue(electricConsumptionSourceLabel, "Yhdistetty"),
+      0.1,
+      200,
+    ),
+    ownerCount: parseBoundedInteger(detailFieldValue(sourceFields, "Omistajia"), 0, 100),
+    normalizedData: {},
+  };
+  const { additionalSourceFields: _, ...boundedLegacyData } = legacyNormalizedData;
+  storageData.normalizedData = {
+    ...boundedLegacyData,
+    detailParserVersion: sourceParserVersion,
+    detailNormalizationSchemaVersion: NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION,
+    ...Object.fromEntries(
+      Object.entries(storageData).filter(([key]) => key !== "normalizedData"),
+    ),
+  };
+  return storageData;
+}
+
 function extractDetailFields($: ReturnType<typeof load>): ParsedNettiautoDetailField[] {
   const fields: ParsedNettiautoDetailField[] = [];
   const pushField = (label: string, value: string) => {
@@ -710,9 +821,12 @@ function normalizeNettiautoDetailData(
   const engineSourceLabel = detailFieldValue(fields, "Moottori");
   const powerLabel = detailFieldValue(fields, "Teho");
   const fuelConsumptionSourceLabel = detailFieldValue(fields, "Polttoaineen kulutus");
+  const batteryWarrantySourceLabel = detailFieldValue(fields, "Akkutakuu");
+  const electricConsumptionSourceLabel = detailFieldValue(fields, "Sähkön kulutus");
 
   return {
     detailParserVersion: NETTIAUTO_DETAIL_PARSER_VERSION,
+    detailNormalizationSchemaVersion: NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION,
     sourceUpdatedDate: updatedDate.date,
     sourceUpdatedDateLabel: updatedDate.label,
     sourceUpdatedDateSource: updatedDate.source,
@@ -722,6 +836,10 @@ function normalizeNettiautoDetailData(
     detailPriceSourceLabel: detailHeader.priceLabel,
     uniqueSellingPointSourceLabel: detailHeader.uniqueSellingPoint,
     registrationNumber: detailFieldValue(fields, "Rekisterinumero"),
+    vin: normalizeVin(
+      detailFieldValue(fields, "VIN-numero") ??
+        jsonLdString(carJsonLd, "vehicleIdentificationNumber"),
+    ),
     officeFeeEur: parseInteger(detailFieldValue(fields, "Toimistomaksu")),
     mileageKm:
       parseInteger(jsonLdValue(carJsonLd, "mileageFromOdometer.value")) ??
@@ -740,6 +858,7 @@ function normalizeNettiautoDetailData(
     colorSourceLabel: detailFieldValue(fields, "Väri") ?? jsonLdString(carJsonLd, "color"),
     powerKw: parseIntegerFromMatch(powerLabel, /(\d+)\s*kW/i),
     powerHp: parseIntegerFromMatch(powerLabel, /(\d+)\s*Hv/i),
+    torqueNm: parseBoundedInteger(detailFieldValue(fields, "Vääntö"), 1, 5_000),
     topSpeedKmh: parseInteger(detailFieldValue(fields, "Huippunopeus")),
     acceleration0To100S: parseDecimal(detailFieldValue(fields, "Kiihtyvyys (0-100)")),
     seatCount: parseInteger(detailFieldValue(fields, "Henkilömäärä")),
@@ -755,6 +874,37 @@ function normalizeNettiautoDetailData(
     fuelConsumptionCityL100Km: parseConsumptionValue(fuelConsumptionSourceLabel, "Kaupunki"),
     fuelConsumptionHighwayL100Km: parseConsumptionValue(fuelConsumptionSourceLabel, "Maantie"),
     fuelConsumptionCombinedL100Km: parseConsumptionValue(fuelConsumptionSourceLabel, "Yhdistetty"),
+    batteryCapacityKwh: parseBoundedDecimal(
+      detailFieldValue(fields, "Akkukapasiteetti"),
+      0.1,
+      500,
+    ),
+    electricRangeKm: parseBoundedInteger(
+      detailFieldValue(fields, "Sähköinen kantama"),
+      1,
+      2_000,
+    ),
+    chargingTypeSourceLabel: detailFieldValue(fields, "Lataustyyppi"),
+    chargingPowerAcKw: parseBoundedDecimal(
+      detailFieldValue(fields, "Latausteho AC"),
+      0.1,
+      1_000,
+    ),
+    chargingPowerDcKw: parseBoundedDecimal(
+      detailFieldValue(fields, "Suurin latausteho DC"),
+      0.1,
+      1_000,
+    ),
+    batteryWarrantySourceLabel,
+    batteryWarrantyMonths: boundedNumber(parseBatteryWarrantyMonths(batteryWarrantySourceLabel), 1, 600),
+    batteryWarrantyKm: boundedNumber(parseBatteryWarrantyKm(batteryWarrantySourceLabel), 1, 2_000_000),
+    electricConsumptionSourceLabel,
+    electricConsumptionCombinedKwh100Km: boundedNumber(
+      parseConsumptionValue(electricConsumptionSourceLabel, "Yhdistetty"),
+      0.1,
+      200,
+    ),
+    ownerCount: parseBoundedInteger(detailFieldValue(fields, "Omistajia"), 0, 100),
     sellerNotes,
     equipmentGroups,
     jsonLdAvailability: jsonLdString(carJsonLd, "offers.availability"),
@@ -783,6 +933,11 @@ function jsonLdValue(record: Record<string, unknown> | null, path: string): unkn
 function jsonLdString(record: Record<string, unknown> | null, path: string) {
   const value = jsonLdValue(record, path);
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function stringRecordValue(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" ? value : null;
 }
 
 function extractFuelTypeSourceLabel(engineSourceLabel: string | null) {
@@ -814,9 +969,34 @@ function parseDecimal(value: string | null) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseBoundedDecimal(value: string | null, minimum: number, maximum: number) {
+  return boundedNumber(parseDecimal(value), minimum, maximum);
+}
+
+function parseBoundedInteger(value: string | null, minimum: number, maximum: number) {
+  return boundedNumber(parseInteger(value), minimum, maximum);
+}
+
+function boundedNumber(value: number | null, minimum: number, maximum: number) {
+  return value !== null && value >= minimum && value <= maximum ? value : null;
+}
+
 function parseConsumptionValue(value: string | null, label: string) {
   const match = value?.match(new RegExp(`${label}:\\s*(-?\\d+(?:[,.]\\d+)?)`, "i"));
   return match?.[1] ? parseDecimal(match[1]) : null;
+}
+
+function parseBatteryWarrantyMonths(value: string | null) {
+  return parseIntegerFromMatch(value, /(\d[\d\s]*)\s*kk\b/i);
+}
+
+function parseBatteryWarrantyKm(value: string | null) {
+  return parseIntegerFromMatch(value, /(\d[\d\s]*)\s*km\b/i);
+}
+
+function normalizeVin(value: string | null) {
+  const normalized = value?.replace(/\s+/g, "").toUpperCase() ?? "";
+  return /^[A-HJ-NPR-Z0-9]{17}$/.test(normalized) ? normalized : null;
 }
 
 function parseEnergyEfficiencyClass($: ReturnType<typeof load>) {
@@ -865,6 +1045,7 @@ const DETAIL_FIELD_LABELS = [
   "Väri",
   "VIN-numero",
   "Teho",
+  "Vääntö",
   "Huippunopeus",
   "Kiihtyvyys (0-100)",
   "Henkilömäärä",
@@ -876,6 +1057,14 @@ const DETAIL_FIELD_LABELS = [
   "Vetomassa (ei jarruja)",
   "CO2 -päästöt",
   "Polttoaineen kulutus",
+  "Akkukapasiteetti",
+  "Sähköinen kantama",
+  "Lataustyyppi",
+  "Latausteho AC",
+  "Akkutakuu",
+  "Sähkön kulutus",
+  "Suurin latausteho DC",
+  "Omistajia",
   "Lisätiedot",
 ];
 
@@ -1056,6 +1245,7 @@ function squashMultiline(value: string) {
 
 function normalizeLabel(value: string | null | undefined) {
   return (value ?? "")
+    .replace(/[\u00ad\u200b-\u200d\ufeff]/g, "")
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .normalize("NFC")

@@ -28,6 +28,7 @@ server-rendered Next.js pages, and Docker Compose deployment.
 - [Technology Stack Decisions](docs/technology-stack.md)
 - [Worker and Data Pipeline](docs/worker-and-data-pipeline.md)
 - [Database Structure](docs/database-structure.md)
+- [Detail v4 and Compact Media Rollout](docs/storage-v4-rollout.md)
 - [Crawler Implementation Notes](docs/crawler-implementation.md)
 - [Crawler Research](docs/crawler-research.md)
 - [Product Analytics Ideas](docs/product-analytics.md)

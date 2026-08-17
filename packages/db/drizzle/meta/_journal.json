@@ -78,6 +78,20 @@
       "when": 1786350000000,
       "tag": "0010_diagnostics_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786950000000,
+      "tag": "0011_detail_v4_compact_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786955000000,
+      "tag": "0012_shared_hero_objects",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   nettiautoImageAssetKey,
+  nettiautoImageUrls,
+  parseNettiautoImageAsset,
+  selectCompactPublicListingImages,
   selectPublicListingImages,
   type StoredListingImageRow,
 } from "./listing-images";
@@ -68,5 +71,41 @@ describe("public listing image selection", () => {
     ]);
 
     expect(images.map((image) => image.position)).toEqual([1, 2]);
+  });
+
+  it("stores only a compact asset path and variant bitmask", () => {
+    expect(
+      parseNettiautoImageAsset(
+        "https://images.nettiauto.com/live/2026/08/09/photo-289x217.webp",
+      ),
+    ).toEqual({ assetPath: "/live/2026/08/09/photo", variantMask: 4 });
+    expect(nettiautoImageUrls("/live/2026/08/09/photo", 5)).toEqual([
+      "https://images.nettiauto.com/live/2026/08/09/photo-large.jpg",
+      "https://images.nettiauto.com/live/2026/08/09/photo-289x217.webp",
+    ]);
+    expect(parseNettiautoImageAsset("https://signed.example.com/photo.jpg?token=secret")).toBeNull();
+  });
+
+  it("prefers the archived hero and keeps the source CDN image as fallback", () => {
+    expect(
+      selectCompactPublicListingImages(
+        [{
+          assetPath: "/live/2026/08/09/photo",
+          variantMask: 5,
+          role: "detail",
+          position: 1,
+          cohortId: "detail",
+          capturedAt: "2026-08-09T10:00:00Z",
+          lastSeenAt: "2026-08-09T10:00:00Z",
+        }],
+        { objectKey: "ab/hero.webp", width: 960, height: 720 },
+      )[0],
+    ).toMatchObject({
+      imageUrl: "/media/heroes/ab/hero.webp",
+      fallbackImageUrls: [
+        "https://images.nettiauto.com/live/2026/08/09/photo-large.jpg",
+        "https://images.nettiauto.com/live/2026/08/09/photo-289x217.webp",
+      ],
+    });
   });
 });

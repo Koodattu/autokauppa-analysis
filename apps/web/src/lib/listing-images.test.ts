@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { firstAvailableListingImageUrl, isAllowedListingImageUrl } from "./listing-images";
 
 describe("listing image URL allowlist", () => {
+  it("accepts a locally archived hero image", () => {
+    expect(isAllowedListingImageUrl("/media/heroes/ab/content-hash.webp")).toBe(true);
+  });
+
   it.each([
     "https://images.nettiauto.com/live/12345/vehicle.jpg",
     "https://www.nettiauto.com/images/vehicle.jpg",

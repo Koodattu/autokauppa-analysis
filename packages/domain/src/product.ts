@@ -21,7 +21,14 @@ import {
   type PublicListingDetailResponse,
   type PublicVehicleDetails,
 } from "@nettiauto/schemas";
-import { selectPublicListingImages, type StoredListingImageRow } from "./listing-images";
+import {
+  selectCompactPublicListingImages,
+  preferArchivedHero,
+  selectPublicListingImages,
+  type StoredCompactListingImageRow,
+  type StoredListingHeroImage,
+  type StoredListingImageRow,
+} from "./listing-images";
 
 export type {
   AdminCrawlerDiagnosticsResponse,
@@ -277,12 +284,13 @@ export async function getPublicListingDetail(
         s.transmission_source_label as "transmissionSourceLabel",
         s.body_type_source_label as "bodyTypeSourceLabel",
         s.color_source_label as "colorSourceLabel",
-        s.normalized_data as "normalizedData",
+        coalesce(detail.normalized_data, s.normalized_data) as "normalizedData",
         l.first_seen_at::text as "firstSeenAt",
         l.last_seen_at::text as "lastSeenAt",
         l.canonical_source_url as "sourceUrl"
       from listings l
       join listing_snapshots s on s.id = l.latest_snapshot_id
+      left join listing_details detail on detail.listing_id = l.id
       where l.id = $1
     `,
     [listingId],
@@ -342,22 +350,7 @@ export async function getPublicListingDetail(
       ) recent_history
       order by "observedAt" asc
     `,
-    sql<StoredListingImageRow[]>`
-      select
-        image.image_url as "imageUrl",
-        image.image_role as "role",
-        image.position,
-        image.width,
-        image.height,
-        image.last_raw_listing_record_id::text as "cohortId",
-        raw_record.record_kind as "recordKind",
-        raw_record.captured_at::text as "capturedAt",
-        image.last_seen_at::text as "lastSeenAt"
-      from listing_images image
-      join raw_listing_records raw_record on raw_record.id = image.last_raw_listing_record_id
-      where image.listing_id = ${listingId}
-      order by raw_record.captured_at desc, image.position nulls last, image.last_seen_at desc
-    `,
+    getPublicListingImages(sql, listingId),
     getListingMarketPriceContext(sql, listingId),
   ]);
 
@@ -375,7 +368,7 @@ export async function getPublicListingDetail(
       },
     },
     history,
-    imageMetadata: selectPublicListingImages(images),
+    imageMetadata: images,
     marketContext: {
       cohortDescription: "Same make and model, within one model year, matching known fuel type and transmission",
       ...marketPriceContext,
@@ -383,6 +376,49 @@ export async function getPublicListingDetail(
     },
     vehicleDetails,
   };
+}
+
+async function getPublicListingImages(sql: Sql, listingId: string) {
+  const [compactRows, [hero], legacyRows] = await Promise.all([
+    sql<StoredCompactListingImageRow[]>`
+      select
+        asset.asset_path as "assetPath",
+        asset.variant_mask as "variantMask",
+        asset.image_role as "role",
+        asset.position,
+        asset.last_raw_listing_record_id::text as "cohortId",
+        raw_record.captured_at::text as "capturedAt",
+        asset.last_seen_at::text as "lastSeenAt"
+      from listing_image_assets asset
+      join raw_listing_records raw_record on raw_record.id = asset.last_raw_listing_record_id
+      where asset.listing_id = ${listingId}
+      order by raw_record.captured_at desc, asset.position nulls last, asset.last_seen_at desc
+    `,
+    sql<StoredListingHeroImage[]>`
+      select object_key as "objectKey", width, height
+      from listing_hero_images
+      where listing_id = ${listingId}
+    `,
+    sql<StoredListingImageRow[]>`
+      select
+        image.image_url as "imageUrl",
+        image.image_role as "role",
+        image.position,
+        image.width,
+        image.height,
+        image.last_raw_listing_record_id::text as "cohortId",
+        raw_record.record_kind as "recordKind",
+        raw_record.captured_at::text as "capturedAt",
+        image.last_seen_at::text as "lastSeenAt"
+      from listing_images image
+      join raw_listing_records raw_record on raw_record.id = image.last_raw_listing_record_id
+      where image.listing_id = ${listingId}
+      order by raw_record.captured_at desc, image.position nulls last, image.last_seen_at desc
+    `,
+  ]);
+  const compactImages = selectCompactPublicListingImages(compactRows, hero);
+  const legacyImages = preferArchivedHero(selectPublicListingImages(legacyRows), hero);
+  return compactImages.length >= legacyImages.length ? compactImages : legacyImages;
 }
 
 async function getListingMarketPriceContext(sql: Sql, listingId: string) {
@@ -652,7 +688,9 @@ export async function getAdminCrawlerDiagnostics(
           from listings detail_listing
           join listing_snapshots detail_snapshot
             on detail_snapshot.id = detail_listing.latest_snapshot_id
-          where detail_snapshot.normalized_data ? 'detailParserVersion'
+          left join listing_details detail on detail.listing_id = detail_listing.id
+          where detail.listing_id is not null
+             or detail_snapshot.normalized_data ? 'detailParserVersion'
         ) as "detailEnrichedListings",
         count(make_source_label)::int as "makeCount",
         count(model_source_label)::int as "modelCount",

@@ -7,6 +7,7 @@ import {
   createCrawlRunForSourceQuery,
   emptyNettiautoSearchResultPage,
   getSchedulableSourceSearchQueries,
+  hasUsableNettiautoDetailEvidence,
   nettiautoAjaxRequestHeaders,
   nettiautoDetailRequestHeaders,
   parseNettiautoAjaxSearchResult,
@@ -20,6 +21,7 @@ import {
 } from "@nettiauto/domain";
 import type { AppLogger } from "@nettiauto/logging";
 import type { CrawlWorkQueue } from "./crawl-work-queue";
+import type { ListingHeroImageArchiver } from "./hero-image-archiver";
 import {
   NETTIAUTO_DETAIL_PRIORITY_OFFSET,
   RetryableNettiautoFetchError,
@@ -50,7 +52,8 @@ export interface NettiautoCrawlExecution {
   ): Promise<{ kind: "skipped" | "stopped" | "continued" | "completed" }>;
   enrichDetailPage(
     input: {
-      crawlRunId: string;
+      crawlRunId: string | null;
+      detailBackfillRunId?: string | null;
       searchQueryId: string;
       sourceListingId: string;
       sourceUrl: string;
@@ -66,6 +69,7 @@ export function createNettiautoCrawlExecution(input: {
   logger: AppLogger;
   source: NettiautoSource;
   workQueue: CrawlWorkQueue;
+  heroImageArchiver?: ListingHeroImageArchiver;
   now?: () => number;
 }): NettiautoCrawlExecution {
   const now = input.now ?? Date.now;
@@ -547,6 +551,12 @@ export function createNettiautoCrawlExecution(input: {
 
     async enrichDetailPage(command, context) {
       if (!input.config.CRAWLER_ENABLED || input.config.CRAWLER_PAUSED) {
+        if (command.detailBackfillRunId) {
+          throw new RetryableNettiautoFetchError(
+            "crawler_paused",
+            "Nettiauto detail backfill is waiting for the crawler to be enabled and unpaused.",
+          );
+        }
         input.logger.info(
           {
             jobId: context.jobId,
@@ -576,6 +586,12 @@ export function createNettiautoCrawlExecution(input: {
         !sourceQuery?.enabled ||
         (sourceQuery.pausedUntil && new Date(sourceQuery.pausedUntil).getTime() > now())
       ) {
+        if (command.detailBackfillRunId) {
+          throw new RetryableNettiautoFetchError(
+            "source_query_paused",
+            "Nettiauto detail backfill is waiting for its source query to become available.",
+          );
+        }
         input.logger.info(
           {
             jobId: context.jobId,
@@ -592,10 +608,10 @@ export function createNettiautoCrawlExecution(input: {
         const [existing] = await input.sql<
           { sourceUpdatedDate: string | null; detailParserVersion: string | null }[]
         >`
-          select latest_snapshot.source_updated_date::text as "sourceUpdatedDate",
-                 latest_snapshot.normalized_data->>'detailParserVersion' as "detailParserVersion"
+          select detail.source_updated_date::text as "sourceUpdatedDate",
+                 detail.source_parser_version as "detailParserVersion"
           from listings
-          left join listing_snapshots latest_snapshot on latest_snapshot.id = listings.latest_snapshot_id
+          left join listing_details detail on detail.listing_id = listings.id
           where listings.source = 'nettiauto'
             and listings.source_listing_id = ${command.sourceListingId}
           limit 1
@@ -631,6 +647,7 @@ export function createNettiautoCrawlExecution(input: {
         const durationMs = error instanceof NettiautoSourceError ? error.durationMs : null;
         await persistNettiautoDetailPage(input.sql, {
           crawlRunId: command.crawlRunId,
+          detailBackfillRunId: command.detailBackfillRunId ?? null,
           searchQueryId: command.searchQueryId,
           sourceListingId: command.sourceListingId,
           sourceUrl: command.sourceUrl,
@@ -653,14 +670,20 @@ export function createNettiautoCrawlExecution(input: {
       }
 
       const canParse = response.ok && ["html_document", "html_fragment"].includes(response.bodyShape);
-      const parsedDetail = canParse
+      const parsedCandidate = canParse
         ? parseNettiautoDetailPage(response.body, { sourceListingId: command.sourceListingId })
         : null;
-      const failureReason = canParse
-        ? null
-        : classifyDetailFetchFailure(response.status, response.bodyShape);
+      const parsedDetail = parsedCandidate && hasUsableNettiautoDetailEvidence(parsedCandidate)
+        ? parsedCandidate
+        : null;
+      const failureReason = !canParse
+        ? classifyDetailFetchFailure(response.status, response.bodyShape)
+        : parsedDetail
+          ? null
+          : "insufficient_detail_evidence";
       const result = await persistNettiautoDetailPage(input.sql, {
         crawlRunId: command.crawlRunId,
+        detailBackfillRunId: command.detailBackfillRunId ?? null,
         searchQueryId: command.searchQueryId,
         sourceListingId: command.sourceListingId,
         sourceUrl: command.sourceUrl,
@@ -678,6 +701,32 @@ export function createNettiautoCrawlExecution(input: {
           : null,
         parsedDetail,
       });
+
+      const heroSource = parsedDetail?.images
+        .slice()
+        .sort((left, right) =>
+          (left.position ?? Number.MAX_SAFE_INTEGER) -
+          (right.position ?? Number.MAX_SAFE_INTEGER),
+        )[0];
+      if (
+        heroSource &&
+        result.listingId &&
+        result.rawListingRecordId &&
+        input.heroImageArchiver
+      ) {
+        try {
+          await input.heroImageArchiver.archive({
+            listingId: result.listingId,
+            sourceRawListingRecordId: result.rawListingRecordId,
+            sourceImageUrl: heroSource.imageUrl,
+          });
+        } catch (error) {
+          input.logger.warn(
+            { error, sourceListingId: command.sourceListingId },
+            "Nettiauto listing hero image could not be archived",
+          );
+        }
+      }
 
       if (failureReason && shouldPauseNettiautoSource(failureReason)) {
         const pausedUntil = await pauseSourceSearchQuery(input.sql, command.searchQueryId, {

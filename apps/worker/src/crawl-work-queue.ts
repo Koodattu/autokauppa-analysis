@@ -13,12 +13,14 @@ export interface SearchPageJob {
 }
 
 export interface DetailPageJob {
-  crawlRunId: string;
+  crawlRunId: string | null;
+  detailBackfillRunId?: string | null;
   searchQueryId: string;
   sourceListingId: string;
   sourceUrl: string;
   priority: number;
   runAt?: Date;
+  force?: boolean;
 }
 
 export interface CrawlWorkQueue {
@@ -51,14 +53,18 @@ export function createGraphileCrawlWorkQueue(addJob: AddJobFunction): CrawlWorkQ
         "crawl_nettiauto_detail_page",
         {
           crawlRunId: job.crawlRunId,
+          detailBackfillRunId: job.detailBackfillRunId ?? null,
           searchQueryId: job.searchQueryId,
           sourceListingId: job.sourceListingId,
           sourceUrl: job.sourceUrl,
+          force: job.force ?? false,
         },
         {
           queueName: "nettiauto",
           maxAttempts: NETTIAUTO_DETAIL_MAX_ATTEMPTS,
-          jobKey: `nettiauto:detail:${job.crawlRunId}:${job.sourceListingId}`,
+          jobKey: job.detailBackfillRunId
+            ? `nettiauto:detail-backfill:${job.detailBackfillRunId}:${job.sourceListingId}`
+            : `nettiauto:detail:${job.crawlRunId}:${job.sourceListingId}`,
           jobKeyMode: "preserve_run_at",
           priority: job.priority,
           runAt: job.runAt,

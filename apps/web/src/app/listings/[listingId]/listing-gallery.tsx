@@ -48,6 +48,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
             fill
             preload={activeIndex === 0}
             sizes="(max-width: 800px) 100vw, 65vw"
+            unoptimized={selected.displayUrl.startsWith("/media/heroes/")}
             referrerPolicy="no-referrer"
             onError={() => markFailed(selected.displayUrl)}
           />
@@ -83,6 +84,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
                 alt=""
                 fill
                 sizes="88px"
+                unoptimized={image.displayUrl.startsWith("/media/heroes/")}
                 loading="lazy"
                 referrerPolicy="no-referrer"
                 onError={() => markFailed(image.displayUrl)}
@@ -124,6 +126,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
             alt={`${title} image ${selected.position ?? activeIndex + 1}`}
             fill
             sizes="95vw"
+            unoptimized={selected.displayUrl.startsWith("/media/heroes/")}
             referrerPolicy="no-referrer"
             onError={() => markFailed(selected.displayUrl)}
           />

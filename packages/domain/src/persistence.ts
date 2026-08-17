@@ -1,5 +1,10 @@
 import type postgres from "postgres";
-import { sha256, stableStringify } from "./nettiauto";
+import { parseNettiautoImageAsset } from "./listing-images";
+import {
+  NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION,
+  sha256,
+  stableStringify,
+} from "./nettiauto";
 import type {
   NettiautoDetailNormalizedData,
   NettiautoQueryParams,
@@ -81,7 +86,8 @@ export interface PersistSearchResultPageResult {
 }
 
 export interface PersistNettiautoDetailPageInput {
-  crawlRunId: string;
+  crawlRunId: string | null;
+  detailBackfillRunId?: string | null;
   searchQueryId: string;
   sourceListingId: string;
   sourceUrl: string;
@@ -106,8 +112,22 @@ export interface PersistNettiautoDetailPageResult {
   sourceUpdatedDate: string | null;
 }
 
+export interface PersistListingHeroImageInput {
+  listingId: string;
+  sourceRawListingRecordId: string;
+  sourceImageAssetPath: string;
+  objectKey: string;
+  contentSha256: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  archivedAt?: Date;
+}
+
 type SqlClient = postgres.Sql<Record<string, unknown>>;
 type TransactionSqlClient = postgres.TransactionSql<Record<string, unknown>>;
+
+const NETTIAUTO_REQUEST_PROFILE = { profile: "nettiauto-browser-v1" } as const;
 
 function jsonValue(value: unknown): postgres.JSONValue {
   return value as postgres.JSONValue;
@@ -846,7 +866,7 @@ export async function persistSearchResultPage(
         ${input.pageNumber},
         ${input.attemptNumber ?? 1},
         ${input.sourceUrl},
-        ${tx.json(jsonValue(input.requestHeaders))},
+        ${tx.json(jsonValue(NETTIAUTO_REQUEST_PROFILE))},
         ${input.responseStatus},
         ${input.responseContentType},
         ${input.responseBodyShape},
@@ -926,12 +946,14 @@ export async function persistNettiautoDetailPage(
     const fetchRows = (await tx`
       insert into source_fetches (
         crawl_run_id,
+        detail_backfill_run_id,
         search_query_id,
         source,
         fetch_kind,
         page_number,
         attempt_number,
         source_url,
+        source_listing_id,
         request_headers,
         response_status,
         response_content_type,
@@ -945,13 +967,15 @@ export async function persistNettiautoDetailPage(
       )
       values (
         ${input.crawlRunId},
+        ${input.detailBackfillRunId ?? null},
         ${input.searchQueryId},
         'nettiauto',
         'detail_page',
         null,
         ${input.attemptNumber ?? 1},
         ${input.sourceUrl},
-        ${tx.json(jsonValue(input.requestHeaders))},
+        ${input.sourceListingId},
+        ${tx.json(jsonValue(NETTIAUTO_REQUEST_PROFILE))},
         ${input.responseStatus},
         ${input.responseContentType},
         ${input.responseBodyShape},
@@ -979,12 +1003,17 @@ export async function persistNettiautoDetailPage(
       };
     }
 
-    const sourcePayload = input.parsedDetail.sourcePayload;
+    const {
+      normalizedData: _,
+      images: __,
+      ...sourcePayload
+    } = input.parsedDetail.sourcePayload;
     const rawRecordRows = (await tx`
       insert into raw_listing_records (
         source,
         source_listing_id,
         crawl_run_id,
+        detail_backfill_run_id,
         source_fetch_id,
         record_kind,
         source_url,
@@ -1001,6 +1030,7 @@ export async function persistNettiautoDetailPage(
         'nettiauto',
         ${input.sourceListingId},
         ${input.crawlRunId},
+        ${input.detailBackfillRunId ?? null},
         ${fetchRow.id},
         'detail_page',
         ${input.sourceUrl},
@@ -1023,12 +1053,14 @@ export async function persistNettiautoDetailPage(
 
     const listingId = await updateListingFromDetailPage(tx, {
       rawListingRecordId: rawRecord.id,
+      sourceFetchId: fetchRow.id,
+      fetchedAt,
       sourceListingId: input.sourceListingId,
       parsedDetail: input.parsedDetail,
     });
 
     if (listingId) {
-      await persistDetailImages(tx, {
+      await persistCompactImages(tx, {
         listingId,
         rawListingRecordId: rawRecord.id,
         fetchedAt,
@@ -1290,48 +1322,20 @@ async function persistListingCard(
       )
   `;
 
-  for (const image of input.listing.images) {
-    await tx`
-      insert into listing_images (
-        listing_id,
-        source,
-        image_url,
-        image_role,
-        position,
-        width,
-        height,
-        first_seen_at,
-        last_seen_at,
-        last_raw_listing_record_id
-      )
-      values (
-        ${listing.id},
-        'nettiauto',
-        ${image.imageUrl},
-        ${image.imageRole},
-        ${image.position},
-        ${image.width},
-        ${image.height},
-        ${input.fetchedAt},
-        ${input.fetchedAt},
-        ${rawRecord.id}
-      )
-      on conflict (listing_id, image_url)
-      do update set
-        image_role = excluded.image_role,
-        position = excluded.position,
-        width = excluded.width,
-        height = excluded.height,
-        last_seen_at = excluded.last_seen_at,
-        last_raw_listing_record_id = excluded.last_raw_listing_record_id
-    `;
-  }
+  await persistCompactImages(tx, {
+    listingId: listing.id,
+    rawListingRecordId: rawRecord.id,
+    fetchedAt: input.fetchedAt,
+    images: input.listing.images,
+  });
 }
 
 async function updateListingFromDetailPage(
   tx: TransactionSqlClient,
   input: {
     rawListingRecordId: string;
+    sourceFetchId: string;
+    fetchedAt: Date;
     sourceListingId: string;
     parsedDetail: ParsedNettiautoDetailPage;
   },
@@ -1384,6 +1388,83 @@ async function updateListingFromDetailPage(
     where id = (select latest_snapshot_id from listings where id = ${listing.id})
   `;
 
+  await tx`
+    insert into listing_details (
+      listing_id,
+      source_parser_version,
+      normalization_schema_version,
+      source_raw_listing_record_id,
+      source_fetch_id,
+      fetched_at,
+      source_updated_date,
+      vin,
+      torque_nm,
+      battery_capacity_kwh,
+      electric_range_km,
+      charging_type_source_label,
+      charging_power_ac_kw,
+      charging_power_dc_kw,
+      battery_warranty_source_label,
+      battery_warranty_months,
+      battery_warranty_km,
+      electric_consumption_source_label,
+      electric_consumption_combined_kwh_100km,
+      owner_count,
+      normalized_data,
+      created_at,
+      updated_at
+    )
+    values (
+      ${listing.id},
+      ${input.parsedDetail.parserVersion},
+      ${NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION},
+      ${input.rawListingRecordId},
+      ${input.sourceFetchId},
+      ${input.fetchedAt},
+      ${sourceUpdatedDate}::date,
+      ${detailData.vin},
+      ${detailData.torqueNm},
+      ${detailData.batteryCapacityKwh},
+      ${detailData.electricRangeKm},
+      ${detailData.chargingTypeSourceLabel},
+      ${detailData.chargingPowerAcKw},
+      ${detailData.chargingPowerDcKw},
+      ${detailData.batteryWarrantySourceLabel},
+      ${detailData.batteryWarrantyMonths},
+      ${detailData.batteryWarrantyKm},
+      ${detailData.electricConsumptionSourceLabel},
+      ${detailData.electricConsumptionCombinedKwh100Km},
+      ${detailData.ownerCount},
+      ${tx.json(jsonValue(detailData))},
+      now(),
+      now()
+    )
+    on conflict (listing_id)
+    do update set
+      source_parser_version = excluded.source_parser_version,
+      normalization_schema_version = excluded.normalization_schema_version,
+      source_raw_listing_record_id = excluded.source_raw_listing_record_id,
+      source_fetch_id = excluded.source_fetch_id,
+      fetched_at = excluded.fetched_at,
+      source_updated_date = excluded.source_updated_date,
+      vin = excluded.vin,
+      torque_nm = excluded.torque_nm,
+      battery_capacity_kwh = excluded.battery_capacity_kwh,
+      electric_range_km = excluded.electric_range_km,
+      charging_type_source_label = excluded.charging_type_source_label,
+      charging_power_ac_kw = excluded.charging_power_ac_kw,
+      charging_power_dc_kw = excluded.charging_power_dc_kw,
+      battery_warranty_source_label = excluded.battery_warranty_source_label,
+      battery_warranty_months = excluded.battery_warranty_months,
+      battery_warranty_km = excluded.battery_warranty_km,
+      electric_consumption_source_label = excluded.electric_consumption_source_label,
+      electric_consumption_combined_kwh_100km = excluded.electric_consumption_combined_kwh_100km,
+      owner_count = excluded.owner_count,
+      normalized_data = excluded.normalized_data,
+      updated_at = now()
+    where excluded.fetched_at >= listing_details.fetched_at
+  `;
+
   return listing.id;
 }
 
@@ -1418,6 +1499,10 @@ const NETTIAUTO_DETAIL_PROMOTION_POLICY: DetailPromotionPolicy = {
   detailParserVersion: {
     disposition: "snapshot_json",
     rationale: "Identifies the detail parser that produced the snapshot enrichment.",
+  },
+  detailNormalizationSchemaVersion: {
+    disposition: "raw_only",
+    rationale: "The dedicated detail row owns normalization-schema provenance.",
   },
   sourceUpdatedDate: {
     disposition: "snapshot_json_and_typed_column",
@@ -1455,6 +1540,10 @@ const NETTIAUTO_DETAIL_PROMOTION_POLICY: DetailPromotionPolicy = {
   registrationNumber: {
     disposition: "snapshot_json",
     rationale: "Established Listing detail attribute; public exposure remains schema-controlled.",
+  },
+  vin: {
+    disposition: "raw_only",
+    rationale: "VIN is retained only in internal detail storage and never promoted to public snapshots.",
   },
   officeFeeEur: {
     disposition: "snapshot_json",
@@ -1518,6 +1607,10 @@ const NETTIAUTO_DETAIL_PROMOTION_POLICY: DetailPromotionPolicy = {
     disposition: "snapshot_json",
     rationale: "Normalized vehicle specification without an established typed query need.",
   },
+  torqueNm: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
   topSpeedKmh: {
     disposition: "snapshot_json",
     rationale: "Normalized vehicle specification without an established typed query need.",
@@ -1578,6 +1671,50 @@ const NETTIAUTO_DETAIL_PROMOTION_POLICY: DetailPromotionPolicy = {
     disposition: "snapshot_json",
     rationale: "Normalized consumption value without an established typed query need.",
   },
+  batteryCapacityKwh: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  electricRangeKm: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  chargingTypeSourceLabel: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  chargingPowerAcKw: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  chargingPowerDcKw: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  batteryWarrantySourceLabel: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  batteryWarrantyMonths: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  batteryWarrantyKm: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  electricConsumptionSourceLabel: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  electricConsumptionCombinedKwh100Km: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
+  ownerCount: {
+    disposition: "raw_only",
+    rationale: "Stored in the dedicated v4 detail row without duplicating snapshot JSON.",
+  },
   sellerNotes: {
     disposition: "snapshot_json",
     rationale: "Retains normalized Source text; public exposure remains schema-controlled.",
@@ -1608,7 +1745,7 @@ const DETAIL_SNAPSHOT_NORMALIZED_KEYS = (
   (key) => NETTIAUTO_DETAIL_PROMOTION_POLICY[key].disposition !== "raw_only",
 );
 
-async function persistDetailImages(
+async function persistCompactImages(
   tx: TransactionSqlClient,
   input: {
     listingId: string;
@@ -1617,40 +1754,116 @@ async function persistDetailImages(
     images: ParsedNettiautoDetailPage["images"];
   },
 ) {
+  const assets = new Map<
+    string,
+    { variantMask: number; imageRole: string | null; position: number | null }
+  >();
   for (const image of input.images) {
+    const parsed = parseNettiautoImageAsset(image.imageUrl);
+    if (!parsed) {
+      continue;
+    }
+    const existing = assets.get(parsed.assetPath);
+    assets.set(parsed.assetPath, {
+      variantMask: (existing?.variantMask ?? 0) | parsed.variantMask,
+      imageRole: existing?.imageRole ?? image.imageRole,
+      position:
+        existing?.position === null || existing?.position === undefined
+          ? image.position
+          : image.position === null
+            ? existing.position
+            : Math.min(existing.position, image.position),
+    });
+  }
+
+  for (const [assetPath, asset] of assets) {
     await tx`
-      insert into listing_images (
+      insert into listing_image_assets (
         listing_id,
-        source,
-        image_url,
+        asset_path,
+        variant_mask,
         image_role,
         position,
-        width,
-        height,
         first_seen_at,
         last_seen_at,
         last_raw_listing_record_id
       )
       values (
         ${input.listingId},
-        'nettiauto',
-        ${image.imageUrl},
-        ${image.imageRole},
-        ${image.position},
-        ${image.width},
-        ${image.height},
+        ${assetPath},
+        ${asset.variantMask},
+        ${asset.imageRole},
+        ${asset.position},
         ${input.fetchedAt},
         ${input.fetchedAt},
         ${input.rawListingRecordId}
       )
-      on conflict (listing_id, image_url)
+      on conflict (listing_id, asset_path)
       do update set
-        image_role = excluded.image_role,
-        position = excluded.position,
-        width = excluded.width,
-        height = excluded.height,
-        last_seen_at = excluded.last_seen_at,
-        last_raw_listing_record_id = excluded.last_raw_listing_record_id
+        variant_mask = listing_image_assets.variant_mask | excluded.variant_mask,
+        image_role = case
+          when excluded.last_seen_at >= listing_image_assets.last_seen_at then excluded.image_role
+          else listing_image_assets.image_role
+        end,
+        position = case
+          when excluded.last_seen_at >= listing_image_assets.last_seen_at then excluded.position
+          else listing_image_assets.position
+        end,
+        first_seen_at = least(listing_image_assets.first_seen_at, excluded.first_seen_at),
+        last_seen_at = greatest(listing_image_assets.last_seen_at, excluded.last_seen_at),
+        last_raw_listing_record_id = case
+          when excluded.last_seen_at >= listing_image_assets.last_seen_at
+            then excluded.last_raw_listing_record_id
+          else listing_image_assets.last_raw_listing_record_id
+        end
     `;
   }
+}
+
+export async function hasListingHeroImage(sql: SqlClient, listingId: string) {
+  const [row] = await sql<{ exists: boolean }[]>`
+    select exists (
+      select 1
+      from listing_hero_images
+      where listing_id = ${listingId}
+    ) as "exists"
+  `;
+  return row?.exists ?? false;
+}
+
+export async function persistListingHeroImage(
+  sql: SqlClient,
+  input: PersistListingHeroImageInput,
+) {
+  const archivedAt = input.archivedAt ?? new Date();
+  await sql`
+    insert into listing_hero_images (
+      listing_id,
+      object_key,
+      content_sha256,
+      byte_size,
+      width,
+      height,
+      source_image_asset_path,
+      source_raw_listing_record_id,
+      archived_at,
+      created_at,
+      updated_at
+    )
+    values (
+      ${input.listingId},
+      ${input.objectKey},
+      ${input.contentSha256},
+      ${input.byteSize},
+      ${input.width},
+      ${input.height},
+      ${input.sourceImageAssetPath},
+      ${input.sourceRawListingRecordId},
+      ${archivedAt},
+      now(),
+      now()
+    )
+    on conflict (listing_id)
+    do nothing
+  `;
 }

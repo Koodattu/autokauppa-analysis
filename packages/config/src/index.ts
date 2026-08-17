@@ -58,6 +58,13 @@ const sharedConfigSchema = z.object({
   CRAWLER_DETAIL_MAX_PER_RUN: integerEnvSchema(50),
 });
 
+const workerConfigSchema = sharedConfigSchema.extend({
+  DETAIL_BACKFILL_BATCH_SIZE: integerEnvSchema(200),
+  HERO_IMAGE_ARCHIVE_ENABLED: booleanEnvSchema.optional().transform((value) => value ?? false),
+  HERO_IMAGE_STORAGE_PATH: z.string().trim().min(1).default("/data/hero-images"),
+  HERO_IMAGE_MAX_SOURCE_BYTES: integerEnvSchema(20 * 1024 * 1024),
+});
+
 const adminConfigSchema = z.object({
   ADMIN_PASSWORD: z.string().min(1),
   SESSION_SECRET: z.string().min(1),
@@ -72,7 +79,7 @@ export type AppEnv = z.infer<typeof appEnvSchema>;
 export type SharedServiceConfig = z.infer<typeof sharedConfigSchema>;
 export type AdminConfig = z.infer<typeof adminConfigSchema>;
 export type ApiConfig = SharedServiceConfig & AdminConfig;
-export type WorkerConfig = SharedServiceConfig;
+export type WorkerConfig = z.infer<typeof workerConfigSchema>;
 export type WebConfig = z.infer<typeof webConfigSchema>;
 
 function warnWeakProductionSecret(
@@ -105,7 +112,7 @@ export function parseApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig 
 }
 
 export function parseWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  return sharedConfigSchema.parse(env);
+  return workerConfigSchema.parse(env);
 }
 
 export function parseWebConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {

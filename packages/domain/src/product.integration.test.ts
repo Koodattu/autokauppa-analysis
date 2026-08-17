@@ -236,6 +236,35 @@ describeDatabase("PostgreSQL product integration", () => {
       )
       where listing_id = ${listingId}
     `;
+    await sql`
+      insert into listing_details (
+        listing_id,
+        source_parser_version,
+        normalization_schema_version,
+        source_raw_listing_record_id,
+        source_fetch_id,
+        fetched_at,
+        vin,
+        normalized_data
+      )
+      select
+        ${listingId},
+        'nettiauto-detail-v4',
+        'nettiauto-detail-v4',
+        raw_record.id,
+        raw_record.source_fetch_id,
+        now(),
+        'PRIVATE-V4-VIN',
+        jsonb_build_object(
+          'detailParserVersion', 'nettiauto-detail-v4',
+          'registrationNumber', 'ABC-123',
+          'vin', 'PRIVATE-V4-VIN'
+        )
+      from raw_listing_records raw_record
+      where raw_record.source_listing_id = 'privacy-1'
+      order by raw_record.captured_at desc
+      limit 1
+    `;
 
     const detail = await getPublicListingDetail(sql, listingId);
     expect(detail?.vehicleDetails).toMatchObject({ registrationNumber: "ABC-123" });
