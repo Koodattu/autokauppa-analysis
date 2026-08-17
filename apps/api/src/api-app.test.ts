@@ -78,4 +78,18 @@ describe("ApiApp HTTP interface", () => {
     );
     expect(expiredSession.status).toBe(401);
   });
+
+  it("protects detail-backfill observation and queueing with the Admin Password Gate", async () => {
+    const app = createApiApp({ sql, config, logger });
+
+    const status = await app.fetch(
+      new Request("http://api.test/admin/crawler/detail-backfill"),
+    );
+    const start = await app.fetch(
+      new Request("http://api.test/admin/crawler/detail-backfill", { method: "POST" }),
+    );
+
+    expect(status.status).toBe(401);
+    expect(start.status).toBe(401);
+  });
 });

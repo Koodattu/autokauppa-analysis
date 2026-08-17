@@ -1393,11 +1393,62 @@ tbody tr:last-child td {
   margin-bottom: 16px;
 }
 
+.detail-backfill-panel {
+  margin-bottom: 16px;
+}
+
+.detail-backfill-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-backfill-progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.detail-backfill-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.detail-backfill-actions > div {
+  display: grid;
+  gap: 3px;
+}
+
+.detail-backfill-actions strong {
+  font-size: 13px;
+}
+
+.detail-backfill-actions span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detail-backfill-actions button {
+  flex: none;
+}
+
 .data-quality-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 16px 0;
+}
+
+.detail-backfill-summary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .data-quality-summary .metric {
@@ -1616,6 +1667,10 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 
+  .detail-backfill-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .listing-hero {
     grid-template-columns: minmax(0, 1.4fr) minmax(270px, 0.8fr);
   }
@@ -1700,6 +1755,15 @@ tbody tr:last-child td {
 
   .data-quality-summary {
     grid-template-columns: 1fr;
+  }
+
+  .detail-backfill-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-backfill-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .coverage-list li {

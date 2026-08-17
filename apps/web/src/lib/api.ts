@@ -3,6 +3,8 @@ import {
   adminCrawlerDiagnosticsResponseSchema,
   adminCrawlerRunResponseSchema,
   adminCrawlerStatusResponseSchema,
+  adminDetailBackfillStartResponseSchema,
+  adminDetailBackfillStatusResponseSchema,
   analyticsSnapshotResponseSchema,
   analyticsTimeSeriesResponseSchema,
   filterMetadataResponseSchema,
@@ -16,6 +18,8 @@ export type {
   AdminCrawlerRunResponse,
   AdminCrawlerRunTarget,
   AdminCrawlerStatusResponse,
+  AdminDetailBackfillStartResponse,
+  AdminDetailBackfillStatusResponse,
   AnalyticsSnapshotResponse,
   AnalyticsTimeSeriesResponse,
   AnalyticsTrendResponse,
@@ -86,6 +90,14 @@ export function getAdminCrawlerStatus(init?: RequestInit) {
   return apiGet("/admin/crawler/status", adminCrawlerStatusResponseSchema, init);
 }
 
+export function getAdminDetailBackfillStatus(init?: RequestInit) {
+  return apiGet(
+    "/admin/crawler/detail-backfill",
+    adminDetailBackfillStatusResponseSchema,
+    init,
+  );
+}
+
 export function parseAdminCrawlerStatus(value: unknown) {
   return adminCrawlerStatusResponseSchema.parse(value);
 }
@@ -100,4 +112,12 @@ export function parseAdminCrawlerRun(value: unknown) {
 
 export function parseAdminCrawlerControl(value: unknown) {
   return adminCrawlerControlResponseSchema.parse(value);
+}
+
+export function parseAdminDetailBackfillStatus(value: unknown) {
+  return adminDetailBackfillStatusResponseSchema.parse(value);
+}
+
+export function parseAdminDetailBackfillStart(value: unknown) {
+  return adminDetailBackfillStartResponseSchema.parse(value);
 }

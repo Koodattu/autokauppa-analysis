@@ -26,6 +26,8 @@ import {
   adminCrawlerStatusResponseSchema,
   adminCrawlerRunRequestSchema,
   adminCrawlerControlRequestSchema,
+  adminDetailBackfillStartResponseSchema,
+  adminDetailBackfillStatusResponseSchema,
   adminLoginRequestSchema,
   analyticsSnapshotResponseSchema,
   analyticsTimeSeriesResponseSchema,
@@ -41,6 +43,10 @@ import {
 } from "@nettiauto/schemas";
 import { ResponseCache } from "./analytics-cache";
 import { createCrawlerDiagnostics } from "./crawler-diagnostics";
+import {
+  createDetailBackfillControl,
+  DetailBackfillAlreadyActiveError,
+} from "./detail-backfill-control";
 import { createPostgresManualCrawlScheduler } from "./manual-crawl-scheduler";
 import {
   CrawlerDisabledError,
@@ -104,21 +110,23 @@ const app = new Hono();
 const publicQueryLimiter = new FixedWindowRateLimiter({ limit: 120, windowMs: 60_000 });
 const loginLimiter = new FixedWindowRateLimiter({ limit: 5, windowMs: 15 * 60_000 });
 const adminMutationLimiter = new FixedWindowRateLimiter({ limit: 20, windowMs: 60_000 });
+const crawlerState = {
+  enabled: config.CRAWLER_ENABLED,
+  paused: config.CRAWLER_PAUSED,
+  delayMs: config.CRAWLER_DELAY_MS,
+  maxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
+  detailEnabled: config.CRAWLER_DETAIL_ENABLED,
+  detailMaxPerRun: config.CRAWLER_DETAIL_MAX_PER_RUN,
+};
 const crawlerControl = createNettiautoCrawlerControl({
   sql,
   scheduler: createPostgresManualCrawlScheduler(sql),
-  crawlerState: {
-    enabled: config.CRAWLER_ENABLED,
-    paused: config.CRAWLER_PAUSED,
-    delayMs: config.CRAWLER_DELAY_MS,
-    maxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
-    detailEnabled: config.CRAWLER_DETAIL_ENABLED,
-    detailMaxPerRun: config.CRAWLER_DETAIL_MAX_PER_RUN,
-  },
+  crawlerState,
   logger,
   now,
 });
 const crawlerDiagnostics = createCrawlerDiagnostics(sql);
+const detailBackfillControl = createDetailBackfillControl({ sql, crawlerState, logger });
 
 const adminOnly = createMiddleware(async (c, next) => {
   const session = verifyAdminSessionCookieValue(
@@ -159,6 +167,7 @@ app.use("/listings/*", publicQueryRateLimit);
 app.use("/admin/login", createRateLimitMiddleware(loginLimiter, "admin-login", now));
 app.use("/admin/crawler/run", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation", now));
 app.use("/admin/crawler/control", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation", now));
+app.use("/admin/crawler/detail-backfill", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation", now));
 
 app.onError((error, c) => {
   if (error instanceof HTTPException) {
@@ -340,6 +349,33 @@ app.get("/admin/crawler/status", adminOnly, async (c) => {
 
 app.get("/admin/crawler/diagnostics", adminOnly, async (c) => {
   return c.json(adminCrawlerDiagnosticsResponseSchema.parse(await crawlerDiagnostics.inspect()));
+});
+
+app.get("/admin/crawler/detail-backfill", adminOnly, async (c) => {
+  return c.json(
+    adminDetailBackfillStatusResponseSchema.parse(await detailBackfillControl.observe()),
+  );
+});
+
+app.post("/admin/crawler/detail-backfill", adminOnly, async (c) => {
+  try {
+    const receipt = await detailBackfillControl.start();
+    return c.json(adminDetailBackfillStartResponseSchema.parse({ ok: true, ...receipt }));
+  } catch (error) {
+    if (error instanceof CrawlerDisabledError) {
+      return c.json({ error: "crawler_disabled" }, 409);
+    }
+    if (error instanceof CrawlerPausedError) {
+      return c.json({ error: "crawler_paused" }, 409);
+    }
+    if (error instanceof DetailBackfillAlreadyActiveError) {
+      return c.json({ error: "detail_backfill_active" }, 409);
+    }
+    if (error instanceof CrawlerSchedulerUnavailableError) {
+      return c.json({ error: "worker_not_ready" }, 503);
+    }
+    throw error;
+  }
 });
 
 app.post("/admin/crawler/run", adminOnly, async (c) => {

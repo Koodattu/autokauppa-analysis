@@ -151,3 +151,36 @@ export const adminCrawlerControlResponseSchema = z
     pausedUntil: nullableString,
   })
   .strict();
+
+const adminDetailBackfillRunSchema = z
+  .object({
+    id: z.string().uuid(),
+    targetParserVersion: z.string(),
+    status: z.string(),
+    targetCount: z.number().int().nonnegative(),
+    scheduledCount: z.number().int().nonnegative(),
+    parsedCount: z.number().int().nonnegative(),
+    unavailableCount: z.number().int().nonnegative(),
+    failedCount: z.number().int().nonnegative(),
+    startedAt: nullableString,
+    finishedAt: nullableString,
+    createdAt: z.string(),
+  })
+  .strict();
+
+export const adminDetailBackfillStatusResponseSchema = z
+  .object({
+    active: z.boolean(),
+    schedulerQueued: z.boolean(),
+    latestRun: adminDetailBackfillRunSchema.nullable(),
+  })
+  .strict();
+
+export const adminDetailBackfillStartResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    task: z.literal("schedule_nettiauto_detail_backfill"),
+    jobId: nullableString,
+    runAt: nullableString,
+  })
+  .strict();

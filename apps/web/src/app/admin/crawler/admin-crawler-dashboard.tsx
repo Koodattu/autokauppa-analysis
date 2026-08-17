@@ -6,12 +6,15 @@ import type {
   AdminCrawlerDiagnosticsResponse,
   AdminCrawlerRunTarget,
   AdminCrawlerStatusResponse,
+  AdminDetailBackfillStatusResponse,
 } from "@/lib/api";
 import {
   parseAdminCrawlerControl,
   parseAdminCrawlerDiagnostics,
   parseAdminCrawlerRun,
   parseAdminCrawlerStatus,
+  parseAdminDetailBackfillStart,
+  parseAdminDetailBackfillStatus,
 } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { SiteHeader } from "../../site-header";
@@ -23,6 +26,7 @@ type Notice = {
 
 type AdminCrawlerDashboardProps = {
   initialStatus: AdminCrawlerStatusResponse;
+  initialDetailBackfill: AdminDetailBackfillStatusResponse;
   initialNotice: Notice | null;
 };
 
@@ -30,10 +34,12 @@ const POLL_INTERVAL_MS = 20_000;
 
 export function AdminCrawlerDashboard({
   initialStatus,
+  initialDetailBackfill,
   initialNotice,
 }: AdminCrawlerDashboardProps) {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
+  const [detailBackfill, setDetailBackfill] = useState(initialDetailBackfill);
   const [diagnostics, setDiagnostics] = useState<AdminCrawlerDiagnosticsResponse | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [diagnosticsPending, setDiagnosticsPending] = useState(true);
@@ -42,6 +48,7 @@ export function AdminCrawlerDashboard({
   const [pollError, setPollError] = useState<string | null>(null);
   const [runPending, setRunPending] = useState(false);
   const [controlPending, setControlPending] = useState(false);
+  const [detailBackfillPending, setDetailBackfillPending] = useState(false);
   const [selectedCrawlTarget, setSelectedCrawlTarget] = useState<AdminCrawlerRunTarget>("all");
   const canRunCrawler = status.crawlerState.enabled && !status.crawlerState.paused && !runPending;
   const problemCount = useMemo(
@@ -69,11 +76,15 @@ export function AdminCrawlerDashboard({
       }
       inFlight = true;
       try {
-        const nextStatus = await fetchCrawlerStatus(() => router.push("/admin/login"));
+        const [nextStatus, nextDetailBackfill] = await Promise.all([
+          fetchCrawlerStatus(() => router.push("/admin/login")),
+          fetchDetailBackfillStatus(() => router.push("/admin/login")),
+        ]);
         if (!active) {
           return;
         }
         setStatus(nextStatus);
+        setDetailBackfill(nextDetailBackfill);
         setLastUpdatedAt(new Date());
         setPollError(null);
       } catch (error) {
@@ -180,6 +191,47 @@ export function AdminCrawlerDashboard({
       });
     } finally {
       setRunPending(false);
+    }
+  }
+
+  async function startDetailBackfill() {
+    const confirmed = window.confirm(
+      "Queue a rate-spaced v4 detail refetch for every listing with missing or v1-only detail data? This operation may run for several days.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDetailBackfillPending(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/crawler/detail-backfill", {
+        method: "POST",
+        headers: { accept: "application/json" },
+      });
+      if (response.status === 401) {
+        router.push("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        setNotice({ kind: "error", message: formatRunError(await readRunError(response)) });
+        return;
+      }
+
+      const body = parseAdminDetailBackfillStart(await response.json());
+      setNotice({
+        kind: "success",
+        message: `Missing/v1 detail backfill queued${body.jobId ? ` as job ${body.jobId}` : ""}.`,
+      });
+      setDetailBackfill(await fetchDetailBackfillStatus(() => router.push("/admin/login")));
+      setLastUpdatedAt(new Date());
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Detail backfill could not be queued.",
+      });
+    } finally {
+      setDetailBackfillPending(false);
     }
   }
 
@@ -294,6 +346,19 @@ export function AdminCrawlerDashboard({
         <Metric label="Pending jobs" value={String(status.queueBacklog.pendingJobs)} />
         <Metric label="Problems" value={String(problemCount)} tone={problemCount > 0 ? "danger" : "default"} />
       </section>
+
+      <DetailBackfillPanel
+        backfill={detailBackfill}
+        delayMs={status.crawlerState.delayMs}
+        pending={detailBackfillPending}
+        canStart={
+          status.crawlerState.enabled
+          && !status.crawlerState.paused
+          && !detailBackfill.active
+          && !detailBackfillPending
+        }
+        onStart={startDetailBackfill}
+      />
 
       <section className="split">
         <div className="panel">
@@ -428,6 +493,84 @@ export function AdminCrawlerDashboard({
   );
 }
 
+function DetailBackfillPanel({
+  backfill,
+  delayMs,
+  pending,
+  canStart,
+  onStart,
+}: {
+  backfill: AdminDetailBackfillStatusResponse;
+  delayMs: number;
+  pending: boolean;
+  canStart: boolean;
+  onStart: () => void;
+}) {
+  const run = backfill.latestRun;
+  const runIsActive = run ? ["planned", "running", "queued"].includes(run.status) : false;
+  const displayStatus = backfill.schedulerQueued && !runIsActive
+    ? "queueing"
+    : run?.status ?? "not started";
+  const progressPercentage = !run || run.targetCount === 0
+    ? 0
+    : Math.min(100, Math.round((run.parsedCount / run.targetCount) * 1_000) / 10);
+  const remainingCount = run
+    ? Math.max(0, run.targetCount - run.parsedCount - run.unavailableCount)
+    : 0;
+
+  return (
+    <section className="panel detail-backfill-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Missing/v1 detail backfill</h2>
+          <p>
+            Refetches every listing without parsed detail data or with only v1 data, then parses it
+            with v4. Requests are individual and rate-spaced.
+          </p>
+        </div>
+        <StatusBadge tone={statusTone(displayStatus)}>{displayStatus}</StatusBadge>
+      </div>
+
+      <div className="data-quality-summary detail-backfill-summary">
+        <Metric label="Target" value={run ? formatNumber(run.targetCount) : "Not calculated"} />
+        <Metric label="Scheduled" value={run ? formatNumber(run.scheduledCount) : "0"} />
+        <Metric label="Parsed v4" value={run ? formatNumber(run.parsedCount) : "0"} />
+        <Metric label="Remaining" value={run ? formatNumber(remainingCount) : "-"} />
+        <Metric label="Unavailable" value={run ? formatNumber(run.unavailableCount) : "0"} />
+        <Metric
+          label="Failed"
+          value={run ? formatNumber(run.failedCount) : "0"}
+          tone={run && run.failedCount > 0 ? "danger" : "default"}
+        />
+      </div>
+
+      {run ? (
+        <div className="detail-backfill-progress">
+          <progress max={100} value={progressPercentage}>{progressPercentage}%</progress>
+          <span>{formatNumber(progressPercentage)}% parsed</span>
+        </div>
+      ) : null}
+
+      <div className="detail-backfill-actions">
+        <div>
+          <strong>
+            {run?.targetCount
+              ? `Minimum runtime at the current delay: ${formatBackfillDuration(run.targetCount, delayMs)}`
+              : `Current request spacing: ${formatNumber(delayMs)} ms`}
+          </strong>
+          <span>
+            Hero downloads follow HERO_IMAGE_ARCHIVE_ENABLED on the worker. Queue this operation only
+            once; an active run blocks duplicates.
+          </span>
+        </div>
+        <button type="button" disabled={!canStart} onClick={onStart}>
+          {pending ? "Queueing…" : backfill.active ? "Backfill active" : "Queue v4 detail backfill"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function DataQualityPanel({ quality }: { quality: AdminCrawlerDiagnosticsResponse["dataQuality"] }) {
   const detailCoverage = quality.totalListings === 0
     ? 0
@@ -519,6 +662,23 @@ async function fetchCrawlerDiagnostics(onUnauthorized: () => void) {
   return parseAdminCrawlerDiagnostics(await response.json());
 }
 
+async function fetchDetailBackfillStatus(onUnauthorized: () => void) {
+  const response = await fetch("/api/admin/crawler/detail-backfill", {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    onUnauthorized();
+    throw new Error("Sign in required.");
+  }
+  if (!response.ok) {
+    throw new Error(`Detail backfill refresh failed with HTTP ${response.status}.`);
+  }
+
+  return parseAdminDetailBackfillStatus(await response.json());
+}
+
 async function readRunError(response: Response) {
   try {
     const body = (await response.json()) as { error?: string };
@@ -598,15 +758,25 @@ function StatusBadge({
 }
 
 function statusTone(status: string) {
-  if (status === "completed") {
+  if (status === "completed" || status === "not started") {
     return "default";
   }
 
-  if (status === "partial" || status === "running" || status === "planned") {
+  if (["partial", "running", "planned", "queued", "queueing"].includes(status)) {
     return "warning";
   }
 
   return "danger";
+}
+
+function formatBackfillDuration(targetCount: number, delayMs: number) {
+  const totalHours = Math.ceil((targetCount * delayMs) / (60 * 60 * 1_000));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days === 0) {
+    return `${hours} h`;
+  }
+  return hours === 0 ? `${days} d` : `${days} d ${hours} h`;
 }
 
 function formatDate(value: string | null) {
@@ -634,6 +804,8 @@ function formatRunError(error: string) {
       return "Crawler is paused by environment.";
     case "worker_not_ready":
       return "Worker queue is not ready yet.";
+    case "detail_backfill_active":
+      return "A missing/v1 detail backfill is already active.";
     case "invalid_request":
       return "Choose a valid crawl job and try again.";
     default:

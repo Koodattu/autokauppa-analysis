@@ -4,6 +4,8 @@ import {
   adminCrawlerDiagnosticsResponseSchema,
   adminCrawlerRunResponseSchema,
   adminCrawlerStatusResponseSchema,
+  adminDetailBackfillStartResponseSchema,
+  adminDetailBackfillStatusResponseSchema,
 } from "./admin-panel";
 import { createProductApiResponseSchemas } from "./product-api";
 
@@ -291,6 +293,12 @@ export type AdminCrawlerStatusResponse = z.infer<typeof adminCrawlerStatusRespon
 export type AdminCrawlerDiagnosticsResponse = z.infer<typeof adminCrawlerDiagnosticsResponseSchema>;
 export type AdminCrawlerRunResponse = z.infer<typeof adminCrawlerRunResponseSchema>;
 export type AdminCrawlerControlResponse = z.infer<typeof adminCrawlerControlResponseSchema>;
+export type AdminDetailBackfillStatusResponse = z.infer<
+  typeof adminDetailBackfillStatusResponseSchema
+>;
+export type AdminDetailBackfillStartResponse = z.infer<
+  typeof adminDetailBackfillStartResponseSchema
+>;
 export type AdminCrawlerRunTarget = AdminCrawlerRunResponse["crawlKind"];
 export type AdminLoginRequest = z.infer<typeof adminLoginRequestSchema>;
 export type AdminCrawlerRunRequest = z.infer<typeof adminCrawlerRunRequestSchema>;

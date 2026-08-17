@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AdminCrawlerDashboard } from "./admin-crawler-dashboard";
 import {
   ApiError,
+  getAdminDetailBackfillStatus,
   getAdminCrawlerStatus,
 } from "@/lib/api";
 
@@ -15,7 +16,7 @@ export default async function AdminCrawlerPage({ searchParams }: PageProps) {
   const cookie = requestHeaders.get("cookie") ?? "";
   const params = await searchParams;
 
-  const result = await loadCrawlerStatus(cookie);
+  const result = await loadCrawlerData(cookie);
   if (!result.ok) {
     return (
       <main className="auth-shell">
@@ -30,15 +31,22 @@ export default async function AdminCrawlerPage({ searchParams }: PageProps) {
     );
   }
 
-  return <AdminCrawlerDashboard initialStatus={result.status} initialNotice={initialNotice(params)} />;
+  return (
+    <AdminCrawlerDashboard
+      initialStatus={result.status}
+      initialDetailBackfill={result.detailBackfill}
+      initialNotice={initialNotice(params)}
+    />
+  );
 }
 
-async function loadCrawlerStatus(cookie: string) {
+async function loadCrawlerData(cookie: string) {
   try {
-    const status = await getAdminCrawlerStatus({
-      headers: { cookie },
-    });
-    return { ok: true as const, status };
+    const [status, detailBackfill] = await Promise.all([
+      getAdminCrawlerStatus({ headers: { cookie } }),
+      getAdminDetailBackfillStatus({ headers: { cookie } }),
+    ]);
+    return { ok: true as const, status, detailBackfill };
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       return { ok: false as const };
