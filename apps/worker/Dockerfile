@@ -43,7 +43,9 @@ COPY packages/domain/src packages/domain/src
 COPY packages/logging/src packages/logging/src
 COPY packages/schemas/src packages/schemas/src
 
-RUN mkdir -p /data/hero-images && chown -R bun:bun /data/hero-images
+RUN chmod -R a+rX /app \
+    && mkdir -p /data/hero-images \
+    && chown -R bun:bun /data/hero-images
 
 WORKDIR /app/apps/worker
 USER bun
