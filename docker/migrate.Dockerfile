@@ -20,6 +20,8 @@ COPY packages/db/drizzle.config.ts packages/db/
 COPY packages/db/drizzle packages/db/drizzle
 COPY packages/db/src packages/db/src
 
+RUN chmod -R a+rX /app
+
 WORKDIR /app/packages/db
 USER bun
 CMD ["sh", "-c", "if [ -d drizzle/meta ]; then bun run migrate; elif [ \"$ALLOW_EMPTY_MIGRATIONS\" = \"true\" ]; then echo 'No Drizzle migrations generated yet; ALLOW_EMPTY_MIGRATIONS=true permits this scaffold-only no-op'; else echo 'No Drizzle migrations generated; set ALLOW_EMPTY_MIGRATIONS=true only for the empty scaffold' >&2; exit 1; fi"]
