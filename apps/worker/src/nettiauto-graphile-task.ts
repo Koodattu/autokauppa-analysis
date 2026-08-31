@@ -10,6 +10,7 @@ import {
 } from "./nettiauto-crawl-execution";
 import { createHttpNettiautoSource } from "./nettiauto-source";
 import { createListingHeroImageArchiver } from "./hero-image-archiver";
+import { executeManagedDetailBackfillJob } from "./nettiauto-detail-backfill-task";
 
 type NettiautoTaskName =
   | "schedule_nettiauto_crawl"
@@ -30,6 +31,7 @@ const searchResultPagePayloadSchema = z.object({
 const detailPagePayloadSchema = z.object({
   crawlRunId: z.string().uuid().nullable(),
   detailBackfillRunId: z.string().uuid().nullable().optional().default(null),
+  detailBackfillTargetListingId: z.string().uuid().nullable().optional().default(null),
   searchQueryId: z.string().uuid(),
   sourceListingId: z.string().min(1),
   sourceUrl: z.string().url(),
@@ -68,6 +70,21 @@ export function createNettiautoGraphileTask(taskName: NettiautoTaskName): Task {
 
       if (command.taskName === "crawl_nettiauto_search_page") {
         await execution.collectSearchResultPage(command.payload, context);
+        return;
+      }
+
+      if (command.payload.detailBackfillRunId) {
+        await executeManagedDetailBackfillJob({
+          sql,
+          config,
+          logger,
+          addJob: helpers.addJob,
+          command: {
+            detailBackfillRunId: command.payload.detailBackfillRunId,
+            detailBackfillTargetListingId: command.payload.detailBackfillTargetListingId,
+          },
+          execute: () => execution.enrichDetailPage(command.payload, context),
+        });
         return;
       }
 

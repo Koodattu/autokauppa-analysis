@@ -34,6 +34,7 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
     error: vi.fn(),
   } as unknown as AppLogger;
   const createdContexts: Array<{ sourceQueryId: string; crawlRunId: string }> = [];
+  const createdDetailBackfillRunIds: string[] = [];
 
   beforeAll(async () => {
     const [migrationTable] = await sql<{ relationName: string | null }[]>`
@@ -45,6 +46,10 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
   });
 
   afterEach(async () => {
+    for (const runId of createdDetailBackfillRunIds.splice(0)) {
+      await sql`delete from source_fetches where detail_backfill_run_id = ${runId}`;
+      await sql`delete from detail_backfill_runs where id = ${runId}`;
+    }
     for (const context of createdContexts.splice(0)) {
       await sql`
         update source_search_queries
@@ -145,6 +150,7 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
 
   it("pauses the Source Search Query and stops on a blocked response", async () => {
     const context = await createRunningCrawl();
+    const requestTime = new Date(Date.now() + 24 * 60 * 60 * 1_000);
     const source = createSource(async () => ({
       ...successfulEmptyPage(),
       ok: false,
@@ -159,7 +165,7 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
       logger,
       source,
       workQueue: createRecordingQueue(),
-      now: () => Date.parse("2026-08-12T10:00:00Z"),
+      now: () => requestTime.getTime(),
     });
 
     const outcome = await execution.collectSearchResultPage(
@@ -174,7 +180,74 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
     `;
     expect(outcome).toEqual({ kind: "stopped" });
     expect(query?.pauseReason).toBe("blocked");
-    expect(Date.parse(query?.pausedUntil ?? "")).toBe(Date.parse("2026-08-12T16:00:00Z"));
+    expect(Date.parse(query?.pausedUntil ?? "")).toBe(
+      requestTime.getTime() + 6 * 60 * 60 * 1_000,
+    );
+  });
+
+  it("opens the backfill circuit without changing normal crawl cadence state", async () => {
+    const context = await createRunningCrawl();
+    const requestTime = new Date(Date.now() + 24 * 60 * 60 * 1_000);
+    const [backfillRun] = await sql<{ id: string }[]>`
+      insert into detail_backfill_runs (
+        source, target_parser_version, selection, status
+      ) values (
+        'nettiauto', 'nettiauto-detail-v4', 'missing_or_v1', 'running'
+      )
+      returning id
+    `;
+    if (!backfillRun) {
+      throw new Error("Failed to create integration detail backfill run.");
+    }
+    createdDetailBackfillRunIds.push(backfillRun.id);
+
+    const execution = createNettiautoCrawlExecution({
+      sql,
+      config: workerConfig(),
+      logger,
+      source: createSource(
+        async () => successfulEmptyPage(),
+        async () => blockedDetailPage(),
+      ),
+      workQueue: createRecordingQueue(),
+      now: () => requestTime.getTime(),
+    });
+
+    const outcome = await execution.enrichDetailPage(
+      {
+        crawlRunId: null,
+        detailBackfillRunId: backfillRun.id,
+        searchQueryId: context.sourceQueryId,
+        sourceListingId: "integration-blocked-detail",
+        sourceUrl: "https://www.nettiauto.com/test/1",
+        force: true,
+      },
+      jobContext(),
+    );
+
+    const [query] = await sql<{
+      pauseReason: string | null;
+      pausedUntil: string | null;
+      lastFailureAt: string | null;
+    }[]>`
+      select pause_reason as "pauseReason", paused_until::text as "pausedUntil",
+             last_failure_at::text as "lastFailureAt"
+      from source_search_queries
+      where id = ${context.sourceQueryId}
+    `;
+    const [fetchEvidence] = await sql<{ errorType: string | null }[]>`
+      select error_type as "errorType"
+      from source_fetches
+      where detail_backfill_run_id = ${backfillRun.id}
+    `;
+
+    expect(outcome).toEqual({
+      kind: "stopped",
+      failureReason: "blocked",
+      blockedUntil: new Date(requestTime.getTime() + 6 * 60 * 60 * 1_000).toISOString(),
+    });
+    expect(query).toEqual({ pauseReason: null, pausedUntil: null, lastFailureAt: null });
+    expect(fetchEvidence).toEqual({ errorType: "blocked" });
   });
 
   it("cancels queued search work on an operator stop without contacting the Source", async () => {
@@ -263,12 +336,28 @@ function jobContext(overrides: Partial<CrawlJobContext> = {}): CrawlJobContext {
 
 function createSource(
   fetchSearchResultPage: NettiautoSource["fetchSearchResultPage"],
+  fetchDetailPage?: NettiautoSource["fetchDetailPage"],
 ): NettiautoSource {
   return {
     fetchSearchResultPage,
-    async fetchDetailPage() {
+    fetchDetailPage: fetchDetailPage ?? (async () => {
       throw new Error("Detail Page Data was not expected in this scenario.");
-    },
+    }),
+  };
+}
+
+function blockedDetailPage(): NettiautoSourceResponse {
+  const body = "<html><body>blocked</body></html>";
+  return {
+    ok: false,
+    redirected: false,
+    status: 403,
+    contentType: "text/html",
+    body,
+    bodyShape: "html_document",
+    bodySha256: "b".repeat(64),
+    bodyBytes: new TextEncoder().encode(body).byteLength,
+    durationMs: 10,
   };
 }
 

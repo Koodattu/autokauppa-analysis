@@ -92,6 +92,13 @@
       "when": 1786955000000,
       "tag": "0012_shared_hero_objects",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788180000000,
+      "tag": "0013_bounded_detail_backfill",
+      "breakpoints": true
     }
   ]
 }

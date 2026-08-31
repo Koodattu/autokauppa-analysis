@@ -14,6 +14,7 @@ import {
   parseAdminCrawlerRun,
   parseAdminCrawlerStatus,
   parseAdminDetailBackfillStart,
+  parseAdminDetailBackfillControl,
   parseAdminDetailBackfillStatus,
 } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
@@ -235,6 +236,52 @@ export function AdminCrawlerDashboard({
     }
   }
 
+  async function controlDetailBackfill(action: "pause" | "resume" | "cancel") {
+    if (
+      action === "cancel"
+      && !window.confirm("Cancel this detail backfill and remove its queued listing jobs?")
+    ) {
+      return;
+    }
+
+    setDetailBackfillPending(true);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/crawler/detail-backfill/control", {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (response.status === 401) {
+        router.push("/admin/login");
+        return;
+      }
+      if (!response.ok) {
+        setNotice({ kind: "error", message: formatRunError(await readRunError(response)) });
+        return;
+      }
+
+      parseAdminDetailBackfillControl(await response.json());
+      setNotice({
+        kind: "success",
+        message: action === "pause"
+          ? "Detail backfill paused. Already queued bounded jobs will retire without fetching."
+          : action === "resume"
+            ? "Detail backfill resumed with bounded dispatch."
+            : "Detail backfill cancellation queued.",
+      });
+      setDetailBackfill(await fetchDetailBackfillStatus(() => router.push("/admin/login")));
+      setLastUpdatedAt(new Date());
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Detail backfill control failed.",
+      });
+    } finally {
+      setDetailBackfillPending(false);
+    }
+  }
+
   async function updateCrawlerControl(action: "pause" | "resume") {
     setControlPending(true);
     setNotice(null);
@@ -358,6 +405,7 @@ export function AdminCrawlerDashboard({
           && !detailBackfillPending
         }
         onStart={startDetailBackfill}
+        onControl={controlDetailBackfill}
       />
 
       <section className="split">
@@ -499,24 +547,36 @@ function DetailBackfillPanel({
   pending,
   canStart,
   onStart,
+  onControl,
 }: {
   backfill: AdminDetailBackfillStatusResponse;
   delayMs: number;
   pending: boolean;
   canStart: boolean;
   onStart: () => void;
+  onControl: (action: "pause" | "resume" | "cancel") => void;
 }) {
   const run = backfill.latestRun;
-  const runIsActive = run ? ["planned", "running", "queued"].includes(run.status) : false;
+  const runIsActive = run
+    ? ["planned", "running", "queued", "blocked", "paused", "cancelling"].includes(run.status)
+    : false;
   const displayStatus = backfill.schedulerQueued && !runIsActive
     ? "queueing"
     : run?.status ?? "not started";
   const progressPercentage = !run || run.targetCount === 0
     ? 0
     : Math.min(100, Math.round((run.parsedCount / run.targetCount) * 1_000) / 10);
-  const remainingCount = run
-    ? Math.max(0, run.targetCount - run.parsedCount - run.unavailableCount)
+  const completedCount = run
+    ? run.parsedCount + run.unavailableCount + run.failedCount + run.cancelledCount
     : 0;
+  const completionPercentage = !run || run.targetCount === 0
+    ? 0
+    : Math.min(100, Math.round((completedCount / run.targetCount) * 1_000) / 10);
+  const canPause = Boolean(run && ["planned", "running", "queued", "blocked"].includes(run.status));
+  const canResume = Boolean(run && (
+    ["paused", "blocked"].includes(run.status) || run.recoveryRequired
+  ));
+  const canCancel = Boolean(runIsActive && run?.status !== "cancelling");
 
   return (
     <section className="panel detail-backfill-panel">
@@ -533,9 +593,11 @@ function DetailBackfillPanel({
 
       <div className="data-quality-summary detail-backfill-summary">
         <Metric label="Target" value={run ? formatNumber(run.targetCount) : "Not calculated"} />
-        <Metric label="Scheduled" value={run ? formatNumber(run.scheduledCount) : "0"} />
+        <Metric label="Dispatched" value={run ? formatNumber(run.scheduledCount) : "0"} />
         <Metric label="Parsed v4" value={run ? formatNumber(run.parsedCount) : "0"} />
-        <Metric label="Remaining" value={run ? formatNumber(remainingCount) : "-"} />
+        <Metric label="Remaining" value={run ? formatNumber(run.remainingCount) : "-"} />
+        <Metric label="Queued window" value={run ? formatNumber(run.queuedCount) : "0"} />
+        <Metric label="Attempts" value={run ? formatNumber(run.attemptedCount) : "0"} />
         <Metric label="Unavailable" value={run ? formatNumber(run.unavailableCount) : "0"} />
         <Metric
           label="Failed"
@@ -546,26 +608,63 @@ function DetailBackfillPanel({
 
       {run ? (
         <div className="detail-backfill-progress">
-          <progress max={100} value={progressPercentage}>{progressPercentage}%</progress>
-          <span>{formatNumber(progressPercentage)}% parsed</span>
+          <progress max={100} value={completionPercentage}>{completionPercentage}%</progress>
+          <span>{formatNumber(completionPercentage)}% completed · {formatNumber(progressPercentage)}% parsed</span>
         </div>
+      ) : null}
+
+      {run?.recoveryRequired ? (
+        <p className="notice error-state">
+          This is the legacy unbounded run with {formatNumber(run.legacyJobCount)} old worker jobs.
+          Resume rebuilds it with the bounded target ledger; old jobs are retired without contacting
+          Nettiauto.
+        </p>
+      ) : null}
+      {run?.status === "blocked" && run.blockReason ? (
+        <p className="notice error-state">
+          Circuit breaker open: {formatBackfillReason(run.blockReason)}
+          {run.blockedUntil ? ` · next single probe after ${formatDate(run.blockedUntil)}` : ""}
+        </p>
+      ) : null}
+      {run?.status === "paused" && run.blockReason ? (
+        <p className="notice">{formatBackfillReason(run.blockReason)}</p>
       ) : null}
 
       <div className="detail-backfill-actions">
         <div>
           <strong>
-            {run?.targetCount
-              ? `Minimum runtime at the current delay: ${formatBackfillDuration(run.targetCount, delayMs)}`
+            {run?.remainingCount
+              ? `Minimum remaining runtime at the current delay: ${formatBackfillDuration(run.remainingCount, delayMs)}`
               : `Current request spacing: ${formatNumber(delayMs)} ms`}
           </strong>
           <span>
-            Hero downloads follow HERO_IMAGE_ARCHIVE_ENABLED on the worker. Queue this operation only
-            once; an active run blocks duplicates.
+            The queued window is capped by DETAIL_BACKFILL_BATCH_SIZE. A source block stops dispatch
+            and schedules one probe after the cooldown. Hero downloads follow
+            HERO_IMAGE_ARCHIVE_ENABLED.
           </span>
         </div>
-        <button type="button" disabled={!canStart} onClick={onStart}>
-          {pending ? "Queueing…" : backfill.active ? "Backfill active" : "Queue v4 detail backfill"}
-        </button>
+        <div className="topbar-actions">
+          {!runIsActive ? (
+            <button type="button" disabled={!canStart} onClick={onStart}>
+              {pending ? "Queueing…" : "Queue v4 detail backfill"}
+            </button>
+          ) : null}
+          {canPause ? (
+            <button type="button" className="secondary-button" disabled={pending} onClick={() => onControl("pause")}>
+              Pause backfill
+            </button>
+          ) : null}
+          {canResume ? (
+            <button type="button" disabled={pending} onClick={() => onControl("resume")}>
+              {run?.recoveryRequired ? "Recover bounded run" : "Resume backfill"}
+            </button>
+          ) : null}
+          {canCancel ? (
+            <button type="button" className="secondary-button" disabled={pending} onClick={() => onControl("cancel")}>
+              Cancel backfill
+            </button>
+          ) : null}
+        </div>
       </div>
     </section>
   );
@@ -762,7 +861,7 @@ function statusTone(status: string) {
     return "default";
   }
 
-  if (["partial", "running", "planned", "queued", "queueing"].includes(status)) {
+  if (["partial", "running", "planned", "queued", "queueing", "blocked", "paused", "cancelling"].includes(status)) {
     return "warning";
   }
 
@@ -806,10 +905,33 @@ function formatRunError(error: string) {
       return "Worker queue is not ready yet.";
     case "detail_backfill_active":
       return "A missing/v1 detail backfill is already active.";
+    case "detail_backfill_not_active":
+      return "No active detail backfill was found.";
     case "invalid_request":
       return "Choose a valid crawl job and try again.";
     default:
       return "Crawler run could not be queued.";
+  }
+}
+
+function formatBackfillReason(reason: string) {
+  switch (reason) {
+    case "blocked":
+      return "Nettiauto is refusing detail requests (HTTP 403).";
+    case "rate_limited":
+      return "Nettiauto rate-limited detail requests (HTTP 429).";
+    case "redirected":
+      return "Nettiauto redirected detail requests unexpectedly.";
+    case "unexpected_response_body_shape":
+      return "Nettiauto returned an unexpected detail response.";
+    case "crawler_disabled":
+      return "The crawler is disabled on the worker.";
+    case "crawler_paused":
+      return "The crawler is paused on the worker.";
+    case "operator_paused":
+      return "Paused by an administrator.";
+    default:
+      return reason.replaceAll("_", " ");
   }
 }
 

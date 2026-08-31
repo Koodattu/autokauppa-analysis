@@ -88,8 +88,16 @@ describe("ApiApp HTTP interface", () => {
     const start = await app.fetch(
       new Request("http://api.test/admin/crawler/detail-backfill", { method: "POST" }),
     );
+    const control = await app.fetch(
+      new Request("http://api.test/admin/crawler/detail-backfill/control", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "pause" }),
+      }),
+    );
 
     expect(status.status).toBe(401);
     expect(start.status).toBe(401);
+    expect(control.status).toBe(401);
   });
 });

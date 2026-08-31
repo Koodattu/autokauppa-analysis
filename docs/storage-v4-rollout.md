@@ -25,7 +25,9 @@ The previously generic additional fields are bounded to the nine labels observed
 
 ## Safe order
 
-1. Apply migrations `0011_detail_v4_compact_media` and `0012_shared_hero_objects`.
+1. Apply migrations through `0013_bounded_detail_backfill`. Migration 0013 also clears only the
+   source-query pause/cadence fields that can be tied to a prior detail-backfill failure; it does not
+   change listing data.
 2. Queue the database-only v2 normalization. It does not make network requests:
 
    ```sql
@@ -49,15 +51,18 @@ The previously generic additional fields are bounded to the nine labels observed
    select graphile_worker.add_job('schedule_nettiauto_hero_backfill', '{}'::json);
    ```
 
-6. With the crawler enabled and unpaused, queue the network backfill for listings that have no parsed
-   detail or only v1 detail data:
+6. With the crawler enabled and unpaused, use Admin > Crawler to queue the network backfill for
+   listings that have no parsed detail or only v1 detail data. The admin panel also supports pause,
+   resume, and cancellation.
 
-   ```sql
-   select graphile_worker.add_job('schedule_nettiauto_detail_backfill', '{}'::json);
-   ```
+   A run stores a temporary target ledger, but keeps at most `DETAIL_BACKFILL_BATCH_SIZE` requests
+   queued or in flight. Requests remain globally rate-spaced. Transient failures have at most three
+   application-owned attempts. A block, challenge, or rate limit opens a run-level circuit breaker,
+   removes the remaining dispatched requests, waits for the configured cooldown, and sends one probe.
+   Detail-backfill failures do not pause or change the cadence of normal current/sold search crawls.
 
-   This creates a `detail_backfill_runs` row, schedules rate-spaced v4 detail jobs, and records every
-   fetch against that run rather than an unrelated historical crawl run.
+   After deploying migration 0013, an old unbounded run is shown as requiring recovery. Its legacy
+   jobs are retired without contacting Nettiauto before the bounded target ledger is rebuilt.
 7. Audit `detail_backfill_runs`, `listing_details`, `listing_image_assets`, hero files, and public
    responses. Only a later migration should remove legacy rows or columns.
 
@@ -74,7 +79,7 @@ recovered; failed images are not replaced with placeholders.
 
 ## Explicit non-goals of this migration
 
-- It does not delete or rewrite production data.
+- It does not delete or rewrite listing, detail, image, or raw-record data.
 - It does not queue any job automatically.
 - It does not expose VIN publicly.
 - It does not retain an open-ended `additionalSourceFields` object.

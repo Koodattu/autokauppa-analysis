@@ -162,6 +162,16 @@ const adminDetailBackfillRunSchema = z
     parsedCount: z.number().int().nonnegative(),
     unavailableCount: z.number().int().nonnegative(),
     failedCount: z.number().int().nonnegative(),
+    attemptedCount: z.number().int().nonnegative(),
+    cancelledCount: z.number().int().nonnegative(),
+    remainingCount: z.number().int().nonnegative(),
+    queuedCount: z.number().int().nonnegative(),
+    pendingCount: z.number().int().nonnegative(),
+    legacyJobCount: z.number().int().nonnegative(),
+    recoveryRequired: z.boolean(),
+    blockedUntil: nullableString,
+    blockReason: nullableString,
+    lastProgressAt: nullableString,
     startedAt: nullableString,
     finishedAt: nullableString,
     createdAt: z.string(),
@@ -180,6 +190,20 @@ export const adminDetailBackfillStartResponseSchema = z
   .object({
     ok: z.boolean(),
     task: z.literal("schedule_nettiauto_detail_backfill"),
+    jobId: nullableString,
+    runAt: nullableString,
+  })
+  .strict();
+
+export const adminDetailBackfillControlRequestSchema = z
+  .object({ action: z.enum(["pause", "resume", "cancel"]) })
+  .strict();
+
+export const adminDetailBackfillControlResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    action: z.enum(["pause", "resume", "cancel"]),
+    runId: z.string().uuid(),
     jobId: nullableString,
     runAt: nullableString,
   })

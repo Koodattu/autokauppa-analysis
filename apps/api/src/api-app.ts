@@ -27,6 +27,8 @@ import {
   adminCrawlerRunRequestSchema,
   adminCrawlerControlRequestSchema,
   adminDetailBackfillStartResponseSchema,
+  adminDetailBackfillControlRequestSchema,
+  adminDetailBackfillControlResponseSchema,
   adminDetailBackfillStatusResponseSchema,
   adminLoginRequestSchema,
   analyticsSnapshotResponseSchema,
@@ -46,6 +48,7 @@ import { createCrawlerDiagnostics } from "./crawler-diagnostics";
 import {
   createDetailBackfillControl,
   DetailBackfillAlreadyActiveError,
+  DetailBackfillNotActiveError,
 } from "./detail-backfill-control";
 import { createPostgresManualCrawlScheduler } from "./manual-crawl-scheduler";
 import {
@@ -168,6 +171,10 @@ app.use("/admin/login", createRateLimitMiddleware(loginLimiter, "admin-login", n
 app.use("/admin/crawler/run", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation", now));
 app.use("/admin/crawler/control", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation", now));
 app.use("/admin/crawler/detail-backfill", createRateLimitMiddleware(adminMutationLimiter, "admin-mutation", now));
+app.use(
+  "/admin/crawler/detail-backfill/control",
+  createRateLimitMiddleware(adminMutationLimiter, "admin-mutation", now),
+);
 
 app.onError((error, c) => {
   if (error instanceof HTTPException) {
@@ -370,6 +377,36 @@ app.post("/admin/crawler/detail-backfill", adminOnly, async (c) => {
     }
     if (error instanceof DetailBackfillAlreadyActiveError) {
       return c.json({ error: "detail_backfill_active" }, 409);
+    }
+    if (error instanceof CrawlerSchedulerUnavailableError) {
+      return c.json({ error: "worker_not_ready" }, 503);
+    }
+    throw error;
+  }
+});
+
+app.post("/admin/crawler/detail-backfill/control", adminOnly, async (c) => {
+  const body = await readOptionalJsonBody(c.req);
+  if (body === invalidJsonBody) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  const result = adminDetailBackfillControlRequestSchema.safeParse(body);
+  if (!result.success) {
+    return c.json({ error: "invalid_request", issues: result.error.issues }, 400);
+  }
+
+  try {
+    const receipt = await detailBackfillControl.control(result.data.action);
+    return c.json(adminDetailBackfillControlResponseSchema.parse({ ok: true, ...receipt }));
+  } catch (error) {
+    if (error instanceof CrawlerDisabledError) {
+      return c.json({ error: "crawler_disabled" }, 409);
+    }
+    if (error instanceof CrawlerPausedError) {
+      return c.json({ error: "crawler_paused" }, 409);
+    }
+    if (error instanceof DetailBackfillNotActiveError) {
+      return c.json({ error: "detail_backfill_not_active" }, 409);
     }
     if (error instanceof CrawlerSchedulerUnavailableError) {
       return c.json({ error: "worker_not_ready" }, 503);

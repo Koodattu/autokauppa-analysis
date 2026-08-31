@@ -11,6 +11,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -147,6 +148,13 @@ export const detailBackfillRuns = pgTable(
     succeededCount: integer("succeeded_count").notNull().default(0),
     unavailableCount: integer("unavailable_count").notNull().default(0),
     failedCount: integer("failed_count").notNull().default(0),
+    attemptedCount: integer("attempted_count").notNull().default(0),
+    cancelledCount: integer("cancelled_count").notNull().default(0),
+    blockedUntil: timestamp("blocked_until", { withTimezone: true }),
+    blockReason: text("block_reason"),
+    nextDispatchAt: timestamp("next_dispatch_at", { withTimezone: true }),
+    lastProgressAt: timestamp("last_progress_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     notes: text("notes"),
@@ -280,6 +288,34 @@ export const listings = pgTable(
     uniqueIndex("listings_latest_snapshot_id_uq")
       .on(table.latestSnapshotId)
       .where(sql`${table.latestSnapshotId} is not null`),
+  ],
+);
+
+export const detailBackfillTargets = pgTable(
+  "detail_backfill_targets",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => detailBackfillRuns.id, { onDelete: "cascade" }),
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    state: text("state").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.listingId] }),
+    check("detail_backfill_targets_state_ck", sql`${table.state} in ('pending', 'queued')`),
+    index("detail_backfill_targets_dispatch_idx").on(
+      table.runId,
+      table.state,
+      table.nextAttemptAt,
+      table.listingId,
+    ),
   ],
 );
 

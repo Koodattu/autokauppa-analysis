@@ -1,2 +1,4 @@
 # UTC. The scheduler task applies per-query target_cadence_interval values.
 0 3 * * * schedule_nettiauto_crawl
+# Repair lost pump/cancel control jobs without materializing the full listing backlog.
+*/5 * * * * maintain_nettiauto_detail_backfills

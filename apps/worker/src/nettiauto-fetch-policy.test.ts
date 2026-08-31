@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  NETTIAUTO_DETAIL_BACKFILL_MAX_ATTEMPTS,
   classifyRequestError,
   isRetryableNettiautoHttpStatus,
   shouldPauseNettiautoSource,
 } from "./nettiauto-fetch-policy";
 
 describe("Nettiauto fetch retry policy", () => {
+  it("keeps managed backfill retries small", () => {
+    expect(NETTIAUTO_DETAIL_BACKFILL_MAX_ATTEMPTS).toBe(3);
+  });
+
   it.each([408, 429, 500, 502, 503, 504])("retries transient HTTP %s", (status) => {
     expect(isRetryableNettiautoHttpStatus(status)).toBe(true);
   });

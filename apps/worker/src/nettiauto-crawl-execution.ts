@@ -60,8 +60,18 @@ export interface NettiautoCrawlExecution {
       force: boolean;
     },
     context: CrawlJobContext,
-  ): Promise<{ kind: "skipped" | "stopped" | "persisted" }>;
+  ): Promise<DetailPageOutcome>;
 }
+
+export type DetailPageOutcome =
+  | { kind: "skipped"; reason: "already_current" | "crawler_unavailable" | "source_unavailable" }
+  | { kind: "stopped"; failureReason: string; blockedUntil: string | null }
+  | {
+      kind: "persisted";
+      outcome: "parsed" | "unavailable" | "failed";
+      failureReason: string | null;
+      responseStatus: number;
+    };
 
 export function createNettiautoCrawlExecution(input: {
   sql: SqlClient;
@@ -552,10 +562,11 @@ export function createNettiautoCrawlExecution(input: {
     async enrichDetailPage(command, context) {
       if (!input.config.CRAWLER_ENABLED || input.config.CRAWLER_PAUSED) {
         if (command.detailBackfillRunId) {
-          throw new RetryableNettiautoFetchError(
-            "crawler_paused",
-            "Nettiauto detail backfill is waiting for the crawler to be enabled and unpaused.",
-          );
+          return {
+            kind: "stopped",
+            failureReason: input.config.CRAWLER_ENABLED ? "crawler_paused" : "crawler_disabled",
+            blockedUntil: null,
+          };
         }
         input.logger.info(
           {
@@ -567,7 +578,7 @@ export function createNettiautoCrawlExecution(input: {
           },
           "Nettiauto detail crawl skipped",
         );
-        return { kind: "skipped" };
+        return { kind: "skipped", reason: "crawler_unavailable" };
       }
 
       const [sourceQuery] = await input.sql<
@@ -582,15 +593,13 @@ export function createNettiautoCrawlExecution(input: {
           and source = 'nettiauto'
         limit 1
       `;
-      if (
-        !sourceQuery?.enabled ||
-        (sourceQuery.pausedUntil && new Date(sourceQuery.pausedUntil).getTime() > now())
-      ) {
+      if (!sourceQuery?.enabled) {
         if (command.detailBackfillRunId) {
-          throw new RetryableNettiautoFetchError(
-            "source_query_paused",
-            "Nettiauto detail backfill is waiting for its source query to become available.",
-          );
+          return {
+            kind: "stopped",
+            failureReason: "source_query_disabled",
+            blockedUntil: null,
+          };
         }
         input.logger.info(
           {
@@ -601,7 +610,24 @@ export function createNettiautoCrawlExecution(input: {
           },
           "Nettiauto detail crawl skipped because source query is unavailable",
         );
-        return { kind: "skipped" };
+        return { kind: "skipped", reason: "source_unavailable" };
+      }
+
+      if (
+        !command.detailBackfillRunId
+        && sourceQuery.pausedUntil
+        && new Date(sourceQuery.pausedUntil).getTime() > now()
+      ) {
+        input.logger.info(
+          {
+            jobId: context.jobId,
+            sourceListingId: command.sourceListingId,
+            pausedUntil: sourceQuery.pausedUntil,
+            pauseReason: sourceQuery.pauseReason,
+          },
+          "Nettiauto detail crawl skipped because source query is unavailable",
+        );
+        return { kind: "skipped", reason: "source_unavailable" };
       }
 
       if (!command.force) {
@@ -627,7 +653,7 @@ export function createNettiautoCrawlExecution(input: {
             },
             "Nettiauto detail crawl skipped because latest snapshot already has parsed detail data",
           );
-          return { kind: "skipped" };
+          return { kind: "skipped", reason: "already_current" };
         }
       }
 
@@ -729,6 +755,13 @@ export function createNettiautoCrawlExecution(input: {
       }
 
       if (failureReason && shouldPauseNettiautoSource(failureReason)) {
+        if (command.detailBackfillRunId) {
+          return {
+            kind: "stopped",
+            failureReason,
+            blockedUntil: new Date(now() + input.config.CRAWLER_BLOCK_PAUSE_MS).toISOString(),
+          };
+        }
         const pausedUntil = await pauseSourceSearchQuery(input.sql, command.searchQueryId, {
           pauseMs: input.config.CRAWLER_BLOCK_PAUSE_MS,
           reason: failureReason,
@@ -738,7 +771,7 @@ export function createNettiautoCrawlExecution(input: {
           { sourceListingId: command.sourceListingId, pausedUntil, failureReason },
           "Nettiauto source query paused after detail fetch failure",
         );
-        return { kind: "stopped" };
+        return { kind: "stopped", failureReason, blockedUntil: pausedUntil };
       }
       if (isRetryableNettiautoHttpStatus(response.status)) {
         throw new RetryableNettiautoFetchError(
@@ -759,7 +792,16 @@ export function createNettiautoCrawlExecution(input: {
         },
         "Nettiauto detail page persisted",
       );
-      return { kind: "persisted" };
+      return {
+        kind: "persisted",
+        outcome: parsedDetail
+          ? "parsed"
+          : [404, 410].includes(response.status)
+            ? "unavailable"
+            : "failed",
+        failureReason,
+        responseStatus: response.status,
+      };
     },
   };
 }

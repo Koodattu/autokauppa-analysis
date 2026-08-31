@@ -4,6 +4,7 @@ import {
   adminCrawlerRunResponseSchema,
   adminCrawlerStatusResponseSchema,
   adminDetailBackfillStartResponseSchema,
+  adminDetailBackfillControlResponseSchema,
   adminDetailBackfillStatusResponseSchema,
   analyticsSnapshotResponseSchema,
   analyticsTimeSeriesResponseSchema,
@@ -19,6 +20,7 @@ export type {
   AdminCrawlerRunTarget,
   AdminCrawlerStatusResponse,
   AdminDetailBackfillStartResponse,
+  AdminDetailBackfillControlResponse,
   AdminDetailBackfillStatusResponse,
   AnalyticsSnapshotResponse,
   AnalyticsTimeSeriesResponse,
@@ -120,4 +122,8 @@ export function parseAdminDetailBackfillStatus(value: unknown) {
 
 export function parseAdminDetailBackfillStart(value: unknown) {
   return adminDetailBackfillStartResponseSchema.parse(value);
+}
+
+export function parseAdminDetailBackfillControl(value: unknown) {
+  return adminDetailBackfillControlResponseSchema.parse(value);
 }
