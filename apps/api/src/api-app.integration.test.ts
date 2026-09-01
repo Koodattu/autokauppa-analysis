@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import type { AppLogger } from "@nettiauto/logging";
@@ -48,6 +48,10 @@ describeDatabase("ApiApp PostgreSQL scenarios", () => {
     if (!row?.relationName) {
       throw new Error("Test database migrations have not been applied.");
     }
+  });
+
+  beforeEach(async () => {
+    await sql`truncate table listings restart identity cascade`;
   });
 
   afterAll(async () => {
