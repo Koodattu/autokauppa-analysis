@@ -75,6 +75,7 @@ services:
       context: .
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
+    stop_grace_period: 45s
     environment:
       APP_ENV: ${APP_ENV:-production}
       NODE_ENV: production

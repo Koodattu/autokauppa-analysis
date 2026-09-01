@@ -7,5 +7,6 @@ export default {
   worker: {
     taskDirectory: join(currentDirectory, "dist", "tasks"),
     crontabFile: join(currentDirectory, "crontab"),
+    gracefulShutdownAbortTimeout: 30_000,
   },
 };

@@ -2,3 +2,5 @@
 0 3 * * * schedule_nettiauto_crawl
 # Repair lost pump/cancel control jobs without materializing the full listing backlog.
 */5 * * * * maintain_nettiauto_detail_backfills
+# Release queue locks left behind by replaced or terminated worker containers.
+* * * * * recover_nettiauto_queue_locks
