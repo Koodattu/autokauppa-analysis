@@ -651,6 +651,7 @@ export async function getAdminCrawlerDiagnostics(
         source_url as "sourceUrl",
         response_status as "responseStatus",
         response_body_shape as "responseBodyShape",
+        response_diagnostics as "responseDiagnostics",
         error_type as "errorType",
         left(error_message, 500) as "errorMessage"
       from source_fetches

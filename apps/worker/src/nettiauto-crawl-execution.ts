@@ -26,6 +26,7 @@ import {
   NETTIAUTO_DETAIL_PRIORITY_OFFSET,
   RetryableNettiautoFetchError,
   isRetryableNettiautoHttpStatus,
+  nettiautoRequestDelayMs,
   shouldPauseNettiautoSource,
 } from "./nettiauto-fetch-policy";
 import {
@@ -81,8 +82,10 @@ export function createNettiautoCrawlExecution(input: {
   workQueue: CrawlWorkQueue;
   heroImageArchiver?: ListingHeroImageArchiver;
   now?: () => number;
+  random?: () => number;
 }): NettiautoCrawlExecution {
   const now = input.now ?? Date.now;
+  const random = input.random ?? Math.random;
 
   return {
     async schedule(command, context) {
@@ -272,6 +275,9 @@ export function createNettiautoCrawlExecution(input: {
             ? error.failureReason
             : "network_error";
           const durationMs = error instanceof NettiautoSourceError ? error.durationMs : null;
+          const responseDiagnostics = error instanceof NettiautoSourceError
+            ? error.diagnostics
+            : null;
           await persistSearchResultPage(input.sql, {
             crawlRunId: command.crawlRunId,
             searchQueryId: sourceQuery.id,
@@ -285,6 +291,7 @@ export function createNettiautoCrawlExecution(input: {
             responseBodyShape: "unknown",
             responseBodySha256: null,
             responseBytes: null,
+            responseDiagnostics,
             durationMs,
             requestHeaders,
             errorType: failureReason,
@@ -319,12 +326,11 @@ export function createNettiautoCrawlExecution(input: {
             responseBodyShape: response.bodyShape,
             responseBodySha256: response.bodySha256,
             responseBytes: response.bodyBytes,
+            responseDiagnostics: response.diagnostics,
             durationMs: response.durationMs,
             requestHeaders,
             errorType: failureReason,
-            errorMessage: response.redirected
-              ? "Nettiauto request redirected before AJAX JSON was returned."
-              : `Nettiauto returned HTTP ${response.status} instead of AJAX JSON.`,
+            errorMessage: responseFailureMessage(response, "search result"),
             parsedPage: emptyNettiautoSearchResultPage({
               crawlKind: sourceQuery.crawlKind,
               pageNumber: command.pageNumber,
@@ -342,6 +348,7 @@ export function createNettiautoCrawlExecution(input: {
               responseContentType: response.contentType,
               responseBytes: response.bodyBytes,
               responseBodySha256: response.bodySha256,
+              responseDiagnostics: response.diagnostics,
               durationMs: response.durationMs,
               failureReason,
             },
@@ -393,6 +400,7 @@ export function createNettiautoCrawlExecution(input: {
             responseBodyShape: response.bodyShape,
             responseBodySha256: response.bodySha256,
             responseBytes: response.bodyBytes,
+            responseDiagnostics: response.diagnostics,
             durationMs: response.durationMs,
             requestHeaders,
             errorType: failureReason,
@@ -418,6 +426,7 @@ export function createNettiautoCrawlExecution(input: {
               responseContentType: response.contentType,
               responseBytes: response.bodyBytes,
               responseBodySha256: response.bodySha256,
+              responseDiagnostics: response.diagnostics,
               durationMs: response.durationMs,
               failureReason,
             },
@@ -465,7 +474,15 @@ export function createNettiautoCrawlExecution(input: {
           detailCandidates.length,
           input.config.CRAWLER_DETAIL_MAX_PER_RUN,
         );
+        let detailDispatchAt = now();
         for (const [index, candidate] of detailCandidates.slice(0, detailJobCount).entries()) {
+          if (index > 0) {
+            detailDispatchAt += nettiautoRequestDelayMs(
+              input.config.CRAWLER_DELAY_MS,
+              input.config.CRAWLER_DELAY_JITTER_MS,
+              random,
+            );
+          }
           try {
             await input.workQueue.enqueueDetailPage({
               crawlRunId: command.crawlRunId,
@@ -473,7 +490,7 @@ export function createNettiautoCrawlExecution(input: {
               sourceListingId: candidate.listing.sourceListingId,
               sourceUrl: candidate.sourceUrl,
               priority: sourceQuery.priority + NETTIAUTO_DETAIL_PRIORITY_OFFSET,
-              runAt: new Date(now() + index * input.config.CRAWLER_DELAY_MS),
+              runAt: new Date(detailDispatchAt),
             });
           } catch (error) {
             input.logger.warn(
@@ -538,7 +555,13 @@ export function createNettiautoCrawlExecution(input: {
           sourceQueryId: sourceQuery.id,
           pageNumber: command.pageNumber + 1,
           priority: sourceQuery.priority,
-          runAt: new Date(now() + input.config.CRAWLER_DELAY_MS),
+          runAt: new Date(
+            now() + nettiautoRequestDelayMs(
+              input.config.CRAWLER_DELAY_MS,
+              input.config.CRAWLER_DELAY_JITTER_MS,
+              random,
+            ),
+          ),
         });
         return { kind: "continued" };
       } catch (error) {
@@ -671,6 +694,9 @@ export function createNettiautoCrawlExecution(input: {
           ? error.failureReason
           : "network_error";
         const durationMs = error instanceof NettiautoSourceError ? error.durationMs : null;
+        const responseDiagnostics = error instanceof NettiautoSourceError
+          ? error.diagnostics
+          : null;
         await persistNettiautoDetailPage(input.sql, {
           crawlRunId: command.crawlRunId,
           detailBackfillRunId: command.detailBackfillRunId ?? null,
@@ -683,6 +709,7 @@ export function createNettiautoCrawlExecution(input: {
           responseBodyShape: "unknown",
           responseBodySha256: null,
           responseBytes: null,
+          responseDiagnostics,
           durationMs,
           requestHeaders,
           errorType: failureReason,
@@ -719,12 +746,11 @@ export function createNettiautoCrawlExecution(input: {
         responseBodyShape: response.bodyShape,
         responseBodySha256: response.bodySha256,
         responseBytes: response.bodyBytes,
+        responseDiagnostics: failureReason ? response.diagnostics : null,
         durationMs: response.durationMs,
         requestHeaders,
         errorType: failureReason,
-        errorMessage: failureReason
-          ? `Nettiauto detail page returned ${response.bodyShape} with HTTP ${response.status}.`
-          : null,
+        errorMessage: failureReason ? responseFailureMessage(response, "detail page") : null,
         parsedDetail,
       });
 
@@ -842,4 +868,19 @@ function classifyDetailFetchFailure(statusCode: number, bodyShape: string) {
     return "unexpected_response_body_shape";
   }
   return "fetch_failed";
+}
+
+function responseFailureMessage(response: NettiautoSourceResponse, target: string) {
+  const diagnostics = response.diagnostics;
+  if (diagnostics.classification === "cloudflare_challenge") {
+    const ray = diagnostics.cfRay ? `, ray ${diagnostics.cfRay}` : "";
+    return `Nettiauto ${target} returned a Cloudflare challenge (HTTP ${response.status}${ray}).`;
+  }
+  if (diagnostics.location) {
+    return (
+      `Nettiauto ${target} returned HTTP ${response.status} with redirect location ` +
+      `${diagnostics.location}.`
+    );
+  }
+  return `Nettiauto ${target} returned ${response.bodyShape} with HTTP ${response.status}.`;
 }

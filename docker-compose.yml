@@ -53,6 +53,7 @@ services:
       CRAWLER_ENABLED: ${CRAWLER_ENABLED:-false}
       CRAWLER_PAUSED: ${CRAWLER_PAUSED:-false}
       CRAWLER_DELAY_MS: ${CRAWLER_DELAY_MS:-2500}
+      CRAWLER_DELAY_JITTER_MS: ${CRAWLER_DELAY_JITTER_MS:-1000}
       CRAWLER_REQUEST_TIMEOUT_MS: ${CRAWLER_REQUEST_TIMEOUT_MS:-30000}
       CRAWLER_MAX_PAGES_PER_RUN: ${CRAWLER_MAX_PAGES_PER_RUN:-2}
       CRAWLER_BLOCK_PAUSE_MS: ${CRAWLER_BLOCK_PAUSE_MS:-21600000}
@@ -82,11 +83,16 @@ services:
       CRAWLER_ENABLED: ${CRAWLER_ENABLED:-false}
       CRAWLER_PAUSED: ${CRAWLER_PAUSED:-false}
       CRAWLER_DELAY_MS: ${CRAWLER_DELAY_MS:-2500}
+      CRAWLER_DELAY_JITTER_MS: ${CRAWLER_DELAY_JITTER_MS:-1000}
       CRAWLER_REQUEST_TIMEOUT_MS: ${CRAWLER_REQUEST_TIMEOUT_MS:-30000}
       CRAWLER_MAX_PAGES_PER_RUN: ${CRAWLER_MAX_PAGES_PER_RUN:-2}
       CRAWLER_BLOCK_PAUSE_MS: ${CRAWLER_BLOCK_PAUSE_MS:-21600000}
       CRAWLER_DETAIL_ENABLED: ${CRAWLER_DETAIL_ENABLED:-false}
       CRAWLER_DETAIL_MAX_PER_RUN: ${CRAWLER_DETAIL_MAX_PER_RUN:-50}
+      NETTIAUTO_SOURCE_TRANSPORT: ${NETTIAUTO_SOURCE_TRANSPORT:-fetch}
+      FLARESOLVERR_URL: ${FLARESOLVERR_URL:-http://flaresolverr:8191/v1}
+      FLARESOLVERR_SESSION_ID: ${FLARESOLVERR_SESSION_ID:-nettiauto-worker}
+      FLARESOLVERR_SESSION_TTL_MINUTES: ${FLARESOLVERR_SESSION_TTL_MINUTES:-30}
       DETAIL_BACKFILL_BATCH_SIZE: ${DETAIL_BACKFILL_BATCH_SIZE:-200}
       HERO_IMAGE_ARCHIVE_ENABLED: ${HERO_IMAGE_ARCHIVE_ENABLED:-true}
       HERO_IMAGE_STORAGE_PATH: ${HERO_IMAGE_STORAGE_PATH:-/data/hero-images}
@@ -103,6 +109,31 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
+      LOG_HTML: "false"
+      CAPTCHA_SOLVER: none
+      DISABLE_MEDIA: "true"
+      HEADLESS: "true"
+      TZ: Europe/Helsinki
+    ports:
+      - "127.0.0.1:${FLARESOLVERR_PORT:-8191}:8191"
+    shm_size: 512mb
+    mem_limit: ${FLARESOLVERR_MEMORY_LIMIT:-1g}
+    cpus: ${FLARESOLVERR_CPUS:-1.0}
+    pids_limit: 256
+    volumes:
+      - flaresolverr_config:/config
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8191/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   migrate:
     build:
@@ -136,3 +167,4 @@ volumes:
   caddy_config:
   postgres_data:
   hero_images:
+  flaresolverr_config:

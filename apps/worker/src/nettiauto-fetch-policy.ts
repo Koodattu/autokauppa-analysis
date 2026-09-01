@@ -29,6 +29,14 @@ export function shouldPauseNettiautoSource(failureReason: string) {
   return CIRCUIT_BREAKER_FAILURES.has(failureReason);
 }
 
+export function nettiautoRequestDelayMs(
+  baseDelayMs: number,
+  jitterMs: number,
+  random: () => number = Math.random,
+) {
+  return baseDelayMs + Math.floor(random() * (jitterMs + 1));
+}
+
 export function classifyRequestError(input: {
   timeoutAborted: boolean;
   workerAborted: boolean;

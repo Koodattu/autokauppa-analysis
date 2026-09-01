@@ -183,6 +183,7 @@ response_content_type text null
 response_body_shape fetch_body_shape not null
 response_body_sha256 text null
 response_bytes integer null
+response_diagnostics jsonb null
 fetched_at timestamptz not null
 duration_ms integer null
 error_type text null

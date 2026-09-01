@@ -9,6 +9,7 @@ import type {
   NettiautoDetailNormalizedData,
   NettiautoQueryParams,
   NettiautoResponseBodyShape,
+  NettiautoResponseDiagnostics,
   ParsedNettiautoDetailPage,
   ParsedListingCard,
   ParsedSearchResultPage,
@@ -71,6 +72,7 @@ export interface PersistSearchResultPageInput {
   responseBodyShape: NettiautoResponseBodyShape;
   responseBodySha256: string | null;
   responseBytes: number | null;
+  responseDiagnostics?: NettiautoResponseDiagnostics | null;
   durationMs: number | null;
   requestHeaders: Record<string, string>;
   errorType?: string | null;
@@ -97,6 +99,7 @@ export interface PersistNettiautoDetailPageInput {
   responseBodyShape: NettiautoResponseBodyShape;
   responseBodySha256: string | null;
   responseBytes: number | null;
+  responseDiagnostics?: NettiautoResponseDiagnostics | null;
   durationMs: number | null;
   requestHeaders: Record<string, string>;
   errorType?: string | null;
@@ -127,7 +130,7 @@ export interface PersistListingHeroImageInput {
 type SqlClient = postgres.Sql<Record<string, unknown>>;
 type TransactionSqlClient = postgres.TransactionSql<Record<string, unknown>>;
 
-const NETTIAUTO_REQUEST_PROFILE = { profile: "nettiauto-browser-v1" } as const;
+const NETTIAUTO_REQUEST_PROFILE = { profile: "nettiauto-browser-v2" } as const;
 
 function jsonValue(value: unknown): postgres.JSONValue {
   return value as postgres.JSONValue;
@@ -853,6 +856,7 @@ export async function persistSearchResultPage(
         response_body_shape,
         response_body_sha256,
         response_bytes,
+        response_diagnostics,
         fetched_at,
         duration_ms,
         error_type,
@@ -872,6 +876,9 @@ export async function persistSearchResultPage(
         ${input.responseBodyShape},
         ${input.responseBodySha256},
         ${input.responseBytes},
+        ${input.responseDiagnostics
+          ? tx.json(jsonValue(input.responseDiagnostics))
+          : null},
         ${fetchedAt},
         ${input.durationMs},
         ${input.errorType ?? firstParseIssue(input.parsedPage)?.code ?? null},
@@ -886,6 +893,7 @@ export async function persistSearchResultPage(
         response_body_shape = excluded.response_body_shape,
         response_body_sha256 = excluded.response_body_sha256,
         response_bytes = excluded.response_bytes,
+        response_diagnostics = excluded.response_diagnostics,
         fetched_at = excluded.fetched_at,
         duration_ms = excluded.duration_ms,
         error_type = excluded.error_type,
@@ -960,6 +968,7 @@ export async function persistNettiautoDetailPage(
         response_body_shape,
         response_body_sha256,
         response_bytes,
+        response_diagnostics,
         fetched_at,
         duration_ms,
         error_type,
@@ -981,6 +990,9 @@ export async function persistNettiautoDetailPage(
         ${input.responseBodyShape},
         ${input.responseBodySha256},
         ${input.responseBytes},
+        ${input.responseDiagnostics
+          ? tx.json(jsonValue(input.responseDiagnostics))
+          : null},
         ${fetchedAt},
         ${input.durationMs},
         ${input.errorType ?? null},

@@ -158,6 +158,12 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
       contentType: "text/html",
       body: "<html><body>blocked</body></html>",
       bodyShape: "html_document",
+      diagnostics: {
+        classification: "cloudflare_challenge",
+        title: "Just a moment...",
+        server: "cloudflare",
+        cfRay: "search-ray-TLL",
+      },
     }));
     const execution = createNettiautoCrawlExecution({
       sql,
@@ -235,8 +241,13 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
       from source_search_queries
       where id = ${context.sourceQueryId}
     `;
-    const [fetchEvidence] = await sql<{ errorType: string | null }[]>`
-      select error_type as "errorType"
+    const [fetchEvidence] = await sql<{
+      errorType: string | null;
+      errorMessage: string | null;
+      responseDiagnostics: Record<string, string> | null;
+    }[]>`
+      select error_type as "errorType", error_message as "errorMessage",
+             response_diagnostics as "responseDiagnostics"
       from source_fetches
       where detail_backfill_run_id = ${backfillRun.id}
     `;
@@ -247,7 +258,17 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
       blockedUntil: new Date(requestTime.getTime() + 6 * 60 * 60 * 1_000).toISOString(),
     });
     expect(query).toEqual({ pauseReason: null, pausedUntil: null, lastFailureAt: null });
-    expect(fetchEvidence).toEqual({ errorType: "blocked" });
+    expect(fetchEvidence).toEqual({
+      errorType: "blocked",
+      errorMessage:
+        "Nettiauto detail page returned a Cloudflare challenge (HTTP 403, ray integration-ray-TLL).",
+      responseDiagnostics: {
+        classification: "cloudflare_challenge",
+        title: "Just a moment...",
+        server: "cloudflare",
+        cfRay: "integration-ray-TLL",
+      },
+    });
   });
 
   it("cancels queued search work on an operator stop without contacting the Source", async () => {
@@ -315,6 +336,7 @@ function workerConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     CRAWLER_ENABLED: true,
     CRAWLER_PAUSED: false,
     CRAWLER_DELAY_MS: 0,
+    CRAWLER_DELAY_JITTER_MS: 0,
     CRAWLER_REQUEST_TIMEOUT_MS: 1_000,
     CRAWLER_MAX_PAGES_PER_RUN: 0,
     CRAWLER_BLOCK_PAUSE_MS: 6 * 60 * 60 * 1_000,
@@ -358,6 +380,12 @@ function blockedDetailPage(): NettiautoSourceResponse {
     bodySha256: "b".repeat(64),
     bodyBytes: new TextEncoder().encode(body).byteLength,
     durationMs: 10,
+    diagnostics: {
+      classification: "cloudflare_challenge",
+      title: "Just a moment...",
+      server: "cloudflare",
+      cfRay: "integration-ray-TLL",
+    },
   };
 }
 
@@ -378,6 +406,7 @@ function successfulEmptyPage(): NettiautoSourceResponse {
     bodySha256: "a".repeat(64),
     bodyBytes: new TextEncoder().encode(body).byteLength,
     durationMs: 10,
+    diagnostics: {},
   };
 }
 

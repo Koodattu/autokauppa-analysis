@@ -99,6 +99,13 @@
       "when": 1788180000000,
       "tag": "0013_bounded_detail_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788266400000,
+      "tag": "0014_compact_fetch_diagnostics",
+      "breakpoints": true
     }
   ]
 }

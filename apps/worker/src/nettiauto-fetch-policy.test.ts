@@ -3,6 +3,7 @@ import {
   NETTIAUTO_DETAIL_BACKFILL_MAX_ATTEMPTS,
   classifyRequestError,
   isRetryableNettiautoHttpStatus,
+  nettiautoRequestDelayMs,
   shouldPauseNettiautoSource,
 } from "./nettiauto-fetch-policy";
 
@@ -28,6 +29,12 @@ describe("Nettiauto fetch retry policy", () => {
     expect(shouldPauseNettiautoSource("unexpected_response_body_shape")).toBe(true);
     expect(shouldPauseNettiautoSource("network_error")).toBe(false);
     expect(shouldPauseNettiautoSource("http_500")).toBe(false);
+  });
+
+  it("adds bounded jitter to the source request delay", () => {
+    expect(nettiautoRequestDelayMs(2_500, 1_000, () => 0)).toBe(2_500);
+    expect(nettiautoRequestDelayMs(2_500, 1_000, () => 0.999)).toBe(3_499);
+    expect(nettiautoRequestDelayMs(2_500, 0, () => 0.5)).toBe(2_500);
   });
 
   it("distinguishes request timeouts, worker shutdowns, and network errors", () => {

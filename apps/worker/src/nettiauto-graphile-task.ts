@@ -1,4 +1,4 @@
-import { parseWorkerConfig } from "@nettiauto/config";
+import { parseWorkerConfig, type WorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import { createLogger } from "@nettiauto/logging";
 import type { Task } from "graphile-worker";
@@ -8,7 +8,12 @@ import {
   createNettiautoCrawlExecution,
   type CrawlJobContext,
 } from "./nettiauto-crawl-execution";
-import { createHttpNettiautoSource } from "./nettiauto-source";
+import {
+  createFlareSolverrNettiautoSource,
+  createHttpNettiautoSource,
+  createImpitNettiautoSource,
+  type NettiautoSource,
+} from "./nettiauto-source";
 import { createListingHeroImageArchiver } from "./hero-image-archiver";
 import { executeManagedDetailBackfillJob } from "./nettiauto-detail-backfill-task";
 
@@ -16,6 +21,8 @@ type NettiautoTaskName =
   | "schedule_nettiauto_crawl"
   | "crawl_nettiauto_search_page"
   | "crawl_nettiauto_detail_page";
+
+let cachedSource: { key: string; source: NettiautoSource } | undefined;
 
 const schedulePayloadSchema = z.object({
   force: z.boolean().optional().default(false),
@@ -53,7 +60,7 @@ export function createNettiautoGraphileTask(taskName: NettiautoTaskName): Task {
         sql,
         config,
         logger,
-        source: createHttpNettiautoSource(),
+        source: getNettiautoSource(config, logger),
         workQueue: createGraphileCrawlWorkQueue(helpers.addJob),
         heroImageArchiver: createListingHeroImageArchiver({
           sql,
@@ -93,6 +100,42 @@ export function createNettiautoGraphileTask(taskName: NettiautoTaskName): Task {
       await closeSqlClient(sql);
     }
   };
+}
+
+function getNettiautoSource(config: WorkerConfig, logger: ReturnType<typeof createLogger>) {
+  const key = JSON.stringify({
+    transport: config.NETTIAUTO_SOURCE_TRANSPORT,
+    delayMs: config.CRAWLER_DELAY_MS,
+    jitterMs: config.CRAWLER_DELAY_JITTER_MS,
+    flaresolverrUrl: config.FLARESOLVERR_URL,
+    flaresolverrSessionId: config.FLARESOLVERR_SESSION_ID,
+    flaresolverrSessionTtlMinutes: config.FLARESOLVERR_SESSION_TTL_MINUTES,
+  });
+  if (cachedSource?.key === key) {
+    return cachedSource.source;
+  }
+
+  const pacing = {
+    delayMs: config.CRAWLER_DELAY_MS,
+    jitterMs: config.CRAWLER_DELAY_JITTER_MS,
+  };
+  const source = config.NETTIAUTO_SOURCE_TRANSPORT === "impit"
+    ? createImpitNettiautoSource(pacing)
+    : config.NETTIAUTO_SOURCE_TRANSPORT === "flaresolverr"
+      ? createFlareSolverrNettiautoSource({
+        endpoint: config.FLARESOLVERR_URL,
+        sessionId: config.FLARESOLVERR_SESSION_ID,
+        sessionTtlMinutes: config.FLARESOLVERR_SESSION_TTL_MINUTES,
+        pacing,
+      })
+      : createHttpNettiautoSource(globalThis.fetch, pacing);
+
+  cachedSource = { key, source };
+  logger.info(
+    { transport: config.NETTIAUTO_SOURCE_TRANSPORT },
+    "Nettiauto source transport initialized",
+  );
+  return source;
 }
 
 function parseTaskPayload(taskName: NettiautoTaskName, payload: unknown) {

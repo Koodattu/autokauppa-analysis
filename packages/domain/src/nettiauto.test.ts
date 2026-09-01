@@ -12,6 +12,7 @@ import {
   classifyNettiautoResponseBody,
   hasUsableNettiautoDetailEvidence,
   nettiautoAjaxRequestHeaders,
+  nettiautoDetailRequestHeaders,
   parseNettiautoDetailPage,
   parseNettiautoAjaxSearchResult,
   upgradeStoredNettiautoDetailToV4,
@@ -47,6 +48,18 @@ describe("Nettiauto Search Result parser", () => {
     expect(headers["user-agent"]).toContain("Chrome/");
     expect(headers).not.toHaveProperty("cookie");
     expect(new URL(headers.referer).searchParams.get("sortCol")).toBe("dateCreated");
+  });
+
+  it("uses navigation headers for detail HTML without AJAX signaling", () => {
+    const headers = nettiautoDetailRequestHeaders(
+      "https://www.nettiauto.com/toyota/corolla/12345",
+    );
+
+    expect(headers.accept).toContain("text/html");
+    expect(headers["upgrade-insecure-requests"]).toBe("1");
+    expect(headers.referer).toBe("https://www.nettiauto.com/");
+    expect(headers).not.toHaveProperty("x-requested-with");
+    expect(headers).not.toHaveProperty("cookie");
   });
 
   it("classifies non-JSON response bodies before parser use", () => {

@@ -25,9 +25,10 @@ The previously generic additional fields are bounded to the nine labels observed
 
 ## Safe order
 
-1. Apply migrations through `0013_bounded_detail_backfill`. Migration 0013 also clears only the
+1. Apply migrations through `0014_compact_fetch_diagnostics`. Migration 0013 also clears only the
    source-query pause/cadence fields that can be tied to a prior detail-backfill failure; it does not
-   change listing data.
+   change listing data. Migration 0014 adds nullable compact response diagnostics; it does not
+   rewrite historical fetches.
 2. Queue the database-only v2 normalization. It does not make network requests:
 
    ```sql

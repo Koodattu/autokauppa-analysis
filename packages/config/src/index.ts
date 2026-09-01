@@ -4,6 +4,10 @@ const appEnvSchema = z
   .enum(["development", "test", "production"])
   .default("development");
 
+const nettiautoSourceTransportSchema = z
+  .enum(["fetch", "impit", "flaresolverr"])
+  .default("fetch");
+
 const booleanEnvSchema = z
   .union([z.boolean(), z.string(), z.undefined()])
   .transform((value) => {
@@ -51,6 +55,7 @@ const sharedConfigSchema = z.object({
   CRAWLER_ENABLED: booleanEnvSchema.transform((value) => value ?? false),
   CRAWLER_PAUSED: booleanEnvSchema.transform((value) => value ?? false),
   CRAWLER_DELAY_MS: integerEnvSchema(2_500),
+  CRAWLER_DELAY_JITTER_MS: integerEnvSchema(1_000),
   CRAWLER_REQUEST_TIMEOUT_MS: integerEnvSchema(30_000),
   CRAWLER_MAX_PAGES_PER_RUN: integerEnvSchema(2),
   CRAWLER_BLOCK_PAUSE_MS: integerEnvSchema(6 * 60 * 60 * 1_000),
@@ -59,6 +64,10 @@ const sharedConfigSchema = z.object({
 });
 
 const workerConfigSchema = sharedConfigSchema.extend({
+  NETTIAUTO_SOURCE_TRANSPORT: nettiautoSourceTransportSchema,
+  FLARESOLVERR_URL: z.string().url().default("http://flaresolverr:8191/v1"),
+  FLARESOLVERR_SESSION_ID: z.string().trim().min(1).default("nettiauto-worker"),
+  FLARESOLVERR_SESSION_TTL_MINUTES: integerEnvSchema(30),
   DETAIL_BACKFILL_BATCH_SIZE: integerEnvSchema(200),
   HERO_IMAGE_ARCHIVE_ENABLED: booleanEnvSchema.optional().transform((value) => value ?? false),
   HERO_IMAGE_STORAGE_PATH: z.string().trim().min(1).default("/data/hero-images"),
@@ -125,6 +134,7 @@ export function safeConfigSnapshot(config: SharedServiceConfig) {
     crawlerEnabled: config.CRAWLER_ENABLED,
     crawlerPaused: config.CRAWLER_PAUSED,
     crawlerDelayMs: config.CRAWLER_DELAY_MS,
+    crawlerDelayJitterMs: config.CRAWLER_DELAY_JITTER_MS,
     crawlerRequestTimeoutMs: config.CRAWLER_REQUEST_TIMEOUT_MS,
     crawlerMaxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
     crawlerBlockPauseMs: config.CRAWLER_BLOCK_PAUSE_MS,

@@ -25,6 +25,19 @@ export type NettiautoResponseBodyShape =
   | "blocked"
   | "unknown";
 
+export type NettiautoSourceTransport = "fetch" | "impit" | "flaresolverr";
+
+export interface NettiautoResponseDiagnostics {
+  classification?: "cloudflare_challenge";
+  transport?: NettiautoSourceTransport;
+  title?: string;
+  server?: string;
+  cfRay?: string;
+  retryAfter?: string;
+  location?: string;
+  solverMessage?: string;
+}
+
 export interface ParsedImageMetadata {
   imageUrl: string;
   imageRole: string | null;
@@ -246,14 +259,17 @@ export function nettiautoAjaxRequestHeaders(
 }
 
 export function nettiautoDetailRequestHeaders(sourceUrl: string) {
+  const sourceOrigin = new URL(sourceUrl).origin;
+
   return {
-    accept: "*/*",
-    "accept-language": "en-US,en;q=0.9,fi;q=0.8,fi-FI;q=0.7",
+    accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "accept-language": "fi-FI,fi;q=0.9,en-US;q=0.8,en;q=0.7",
     "cache-control": "no-cache",
     pragma: "no-cache",
     "user-agent": NETTIAUTO_BROWSER_USER_AGENT,
-    "x-requested-with": "XMLHttpRequest",
-    referer: sourceUrl,
+    "upgrade-insecure-requests": "1",
+    referer: `${sourceOrigin}/`,
   };
 }
 

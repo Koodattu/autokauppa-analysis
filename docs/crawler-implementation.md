@@ -219,9 +219,9 @@ Start conservatively:
 - require an explicit crawler enable switch before making live Source requests;
 - one Nettiauto fetch at a time;
 - delay between page fetches;
-- no browser automation;
+- no browser automation on the default transport;
 - no login/session scraping;
-- no attempt to bypass access controls or anti-bot challenges;
+- no credentialed sessions, CAPTCHA solving, or automatic fallback chain;
 - stop or back off on 403, 429, challenge pages, repeated redirects, or unusual
   body shapes;
 - keep Current Listings Crawl fresher than Sold Listings Crawl.
@@ -232,6 +232,35 @@ source-facing failures.
 
 Exact delay and cadence values should be tuned only after terms, robots.txt,
 observed source behavior, and the proof-of-concept risk posture are reviewed.
+
+## Experimental Source Transports
+
+`NETTIAUTO_SOURCE_TRANSPORT` selects one worker-wide transport:
+
+- `fetch` is the default and preserves the normal Bun/Node request path;
+- `impit` uses a persistent cookie jar and a coherent Chrome TLS/HTTP profile;
+- `flaresolverr` sends requests to the internal browser sidecar and reuses one
+  serialized browser session with a bounded TTL.
+
+The alternatives are experiments, not an automatic fallback chain. A challenge
+must remain visible to the existing diagnostics and circuit breaker. Do not
+select FlareSolverr for a queued backfill until a bounded operator probe has
+succeeded and its memory, duration, response shape, and repeat behavior have
+been reviewed. The sidecar is pinned to an immutable image, capped to one CPU
+and 1 GiB by default, and exposed only on the host loopback interface.
+
+Run a single probe without writing crawler or listing data:
+
+```bash
+bun --cwd apps/worker probe:transport -- \
+  --transport impit \
+  --url https://www.nettiauto.com/MAKE/MODEL/LISTING_ID
+```
+
+For the local FlareSolverr service, replace the transport with `flaresolverr`.
+The command prints only bounded status, response shape, byte count, hash,
+diagnostics, and v4 parser evidence; it never prints or persists the response
+body.
 
 ## Failure Handling
 

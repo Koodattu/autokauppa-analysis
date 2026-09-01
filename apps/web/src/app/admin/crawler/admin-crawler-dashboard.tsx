@@ -470,7 +470,12 @@ export function AdminCrawlerDashboard({
             key: `${failure.fetchedAt}-${failure.sourceUrl}-${index}`,
             label: failure.errorType,
             meta: `${failure.fetchKind}${failure.pageNumber ? ` page ${failure.pageNumber}` : ""} · ${formatDate(failure.fetchedAt)} · HTTP ${failure.responseStatus ?? "-"}`,
-            detail: failure.errorMessage ?? failure.sourceUrl,
+            detail: [
+              failure.errorMessage ?? failure.sourceUrl,
+              formatSourceResponseDiagnostics(failure.responseDiagnostics),
+            ]
+              .filter(Boolean)
+              .join(" · "),
           }))}
         />
         <ErrorPanel
@@ -887,6 +892,24 @@ function formatDate(value: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatSourceResponseDiagnostics(diagnostics: Record<string, string> | null) {
+  if (!diagnostics) {
+    return "";
+  }
+
+  return [
+    diagnostics.transport ? `transport ${diagnostics.transport}` : null,
+    diagnostics.title ? `title ${diagnostics.title}` : null,
+    diagnostics.server ? `server ${diagnostics.server}` : null,
+    diagnostics.cfRay ? `ray ${diagnostics.cfRay}` : null,
+    diagnostics.retryAfter ? `retry after ${diagnostics.retryAfter}` : null,
+    diagnostics.location ? `location ${diagnostics.location}` : null,
+    diagnostics.solverMessage ? `solver ${diagnostics.solverMessage}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function formatTime(value: string) {

@@ -16,6 +16,7 @@ import {
   NETTIAUTO_DETAIL_BACKFILL_MAX_ATTEMPTS,
   NETTIAUTO_DETAIL_PRIORITY_OFFSET,
   RetryableNettiautoFetchError,
+  nettiautoRequestDelayMs,
 } from "./nettiauto-fetch-policy";
 
 type DetailBackfillTaskName =
@@ -390,7 +391,9 @@ async function pumpDetailBackfill(
   const staleBefore = new Date(
     Date.now() - Math.max(
       15 * 60_000,
-      config.DETAIL_BACKFILL_BATCH_SIZE * config.CRAWLER_DELAY_MS + 10 * 60_000,
+      config.DETAIL_BACKFILL_BATCH_SIZE *
+        (config.CRAWLER_DELAY_MS + config.CRAWLER_DELAY_JITTER_MS) +
+        10 * 60_000,
     ),
   );
   await sql`
@@ -520,7 +523,10 @@ async function pumpDetailBackfill(
       continue;
     }
 
-    finalDispatchAt = baseDispatchAt + (scheduledCount + 1) * config.CRAWLER_DELAY_MS;
+    finalDispatchAt += nettiautoRequestDelayMs(
+      config.CRAWLER_DELAY_MS,
+      config.CRAWLER_DELAY_JITTER_MS,
+    );
     try {
       await addJob(
         "crawl_nettiauto_detail_page",

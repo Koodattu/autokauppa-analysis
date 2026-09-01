@@ -187,6 +187,7 @@ export const sourceFetches = pgTable(
     responseBodyShape: fetchBodyShapeEnum("response_body_shape").notNull(),
     responseBodySha256: text("response_body_sha256"),
     responseBytes: integer("response_bytes"),
+    responseDiagnostics: jsonb("response_diagnostics"),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
     durationMs: integer("duration_ms"),
     errorType: text("error_type"),

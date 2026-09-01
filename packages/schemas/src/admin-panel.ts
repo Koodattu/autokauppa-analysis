@@ -74,6 +74,7 @@ export const adminCrawlerDiagnosticsResponseSchema = z
           sourceUrl: z.string(),
           responseStatus: z.number().int().nullable(),
           responseBodyShape: z.string(),
+          responseDiagnostics: z.record(z.string(), z.string()).nullable(),
           errorType: z.string(),
           errorMessage: nullableString,
         })
