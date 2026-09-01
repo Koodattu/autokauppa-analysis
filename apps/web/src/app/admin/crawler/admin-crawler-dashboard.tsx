@@ -230,13 +230,6 @@ export function AdminCrawlerDashboard({
   }
 
   async function controlDetailBackfill(action: "pause" | "resume" | "cancel") {
-    if (
-      action === "cancel"
-      && !window.confirm("Cancel this detail backfill and remove its queued listing jobs?")
-    ) {
-      return;
-    }
-
     setDetailBackfillPending(true);
     setNotice(null);
     try {
@@ -555,6 +548,7 @@ function DetailBackfillPanel({
   onControl: (action: "pause" | "resume" | "cancel") => void;
 }) {
   const [confirmingStart, setConfirmingStart] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const run = backfill.latestRun;
   const runIsActive = run
     ? ["planned", "running", "queued", "blocked", "paused", "cancelling"].includes(run.status)
@@ -656,6 +650,35 @@ function DetailBackfillPanel({
           </div>
         </div>
       ) : null}
+      {confirmingCancel && canCancel ? (
+        <div
+          className="notice detail-backfill-confirmation"
+          role="group"
+          aria-label="Confirm detail backfill cancellation"
+        >
+          <p>Cancel this detail backfill and remove its queued listing jobs?</p>
+          <div className="topbar-actions">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setConfirmingCancel(false);
+                onControl("cancel");
+              }}
+            >
+              Confirm cancellation
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={pending}
+              onClick={() => setConfirmingCancel(false)}
+            >
+              Keep running
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="detail-backfill-actions">
         <div>
@@ -686,8 +709,13 @@ function DetailBackfillPanel({
               {run?.recoveryRequired ? "Recover bounded run" : "Resume backfill"}
             </button>
           ) : null}
-          {canCancel ? (
-            <button type="button" className="secondary-button" disabled={pending} onClick={() => onControl("cancel")}>
+          {canCancel && !confirmingCancel ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={pending}
+              onClick={() => setConfirmingCancel(true)}
+            >
               Cancel backfill
             </button>
           ) : null}

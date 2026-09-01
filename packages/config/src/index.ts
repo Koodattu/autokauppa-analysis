@@ -69,7 +69,7 @@ const workerConfigSchema = sharedConfigSchema.extend({
   FLARESOLVERR_SESSION_ID: z.string().trim().min(1).default("nettiauto-worker"),
   FLARESOLVERR_SESSION_TTL_MINUTES: integerEnvSchema(30),
   DETAIL_BACKFILL_BATCH_SIZE: integerEnvSchema(200),
-  DETAIL_BACKFILL_TARGET_LIMIT: integerEnvSchema(5_000),
+  DETAIL_BACKFILL_TARGET_LIMIT: integerEnvSchema(0),
   HERO_IMAGE_ARCHIVE_ENABLED: booleanEnvSchema.optional().transform((value) => value ?? false),
   HERO_IMAGE_STORAGE_PATH: z.string().trim().min(1).default("/data/hero-images"),
   HERO_IMAGE_MAX_SOURCE_BYTES: integerEnvSchema(20 * 1024 * 1024),
