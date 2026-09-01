@@ -233,21 +233,22 @@ source-facing failures.
 Exact delay and cadence values should be tuned only after terms, robots.txt,
 observed source behavior, and the proof-of-concept risk posture are reviewed.
 
-## Experimental Source Transports
+## Source Transports
 
 `NETTIAUTO_SOURCE_TRANSPORT` selects one worker-wide transport:
 
-- `fetch` is the default and preserves the normal Bun/Node request path;
+- `fetch` preserves the normal Bun/Node request path;
 - `impit` uses a persistent cookie jar and a coherent Chrome TLS/HTTP profile;
 - `flaresolverr` sends requests to the internal browser sidecar and reuses one
   serialized browser session with a bounded TTL.
 
-The alternatives are experiments, not an automatic fallback chain. A challenge
-must remain visible to the existing diagnostics and circuit breaker. Do not
-select FlareSolverr for a queued backfill until a bounded operator probe has
-succeeded and its memory, duration, response shape, and repeat behavior have
-been reviewed. The sidecar is pinned to an immutable image, capped to one CPU
-and 1 GiB by default, and exposed only on the host loopback interface.
+Compose selects `impit` by default after successful bounded local and production
+probes. The transports are explicit choices, not an automatic fallback chain. A
+challenge must remain visible to the existing diagnostics and circuit breaker.
+FlareSolverr remains an operator-selected diagnostic alternative because it is
+materially slower and heavier. The sidecar is pinned to an immutable image,
+capped to one CPU and 1 GiB by default, and exposed only on the host loopback
+interface.
 
 Run a single probe without writing crawler or listing data:
 

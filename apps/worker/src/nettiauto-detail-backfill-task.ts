@@ -74,9 +74,16 @@ export function createNettiautoDetailBackfillTask(taskName: DetailBackfillTaskNa
 
       const command = schedulePayloadSchema.parse(payload ?? {});
       const createdRun = !command.runId;
-      const runId = command.runId ?? await createDetailBackfillRun(sql);
+      const runId = command.runId ?? await createDetailBackfillRun(
+        sql,
+        config.DETAIL_BACKFILL_TARGET_LIMIT,
+      );
       if (command.runId && command.resume) {
-        await resumeDetailBackfill(sql, runId, command.rebuildTargets);
+        await resumeDetailBackfill(
+          sql,
+          runId,
+          command.rebuildTargets,
+        );
       }
       try {
         await pumpDetailBackfill(sql, config, runId, helpers.addJob, logger);
@@ -194,7 +201,7 @@ export async function executeManagedDetailBackfillJob(input: {
   await queuePump(input.addJob, runId);
 }
 
-async function createDetailBackfillRun(sql: SqlClient) {
+async function createDetailBackfillRun(sql: SqlClient, targetLimit: number) {
   return sql.begin(async (tx) => {
     const [run] = await tx<{ id: string }[]>`
       insert into detail_backfill_runs (
@@ -216,14 +223,42 @@ async function createDetailBackfillRun(sql: SqlClient) {
     if (!run) {
       throw new Error("Failed to create Nettiauto detail backfill run.");
     }
-    await seedDetailBackfillTargets(tx, run.id);
+    await seedDetailBackfillTargets(tx, run.id, targetLimit);
     return run.id;
   });
 }
 
-async function resumeDetailBackfill(sql: SqlClient, runId: string, rebuildTargets: boolean) {
+async function resumeDetailBackfill(
+  sql: SqlClient,
+  runId: string,
+  rebuildTargets: boolean,
+) {
   if (rebuildTargets) {
-    await sql.begin((tx) => seedDetailBackfillTargets(tx, runId));
+    await sql.begin(async (tx) => {
+      await tx`delete from detail_backfill_targets where run_id = ${runId}`;
+      await tx`
+        update detail_backfill_runs
+        set
+          status = 'queued',
+          target_count = 0,
+          scheduled_count = 0,
+          succeeded_count = 0,
+          unavailable_count = 0,
+          failed_count = 0,
+          attempted_count = 0,
+          cancelled_count = 0,
+          blocked_until = null,
+          block_reason = null,
+          next_dispatch_at = now(),
+          last_progress_at = null,
+          cancelled_at = null,
+          started_at = null,
+          finished_at = null,
+          updated_at = now()
+        where id = ${runId}
+          and status in ('planned', 'queued', 'blocked', 'paused')
+      `;
+    });
     return;
   }
 
@@ -244,6 +279,7 @@ async function resumeDetailBackfill(sql: SqlClient, runId: string, rebuildTarget
 async function seedDetailBackfillTargets(
   sql: SqlClient | TransactionSqlClient,
   runId: string,
+  targetLimit: number,
 ) {
   const [seedableRun] = await sql<{ id: string }[]>`
     select id
@@ -255,13 +291,44 @@ async function seedDetailBackfillTargets(
     return;
   }
 
-  const [counts] = await sql<{ targetCount: number; unavailableCount: number }[]>`
-    select
-      count(*)::int as "targetCount",
-      count(*) filter (where
-        listing.canonical_source_url is null
-        or listing.canonical_source_url !~ '^https://www\\.nettiauto\\.com/'
-        or not exists (
+  const [counts] = targetLimit === 0
+    ? await sql<{ targetCount: number; unavailableCount: number }[]>`
+        select
+          count(*)::int as "targetCount",
+          count(*) filter (where
+            listing.canonical_source_url is null
+            or listing.canonical_source_url !~ '^https://www\\.nettiauto\\.com/'
+            or not exists (
+              select 1
+              from listing_sightings sighting
+              join source_search_queries source_query on source_query.id = sighting.search_query_id
+              where sighting.listing_id = listing.id
+                and source_query.source = 'nettiauto'
+                and source_query.enabled = true
+            )
+          )::int as "unavailableCount"
+        from listings listing
+        where listing.source = 'nettiauto'
+          and not exists (
+            select 1
+            from raw_listing_records detail_record
+            where detail_record.source = listing.source
+              and detail_record.source_listing_id = listing.source_listing_id
+              and detail_record.record_kind = 'detail_page'
+              and detail_record.parser_status = 'parsed'
+              and detail_record.parser_version <> 'nettiauto-detail-v1'
+          )
+      `
+    : [undefined];
+
+  await sql`delete from detail_backfill_targets where run_id = ${runId}`;
+  const [seeded] = await sql<{ targetCount: number }[]>`
+    with candidates as (
+      select listing.id
+      from listings listing
+      where listing.source = 'nettiauto'
+        and listing.canonical_source_url ~ '^https://www\\.nettiauto\\.com/'
+        and exists (
           select 1
           from listing_sightings sighting
           join source_search_queries source_query on source_query.id = sighting.search_query_id
@@ -269,54 +336,37 @@ async function seedDetailBackfillTargets(
             and source_query.source = 'nettiauto'
             and source_query.enabled = true
         )
-      )::int as "unavailableCount"
-    from listings listing
-    where listing.source = 'nettiauto'
-      and not exists (
-        select 1
-        from raw_listing_records detail_record
-        where detail_record.source = listing.source
-          and detail_record.source_listing_id = listing.source_listing_id
-          and detail_record.record_kind = 'detail_page'
-          and detail_record.parser_status = 'parsed'
-          and detail_record.parser_version <> 'nettiauto-detail-v1'
-      )
+        and not exists (
+          select 1
+          from raw_listing_records detail_record
+          where detail_record.source = listing.source
+            and detail_record.source_listing_id = listing.source_listing_id
+            and detail_record.record_kind = 'detail_page'
+            and detail_record.parser_status = 'parsed'
+            and detail_record.parser_version <> 'nettiauto-detail-v1'
+        )
+      order by (listing.current_availability = 'active') desc,
+               listing.last_seen_at desc,
+               listing.id
+      limit ${targetLimit === 0 ? 2_147_483_647 : targetLimit}
+    ), inserted as (
+      insert into detail_backfill_targets (run_id, listing_id)
+      select ${runId}, candidate.id
+      from candidates candidate
+      on conflict do nothing
+      returning 1
+    )
+    select count(*)::int as "targetCount" from inserted
   `;
-
-  await sql`delete from detail_backfill_targets where run_id = ${runId}`;
-  await sql`
-    insert into detail_backfill_targets (run_id, listing_id)
-    select ${runId}, listing.id
-    from listings listing
-    where listing.source = 'nettiauto'
-      and listing.canonical_source_url ~ '^https://www\\.nettiauto\\.com/'
-      and exists (
-        select 1
-        from listing_sightings sighting
-        join source_search_queries source_query on source_query.id = sighting.search_query_id
-        where sighting.listing_id = listing.id
-          and source_query.source = 'nettiauto'
-          and source_query.enabled = true
-      )
-      and not exists (
-        select 1
-        from raw_listing_records detail_record
-        where detail_record.source = listing.source
-          and detail_record.source_listing_id = listing.source_listing_id
-          and detail_record.record_kind = 'detail_page'
-          and detail_record.parser_status = 'parsed'
-          and detail_record.parser_version <> 'nettiauto-detail-v1'
-      )
-    on conflict do nothing
-  `;
+  const canaryTargetCount = seeded?.targetCount ?? 0;
   await sql`
     update detail_backfill_runs
     set
       status = 'running',
-      target_count = ${counts?.targetCount ?? 0},
+      target_count = ${targetLimit === 0 ? counts?.targetCount ?? 0 : canaryTargetCount},
       scheduled_count = 0,
       succeeded_count = 0,
-      unavailable_count = ${counts?.unavailableCount ?? 0},
+      unavailable_count = ${targetLimit === 0 ? counts?.unavailableCount ?? 0 : 0},
       failed_count = 0,
       attempted_count = 0,
       cancelled_count = 0,
@@ -354,6 +404,12 @@ async function pumpDetailBackfill(
     return;
   }
 
+  const retiredLegacyJobs = await removeBackfillJobs(sql, runId, "legacy");
+  if (retiredLegacyJobs > 0) {
+    await queuePump(addJob, runId);
+    return;
+  }
+
   const [ledger] = await sql<{ totalCount: number; queuedCount: number }[]>`
     select count(*)::int as "totalCount",
            count(*) filter (where state = 'queued')::int as "queuedCount"
@@ -361,6 +417,10 @@ async function pumpDetailBackfill(
     where run_id = ${runId}
   `;
   if ((ledger?.totalCount ?? 0) === 0 && run.status === "queued") {
+    await sql.begin((tx) =>
+      seedDetailBackfillTargets(tx, runId, config.DETAIL_BACKFILL_TARGET_LIMIT)
+    );
+    await queuePump(addJob, runId);
     return;
   }
 
@@ -380,12 +440,6 @@ async function pumpDetailBackfill(
       where id = ${runId} and status = 'blocked'
     `;
     probeOnly = true;
-  }
-
-  const retiredLegacyJobs = await removeBackfillJobs(sql, runId, "legacy");
-  if (retiredLegacyJobs > 0) {
-    await queuePump(addJob, runId);
-    return;
   }
 
   const staleBefore = new Date(
@@ -730,7 +784,7 @@ async function maintainDetailBackfills(
   const runs = await sql<{ id: string; status: string; blockedUntil: string | null }[]>`
     select id, status, blocked_until::text as "blockedUntil"
     from detail_backfill_runs
-    where status in ('planned', 'running', 'blocked', 'cancelling')
+    where status in ('planned', 'running', 'queued', 'blocked', 'cancelling')
     order by created_at
   `;
   for (const run of runs) {

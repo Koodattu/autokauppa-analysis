@@ -56,14 +56,16 @@ The previously generic additional fields are bounded to the nine labels observed
    listings that have no parsed detail or only v1 detail data. The admin panel also supports pause,
    resume, and cancellation.
 
-   A run stores a temporary target ledger, but keeps at most `DETAIL_BACKFILL_BATCH_SIZE` requests
-   queued or in flight. Requests remain globally rate-spaced. Transient failures have at most three
+   `DETAIL_BACKFILL_TARGET_LIMIT` caps the total number of listings selected for a run. The rollout
+   default is 20; set it to `0` only after auditing the canary to select the full eligible backlog. A
+   run stores a temporary target ledger, but keeps at most `DETAIL_BACKFILL_BATCH_SIZE` requests queued
+   or in flight. Requests remain globally rate-spaced. Transient failures have at most three
    application-owned attempts. A block, challenge, or rate limit opens a run-level circuit breaker,
    removes the remaining dispatched requests, waits for the configured cooldown, and sends one probe.
    Detail-backfill failures do not pause or change the cadence of normal current/sold search crawls.
 
    After deploying migration 0013, an old unbounded run is shown as requiring recovery. Its legacy
-   jobs are retired without contacting Nettiauto before the bounded target ledger is rebuilt.
+   jobs are retired without contacting Nettiauto before a target-limit-capped ledger is rebuilt.
 7. Audit `detail_backfill_runs`, `listing_details`, `listing_image_assets`, hero files, and public
    responses. Only a later migration should remove legacy rows or columns.
 

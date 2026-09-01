@@ -197,7 +197,7 @@ export function AdminCrawlerDashboard({
 
   async function startDetailBackfill() {
     const confirmed = window.confirm(
-      "Queue a rate-spaced v4 detail refetch for every listing with missing or v1-only detail data? This operation may run for several days.",
+      "Queue a rate-spaced v4 detail refetch for the configured number of missing or v1-only listings?",
     );
     if (!confirmed) {
       return;
@@ -222,7 +222,7 @@ export function AdminCrawlerDashboard({
       const body = parseAdminDetailBackfillStart(await response.json());
       setNotice({
         kind: "success",
-        message: `Missing/v1 detail backfill queued${body.jobId ? ` as job ${body.jobId}` : ""}.`,
+        message: `Capped missing/v1 detail backfill queued${body.jobId ? ` as job ${body.jobId}` : ""}.`,
       });
       setDetailBackfill(await fetchDetailBackfillStatus(() => router.push("/admin/login")));
       setLastUpdatedAt(new Date());
@@ -643,9 +643,9 @@ function DetailBackfillPanel({
               : `Current request spacing: ${formatNumber(delayMs)} ms`}
           </strong>
           <span>
-            The queued window is capped by DETAIL_BACKFILL_BATCH_SIZE. A source block stops dispatch
-            and schedules one probe after the cooldown. Hero downloads follow
-            HERO_IMAGE_ARCHIVE_ENABLED.
+            The total run is capped by DETAIL_BACKFILL_TARGET_LIMIT; its queued window is capped by
+            DETAIL_BACKFILL_BATCH_SIZE. A source block stops dispatch and schedules one probe after
+            the cooldown. Hero downloads follow HERO_IMAGE_ARCHIVE_ENABLED.
           </span>
         </div>
         <div className="topbar-actions">
