@@ -723,7 +723,10 @@ export function createNettiautoCrawlExecution(input: {
         );
       }
 
-      const unavailableRedirect = isUnavailableDetailRedirect(response);
+      const unavailableRedirect = isUnavailableDetailRedirect(
+        response,
+        command.sourceListingId,
+      );
       const canParse = !unavailableRedirect && response.ok &&
         ["html_document", "html_fragment"].includes(response.bodyShape);
       const parsedCandidate = canParse
@@ -875,14 +878,21 @@ function classifyDetailFetchFailure(statusCode: number, bodyShape: string) {
   return "fetch_failed";
 }
 
-function isUnavailableDetailRedirect(response: NettiautoSourceResponse) {
+function isUnavailableDetailRedirect(
+  response: NettiautoSourceResponse,
+  sourceListingId: string,
+) {
   if (!response.redirected || !response.diagnostics.location) {
     return false;
   }
   try {
     const location = new URL(response.diagnostics.location);
     const baseUrl = new URL(NETTIAUTO_BASE_URL);
-    return location.origin === baseUrl.origin && location.pathname === "/";
+    const pathSegments = location.pathname
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => decodeURIComponent(segment));
+    return location.origin === baseUrl.origin && !pathSegments.includes(sourceListingId);
   } catch {
     return false;
   }

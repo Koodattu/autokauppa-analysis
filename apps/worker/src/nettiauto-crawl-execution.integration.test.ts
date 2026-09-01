@@ -271,7 +271,10 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
     });
   });
 
-  it("classifies a detail-page redirect to the Nettiauto homepage as unavailable", async () => {
+  it.each([
+    ["homepage", "https://www.nettiauto.com/", "Vaihtoautot ja uudet autot - Nettiauto"],
+    ["model results", "https://www.nettiauto.com/volvo/v70", "Volvo V70 vaihtoautot - Nettiauto"],
+  ])("classifies a detail-page redirect to %s as unavailable", async (_destination, location, title) => {
     const context = await createRunningCrawl();
     const [backfillRun] = await sql<{ id: string }[]>`
       insert into detail_backfill_runs (
@@ -292,7 +295,7 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
       logger,
       source: createSource(
         async () => successfulEmptyPage(),
-        async () => unavailableRedirectDetailPage(),
+        async () => unavailableRedirectDetailPage(location, title),
       ),
       workQueue: createRecordingQueue(),
     });
@@ -329,10 +332,10 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
     expect(fetchEvidence).toEqual({
       errorType: "detail_unavailable_redirect",
       errorMessage:
-        "Nettiauto detail page returned HTTP 200 with redirect location https://www.nettiauto.com/.",
+        `Nettiauto detail page returned HTTP 200 with redirect location ${location}.`,
       responseDiagnostics: {
-        location: "https://www.nettiauto.com/",
-        title: "Vaihtoautot ja uudet autot - Nettiauto",
+        location,
+        title,
         transport: "impit",
       },
     });
@@ -456,8 +459,8 @@ function blockedDetailPage(): NettiautoSourceResponse {
   };
 }
 
-function unavailableRedirectDetailPage(): NettiautoSourceResponse {
-  const body = "<html><head><title>Vaihtoautot ja uudet autot - Nettiauto</title></head></html>";
+function unavailableRedirectDetailPage(location: string, title: string): NettiautoSourceResponse {
+  const body = `<html><head><title>${title}</title></head></html>`;
   return {
     ok: true,
     redirected: true,
@@ -469,8 +472,8 @@ function unavailableRedirectDetailPage(): NettiautoSourceResponse {
     bodyBytes: new TextEncoder().encode(body).byteLength,
     durationMs: 10,
     diagnostics: {
-      location: "https://www.nettiauto.com/",
-      title: "Vaihtoautot ja uudet autot - Nettiauto",
+      location,
+      title,
       transport: "impit",
     },
   };
