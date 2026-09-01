@@ -196,13 +196,6 @@ export function AdminCrawlerDashboard({
   }
 
   async function startDetailBackfill() {
-    const confirmed = window.confirm(
-      "Queue a rate-spaced v4 detail refetch for the configured number of missing or v1-only listings?",
-    );
-    if (!confirmed) {
-      return;
-    }
-
     setDetailBackfillPending(true);
     setNotice(null);
     try {
@@ -561,6 +554,7 @@ function DetailBackfillPanel({
   onStart: () => void;
   onControl: (action: "pause" | "resume" | "cancel") => void;
 }) {
+  const [confirmingStart, setConfirmingStart] = useState(false);
   const run = backfill.latestRun;
   const runIsActive = run
     ? ["planned", "running", "queued", "blocked", "paused", "cancelling"].includes(run.status)
@@ -634,6 +628,34 @@ function DetailBackfillPanel({
       {run?.status === "paused" && run.blockReason ? (
         <p className="notice">{formatBackfillReason(run.blockReason)}</p>
       ) : null}
+      {confirmingStart && !runIsActive ? (
+        <div className="notice detail-backfill-confirmation" role="group" aria-label="Confirm detail backfill">
+          <p>
+            Queue a rate-spaced v4 detail refetch for the configured number of missing or v1-only
+            listings?
+          </p>
+          <div className="topbar-actions">
+            <button
+              type="button"
+              disabled={!canStart}
+              onClick={() => {
+                setConfirmingStart(false);
+                onStart();
+              }}
+            >
+              Confirm queue
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={pending}
+              onClick={() => setConfirmingStart(false)}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="detail-backfill-actions">
         <div>
@@ -649,8 +671,8 @@ function DetailBackfillPanel({
           </span>
         </div>
         <div className="topbar-actions">
-          {!runIsActive ? (
-            <button type="button" disabled={!canStart} onClick={onStart}>
+          {!runIsActive && !confirmingStart ? (
+            <button type="button" disabled={!canStart} onClick={() => setConfirmingStart(true)}>
               {pending ? "Queueing…" : "Queue v4 detail backfill"}
             </button>
           ) : null}

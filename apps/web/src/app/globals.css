@@ -1440,6 +1440,19 @@ tbody tr:last-child td {
   flex: none;
 }
 
+.detail-backfill-confirmation {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-backfill-confirmation p {
+  margin: 0;
+}
+
+.detail-backfill-confirmation .topbar-actions {
+  justify-content: flex-start;
+}
+
 .data-quality-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
