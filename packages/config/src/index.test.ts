@@ -59,7 +59,7 @@ describe("worker source transport config", () => {
     expect(config.FLARESOLVERR_URL).toBe("http://flaresolverr:8191/v1");
     expect(config.FLARESOLVERR_SESSION_ID).toBe("nettiauto-worker");
     expect(config.FLARESOLVERR_SESSION_TTL_MINUTES).toBe(30);
-    expect(config.DETAIL_BACKFILL_TARGET_LIMIT).toBe(200);
+    expect(config.DETAIL_BACKFILL_TARGET_LIMIT).toBe(5_000);
   });
 
   it("accepts each explicit experimental transport", () => {
