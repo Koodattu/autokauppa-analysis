@@ -2,6 +2,7 @@ import type { WorkerConfig } from "@nettiauto/config";
 import type { SqlClient } from "@nettiauto/db";
 import {
   NETTIAUTO_DETAIL_PARSER_VERSION,
+  NETTIAUTO_BASE_URL,
   buildNettiautoSearchUrl,
   completeCrawlRun,
   createCrawlRunForSourceQuery,
@@ -722,14 +723,18 @@ export function createNettiautoCrawlExecution(input: {
         );
       }
 
-      const canParse = response.ok && ["html_document", "html_fragment"].includes(response.bodyShape);
+      const unavailableRedirect = isUnavailableDetailRedirect(response);
+      const canParse = !unavailableRedirect && response.ok &&
+        ["html_document", "html_fragment"].includes(response.bodyShape);
       const parsedCandidate = canParse
         ? parseNettiautoDetailPage(response.body, { sourceListingId: command.sourceListingId })
         : null;
       const parsedDetail = parsedCandidate && hasUsableNettiautoDetailEvidence(parsedCandidate)
         ? parsedCandidate
         : null;
-      const failureReason = !canParse
+      const failureReason = unavailableRedirect
+        ? "detail_unavailable_redirect"
+        : !canParse
         ? classifyDetailFetchFailure(response.status, response.bodyShape)
         : parsedDetail
           ? null
@@ -822,7 +827,7 @@ export function createNettiautoCrawlExecution(input: {
         kind: "persisted",
         outcome: parsedDetail
           ? "parsed"
-          : [404, 410].includes(response.status)
+          : unavailableRedirect || [404, 410].includes(response.status)
             ? "unavailable"
             : "failed",
         failureReason,
@@ -868,6 +873,19 @@ function classifyDetailFetchFailure(statusCode: number, bodyShape: string) {
     return "unexpected_response_body_shape";
   }
   return "fetch_failed";
+}
+
+function isUnavailableDetailRedirect(response: NettiautoSourceResponse) {
+  if (!response.redirected || !response.diagnostics.location) {
+    return false;
+  }
+  try {
+    const location = new URL(response.diagnostics.location);
+    const baseUrl = new URL(NETTIAUTO_BASE_URL);
+    return location.origin === baseUrl.origin && location.pathname === "/";
+  } catch {
+    return false;
+  }
 }
 
 function responseFailureMessage(response: NettiautoSourceResponse, target: string) {

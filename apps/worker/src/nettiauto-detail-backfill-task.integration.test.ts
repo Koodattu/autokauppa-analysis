@@ -23,14 +23,13 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
   let searchQueryId = "";
   let crawlRunId = "";
   let sourceFetchId = "";
-  let rawListingRecordId = "";
   let backfillRunId = "";
 
   beforeAll(async () => {
     vi.stubEnv("DATABASE_URL", testDatabaseUrl);
     vi.stubEnv("CRAWLER_ENABLED", "true");
     vi.stubEnv("CRAWLER_PAUSED", "false");
-    vi.stubEnv("DETAIL_BACKFILL_TARGET_LIMIT", "20");
+    vi.stubEnv("DETAIL_BACKFILL_TARGET_LIMIT", "200");
     await runMigrations({ connectionString: testDatabaseUrl });
 
     [searchQueryId] = await sql.begin(async (tx) => {
@@ -76,33 +75,51 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
         ) returning id
       `;
       if (!rawRecord) throw new Error("Failed to create test Raw Listing Record.");
-      rawListingRecordId = rawRecord.id;
 
-      for (let index = 0; index < 25; index += 1) {
-        const active = index < 18;
-        const sourceListingId = `${sourceListingPrefix}-${active ? "active" : "sold"}-${index}`;
-        const lastSeenAt = new Date(Date.now() - (active ? index + 100 : index - 18) * 60_000);
-        const [listing] = await tx<{ id: string }[]>`
-          insert into listings (
-            source, source_listing_id, vehicle_category, canonical_source_url,
-            current_availability, first_seen_at, last_seen_at
-          ) values (
-            'nettiauto', ${sourceListingId}, 'passenger_car',
-            ${`https://www.nettiauto.com/test/${sourceListingId}`},
-            ${active ? "active" : "sold"}, ${lastSeenAt}, ${lastSeenAt}
-          ) returning id
-        `;
-        if (!listing) throw new Error("Failed to create test Listing.");
+      for (const availability of ["active", "sold"] as const) {
+        for (const detailCohort of ["missing", "v1"] as const) {
+          for (let index = 0; index < 60; index += 1) {
+            const sourceListingId =
+              `${sourceListingPrefix}-${availability}-${detailCohort}-${index}`;
+            const lastSeenAt = new Date(Date.now() - index * 60_000);
+            const [listing] = await tx<{ id: string }[]>`
+              insert into listings (
+                source, source_listing_id, vehicle_category, canonical_source_url,
+                current_availability, first_seen_at, last_seen_at
+              ) values (
+                'nettiauto', ${sourceListingId}, 'passenger_car',
+                ${`https://www.nettiauto.com/test/${sourceListingId}`},
+                ${availability}, ${lastSeenAt}, ${lastSeenAt}
+              ) returning id
+            `;
+            if (!listing) throw new Error("Failed to create test Listing.");
 
-        await tx`
-          insert into listing_sightings (
-            listing_id, crawl_run_id, search_query_id, source_fetch_id,
-            raw_listing_record_id, crawl_kind, seen_at, page_number
-          ) values (
-            ${listing.id}, ${crawlRun.id}, ${query.id}, ${sourceFetch.id},
-            ${rawRecord.id}, 'current', ${lastSeenAt}, 1
-          )
-        `;
+            if (detailCohort === "v1") {
+              await tx`
+                insert into raw_listing_records (
+                  source, source_listing_id, crawl_run_id, source_fetch_id, record_kind,
+                  source_url, source_payload, source_payload_sha256, parser_version,
+                  parser_status, captured_at
+                ) values (
+                  'nettiauto', ${sourceListingId}, ${crawlRun.id}, ${sourceFetch.id},
+                  'detail_page', ${`https://www.nettiauto.com/test/${sourceListingId}`},
+                  '{}'::jsonb, ${`${fixtureId}-${sourceListingId}`},
+                  'nettiauto-detail-v1', 'parsed', ${lastSeenAt}
+                )
+              `;
+            }
+
+            await tx`
+              insert into listing_sightings (
+                listing_id, crawl_run_id, search_query_id, source_fetch_id,
+                raw_listing_record_id, crawl_kind, seen_at, page_number
+              ) values (
+                ${listing.id}, ${crawlRun.id}, ${query.id}, ${sourceFetch.id},
+                ${rawRecord.id}, 'current', ${lastSeenAt}, 1
+              )
+            `;
+          }
+        }
       }
 
       const [backfillRun] = await tx<{ id: string }[]>`
@@ -134,9 +151,7 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
       await sql`delete from listing_sightings where crawl_run_id = ${crawlRunId}`;
     }
     await sql`delete from listings where source_listing_id like ${`${sourceListingPrefix}%`}`;
-    if (rawListingRecordId) {
-      await sql`delete from raw_listing_records where id = ${rawListingRecordId}`;
-    }
+    await sql`delete from raw_listing_records where source_listing_id like ${`${sourceListingPrefix}%`}`;
     if (sourceFetchId) {
       await sql`delete from source_fetches where id = ${sourceFetchId}`;
     }
@@ -150,7 +165,7 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
     vi.unstubAllEnvs();
   });
 
-  it("retires legacy jobs before selecting the 20 active-first canary targets", async () => {
+  it("retires legacy jobs before selecting 25 newest and oldest targets per audit cohort", async () => {
     const addJob = vi.fn(async () => undefined) as unknown as AddJobFunction;
     const task = createNettiautoDetailBackfillTask("schedule_nettiauto_detail_backfill");
     const helpers = { addJob } as unknown as Parameters<Task>[1];
@@ -164,19 +179,8 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
 
     await task({ runId: backfillRunId }, helpers);
 
-    const [selection] = await sql<{
-      targetCount: number;
-      activeCount: number;
-      soldIds: string[];
-    }[]>`
-      select
-        count(*)::int as "targetCount",
-        count(*) filter (where listing.current_availability = 'active')::int as "activeCount",
-        coalesce(
-          array_agg(listing.source_listing_id order by listing.last_seen_at desc)
-            filter (where listing.current_availability = 'sold'),
-          '{}'::text[]
-        ) as "soldIds"
+    const selected = await sql<{ sourceListingId: string }[]>`
+      select listing.source_listing_id as "sourceListingId"
       from detail_backfill_targets target
       join listings listing on listing.id = target.listing_id
       where target.run_id = ${backfillRunId}
@@ -186,14 +190,17 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
       from detail_backfill_runs where id = ${backfillRunId}
     `;
 
-    expect(selection).toEqual({
-      targetCount: 20,
-      activeCount: 18,
-      soldIds: [
-        `${sourceListingPrefix}-sold-18`,
-        `${sourceListingPrefix}-sold-19`,
-      ],
-    });
-    expect(run).toEqual({ targetCount: 20, unavailableCount: 0, status: "running" });
+    const selectedIds = new Set(selected.map((row) => row.sourceListingId));
+    expect(selectedIds.size).toBe(200);
+    for (const availability of ["active", "sold"] as const) {
+      for (const detailCohort of ["missing", "v1"] as const) {
+        for (let index = 0; index < 60; index += 1) {
+          const sourceListingId =
+            `${sourceListingPrefix}-${availability}-${detailCohort}-${index}`;
+          expect(selectedIds.has(sourceListingId)).toBe(index < 25 || index >= 35);
+        }
+      }
+    }
+    expect(run).toEqual({ targetCount: 200, unavailableCount: 0, status: "running" });
   });
 });

@@ -56,10 +56,11 @@ The previously generic additional fields are bounded to the nine labels observed
    listings that have no parsed detail or only v1 detail data. The admin panel also supports pause,
    resume, and cancellation.
 
-   `DETAIL_BACKFILL_TARGET_LIMIT` caps the total number of listings selected for a run. The rollout
-   default is 20; set it to `0` only after auditing the canary to select the full eligible backlog. A
-   run stores a temporary target ledger, but keeps at most `DETAIL_BACKFILL_BATCH_SIZE` requests queued
-   or in flight. Requests remain globally rate-spaced. Transient failures have at most three
+   `DETAIL_BACKFILL_TARGET_LIMIT` caps the total number of listings selected for a run. Capped runs
+   round-robin the newest and oldest listings across active/sold and missing/v1 cohorts. The current
+   audit-stage default is 200; set it to `0` only after the staged audits to select the full eligible
+   backlog. A run stores a temporary target ledger, but keeps at most `DETAIL_BACKFILL_BATCH_SIZE`
+   requests queued or in flight. Requests remain globally rate-spaced. Transient failures have at most three
    application-owned attempts. A block, challenge, or rate limit opens a run-level circuit breaker,
    removes the remaining dispatched requests, waits for the configured cooldown, and sends one probe.
    Detail-backfill failures do not pause or change the cadence of normal current/sold search crawls.

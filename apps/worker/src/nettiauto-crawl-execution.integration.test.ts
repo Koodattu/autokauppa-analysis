@@ -271,6 +271,73 @@ describeDatabase("NettiautoCrawlExecution PostgreSQL scenarios", () => {
     });
   });
 
+  it("classifies a detail-page redirect to the Nettiauto homepage as unavailable", async () => {
+    const context = await createRunningCrawl();
+    const [backfillRun] = await sql<{ id: string }[]>`
+      insert into detail_backfill_runs (
+        source, target_parser_version, selection, status
+      ) values (
+        'nettiauto', 'nettiauto-detail-v4', 'missing_or_v1', 'running'
+      )
+      returning id
+    `;
+    if (!backfillRun) {
+      throw new Error("Failed to create integration detail backfill run.");
+    }
+    createdDetailBackfillRunIds.push(backfillRun.id);
+
+    const execution = createNettiautoCrawlExecution({
+      sql,
+      config: workerConfig(),
+      logger,
+      source: createSource(
+        async () => successfulEmptyPage(),
+        async () => unavailableRedirectDetailPage(),
+      ),
+      workQueue: createRecordingQueue(),
+    });
+
+    const outcome = await execution.enrichDetailPage(
+      {
+        crawlRunId: null,
+        detailBackfillRunId: backfillRun.id,
+        searchQueryId: context.sourceQueryId,
+        sourceListingId: "integration-unavailable-detail",
+        sourceUrl: "https://www.nettiauto.com/test/removed",
+        force: true,
+      },
+      jobContext(),
+    );
+
+    const [fetchEvidence] = await sql<{
+      errorType: string | null;
+      errorMessage: string | null;
+      responseDiagnostics: Record<string, string> | null;
+    }[]>`
+      select error_type as "errorType", error_message as "errorMessage",
+             response_diagnostics as "responseDiagnostics"
+      from source_fetches
+      where detail_backfill_run_id = ${backfillRun.id}
+    `;
+
+    expect(outcome).toEqual({
+      kind: "persisted",
+      outcome: "unavailable",
+      failureReason: "detail_unavailable_redirect",
+      responseStatus: 200,
+    });
+    expect(fetchEvidence).toEqual({
+      errorType: "detail_unavailable_redirect",
+      errorMessage:
+        "Nettiauto detail page returned HTTP 200 with redirect location https://www.nettiauto.com/.",
+      responseDiagnostics: {
+        location: "https://www.nettiauto.com/",
+        title: "Vaihtoautot ja uudet autot - Nettiauto",
+        transport: "impit",
+      },
+    });
+  });
+
   it("cancels queued search work on an operator stop without contacting the Source", async () => {
     const context = await createRunningCrawl();
     const fetchSearchResultPage = vi.fn(async () => successfulEmptyPage());
@@ -385,6 +452,26 @@ function blockedDetailPage(): NettiautoSourceResponse {
       title: "Just a moment...",
       server: "cloudflare",
       cfRay: "integration-ray-TLL",
+    },
+  };
+}
+
+function unavailableRedirectDetailPage(): NettiautoSourceResponse {
+  const body = "<html><head><title>Vaihtoautot ja uudet autot - Nettiauto</title></head></html>";
+  return {
+    ok: true,
+    redirected: true,
+    status: 200,
+    contentType: "text/html",
+    body,
+    bodyShape: "html_document",
+    bodySha256: "c".repeat(64),
+    bodyBytes: new TextEncoder().encode(body).byteLength,
+    durationMs: 10,
+    diagnostics: {
+      location: "https://www.nettiauto.com/",
+      title: "Vaihtoautot ja uudet autot - Nettiauto",
+      transport: "impit",
     },
   };
 }

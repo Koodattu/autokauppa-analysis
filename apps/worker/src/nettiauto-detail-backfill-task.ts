@@ -323,11 +323,24 @@ async function seedDetailBackfillTargets(
 
   await sql`delete from detail_backfill_targets where run_id = ${runId}`;
   const [seeded] = await sql<{ targetCount: number }[]>`
-    with candidates as (
-      select listing.id
+    with eligible as (
+      select
+        listing.id,
+        listing.current_availability,
+        listing.last_seen_at,
+        case when exists (
+          select 1
+          from raw_listing_records v1_detail
+          where v1_detail.source = listing.source
+            and v1_detail.source_listing_id = listing.source_listing_id
+            and v1_detail.record_kind = 'detail_page'
+            and v1_detail.parser_status = 'parsed'
+            and v1_detail.parser_version = 'nettiauto-detail-v1'
+        ) then 'v1' else 'missing' end as detail_cohort
       from listings listing
       where listing.source = 'nettiauto'
         and listing.canonical_source_url ~ '^https://www\\.nettiauto\\.com/'
+        and (${targetLimit === 0} or listing.current_availability in ('active', 'sold'))
         and exists (
           select 1
           from listing_sightings sighting
@@ -345,9 +358,27 @@ async function seedDetailBackfillTargets(
             and detail_record.parser_status = 'parsed'
             and detail_record.parser_version <> 'nettiauto-detail-v1'
         )
-      order by (listing.current_availability = 'active') desc,
-               listing.last_seen_at desc,
-               listing.id
+    ), ranked as (
+      select
+        eligible.*,
+        row_number() over (
+          partition by eligible.current_availability, eligible.detail_cohort
+          order by eligible.last_seen_at desc, eligible.id
+        ) as newest_rank,
+        row_number() over (
+          partition by eligible.current_availability, eligible.detail_cohort
+          order by eligible.last_seen_at, eligible.id
+        ) as oldest_rank
+      from eligible
+    ), candidates as (
+      select ranked.id
+      from ranked
+      order by
+        least(ranked.newest_rank, ranked.oldest_rank),
+        case ranked.current_availability when 'active' then 0 when 'sold' then 1 else 2 end,
+        case ranked.detail_cohort when 'missing' then 0 else 1 end,
+        case when ranked.newest_rank <= ranked.oldest_rank then 0 else 1 end,
+        ranked.id
       limit ${targetLimit === 0 ? 2_147_483_647 : targetLimit}
     ), inserted as (
       insert into detail_backfill_targets (run_id, listing_id)
