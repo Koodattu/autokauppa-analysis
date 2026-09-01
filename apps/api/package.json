@@ -17,6 +17,7 @@
     "hono": "^4.13.1"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.14"
+    "@types/bun": "^1.3.14",
+    "graphile-worker": "^0.17.2"
   }
 }

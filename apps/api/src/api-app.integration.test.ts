@@ -2,7 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { ApiConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import type { AppLogger } from "@nettiauto/logging";
+import { runMigrations } from "graphile-worker";
 import { createApiApp } from "./api-app";
+import { createDetailBackfillControl } from "./detail-backfill-control";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 const describeDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -42,6 +44,7 @@ describeDatabase("ApiApp PostgreSQL scenarios", () => {
   const app = createApiApp({ sql, config, logger });
 
   beforeAll(async () => {
+    await runMigrations({ connectionString: testDatabaseUrl });
     const [row] = await sql<{ relationName: string | null }[]>`
       select to_regclass('drizzle.__drizzle_migrations')::text as "relationName"
     `;
@@ -71,5 +74,36 @@ describeDatabase("ApiApp PostgreSQL scenarios", () => {
       models: [],
       availability: ["all", "current", "sold"],
     });
+  });
+
+  it("stores detail-backfill control payloads as JSON objects", async () => {
+    await sql`
+      delete from graphile_worker._private_jobs
+      where key = 'nettiauto:control:detail-backfill-start'
+    `;
+
+    const receipt = await createDetailBackfillControl({
+      sql,
+      crawlerState: {
+        enabled: true,
+        paused: false,
+        delayMs: config.CRAWLER_DELAY_MS,
+        maxPagesPerRun: config.CRAWLER_MAX_PAGES_PER_RUN,
+        detailEnabled: config.CRAWLER_DETAIL_ENABLED,
+        detailMaxPerRun: config.CRAWLER_DETAIL_MAX_PER_RUN,
+      },
+      logger,
+    }).start();
+
+    try {
+      const [job] = await sql<{ payload: unknown; payloadType: string }[]>`
+        select payload, json_typeof(payload) as "payloadType"
+        from graphile_worker._private_jobs
+        where id = ${receipt.jobId}
+      `;
+      expect(job).toEqual({ payload: {}, payloadType: "object" });
+    } finally {
+      await sql`delete from graphile_worker._private_jobs where id = ${receipt.jobId}`;
+    }
   });
 });

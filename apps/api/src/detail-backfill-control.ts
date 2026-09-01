@@ -304,10 +304,16 @@ async function assertWorkerReady(sql: SqlClient | TransactionSqlClient) {
   }
 }
 
+type DetailBackfillControlJobPayload = {
+  runId?: string;
+  resume?: boolean;
+  rebuildTargets?: boolean;
+};
+
 async function addControlJob(
   sql: SqlClient | TransactionSqlClient,
   task: "schedule_nettiauto_detail_backfill" | "cancel_nettiauto_detail_backfill",
-  payload: Record<string, unknown>,
+  payload: DetailBackfillControlJobPayload,
 ) {
   const runId = typeof payload.runId === "string" ? payload.runId : null;
   const jobKey = task === "cancel_nettiauto_detail_backfill"
@@ -319,7 +325,7 @@ async function addControlJob(
     select id::text as "jobId", run_at::text as "runAt"
     from graphile_worker.add_job(
       identifier => ${task},
-      payload => ${JSON.stringify(payload)}::json,
+      payload => ${sql.json(payload)}::json,
       queue_name => 'nettiauto-backfill-control',
       run_at => null::timestamptz,
       max_attempts => 5,

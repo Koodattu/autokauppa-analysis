@@ -21,6 +21,7 @@ const logger = { info: vi.fn() } as unknown as AppLogger;
 describe("Detail Backfill Control", () => {
   it("queues one locked, idempotent control job", async () => {
     const calls: string[] = [];
+    const jsonValues: unknown[] = [];
     const results = [
       [],
       [{ relationName: "graphile_worker.jobs" }],
@@ -28,7 +29,7 @@ describe("Detail Backfill Control", () => {
       [{ exists: false }],
       [{ jobId: "741999", runAt: "2026-08-17T12:00:00Z" }],
     ];
-    const sql = transactionalSql(calls, results);
+    const sql = transactionalSql(calls, results, jsonValues);
 
     await expect(createDetailBackfillControl({ sql, crawlerState, logger }).start()).resolves.toEqual({
       task: "schedule_nettiauto_detail_backfill",
@@ -42,6 +43,7 @@ describe("Detail Backfill Control", () => {
     expect(calls[4]).toContain("queue_name => 'nettiauto-backfill-control'");
     expect(calls[4]).toContain("job_key =>");
     expect(calls[4]).toContain("job_key_mode => 'replace'");
+    expect(jsonValues).toEqual([{}]);
   });
 
   it("rejects duplicate active runs while holding the transaction lock", async () => {
@@ -164,11 +166,19 @@ describe("Detail Backfill Control", () => {
   });
 });
 
-function transactionalSql(calls: string[], results: unknown[][]) {
-  const transaction = (async (strings: TemplateStringsArray) => {
-    calls.push(strings.join(""));
-    return results[calls.length - 1] ?? [];
-  }) as unknown as SqlClient;
+function transactionalSql(calls: string[], results: unknown[][], jsonValues: unknown[] = []) {
+  const transaction = Object.assign(
+    async (strings: TemplateStringsArray) => {
+      calls.push(strings.join(""));
+      return results[calls.length - 1] ?? [];
+    },
+    {
+      json: (value: unknown) => {
+        jsonValues.push(value);
+        return value;
+      },
+    },
+  ) as unknown as SqlClient;
   return Object.assign(async () => [], {
     begin: async (callback: (sql: SqlClient) => Promise<unknown>) => callback(transaction),
   }) as unknown as SqlClient;
