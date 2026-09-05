@@ -50,6 +50,8 @@ administration stay behind the Admin Password Gate.
 
 ## First Implementation Target
 
+The public product now includes a dataset overview, historical price research with independent period/group comparisons, evidence drilldowns, richer listing details, and a browser-local shortlist and saved views. See [Product Analytics](docs/product-analytics.md#implemented-research-flow) for behavior and interpretation limits.
+
 Implemented first slice:
 
 - Public analytics page with URL filters and coverage metadata.

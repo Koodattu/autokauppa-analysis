@@ -55,7 +55,7 @@ describe("URL Filter navigation", () => {
     });
 
     expect(navigation?.queryString).toBe("make=Honda&model=Civic&page=2&sort=priceAsc");
-    expect(navigation?.analyticsHref).toBe("/?make=Honda&model=Civic");
+    expect(navigation?.analyticsHref).toBe("/analyze?make=Honda&model=Civic");
     expect(navigation?.pageHref(3)).toBe(
       "/listings?make=Honda&model=Civic&page=3&sort=priceAsc",
     );

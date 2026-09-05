@@ -11,6 +11,9 @@ import {
   filterMetadataResponseSchema,
   listingSearchResponseSchema,
   publicListingDetailResponseSchema,
+  researchResponseSchema,
+  datasetOverviewResponseSchema,
+  listingLookupResponseSchema,
 } from "@nettiauto/schemas";
 
 export type {
@@ -32,6 +35,8 @@ export type {
   MarketOverviewResponse,
   PublicListingDetailResponse,
   PublicVehicleDetails,
+  ResearchResponse,
+  DatasetOverviewResponse,
 } from "@nettiauto/schemas";
 
 export class ApiError extends Error {
@@ -90,6 +95,18 @@ export function getPublicListingDetail(listingId: string, init?: RequestInit) {
 
 export function getAdminCrawlerStatus(init?: RequestInit) {
   return apiGet("/admin/crawler/status", adminCrawlerStatusResponseSchema, init);
+}
+
+export function getListingLookup(sourceId: string) {
+  return apiGet(`/listings/lookup/${encodeURIComponent(sourceId)}`, listingLookupResponseSchema);
+}
+
+export function getPriceResearch(query: string, init?: RequestInit) {
+  return apiGet(`/analytics/research${query}`, researchResponseSchema, init);
+}
+
+export function getDatasetOverview(init?: RequestInit) {
+  return apiGet("/market/dataset", datasetOverviewResponseSchema, init);
 }
 
 export function getAdminDetailBackfillStatus(init?: RequestInit) {

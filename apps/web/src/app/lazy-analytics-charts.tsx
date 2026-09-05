@@ -62,6 +62,7 @@ export function LazyHistoricalPriceChart({
       meta="Median price in each observed period · observed-sold values are listing evidence, not confirmed transactions"
       full
       legend
+      availability={availability}
     >
       <DeferredChartVisual label="price chart">
         <HistoricalPriceVisual data={data} />

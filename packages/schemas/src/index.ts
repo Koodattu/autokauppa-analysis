@@ -13,6 +13,7 @@ import { createProductApiResponseSchemas } from "./product-api";
 
 export * from "./admin-panel";
 export * from "./product-api";
+export * from "./research";
 export { coverageMetadataResponseSchema as coverageMetadataSchema } from "./product-api";
 
 export const MAX_LISTING_PAGE = 1_000;
@@ -27,6 +28,8 @@ export const listingSortSchema = z
     "mileageAsc",
     "mileageDesc",
     "yearDesc",
+    "firstSeenDesc",
+    "priceReductionDesc",
   ])
   .default("lastSeenDesc");
 
@@ -80,6 +83,8 @@ const listingFilterShape = {
   sellerType: optionalTrimmed(80),
   fuelType: optionalTrimmed(80),
   transmission: optionalTrimmed(80),
+  bodyType: optionalTrimmed(80),
+  activity: z.enum(["firstObserved", "priceReduced"]).optional(),
   from: optionalDate,
   to: optionalDate,
   interval: z.enum(["day", "week", "month"]).default("week"),
@@ -118,6 +123,8 @@ const analysisQueryKeys = [
   "sellerType",
   "fuelType",
   "transmission",
+  "bodyType",
+  "activity",
   "from",
   "to",
   "interval",
@@ -146,6 +153,8 @@ const ANALYSIS_PROJECTION_POLICY: AnalysisProjectionPolicy = {
   sellerType: { listingSearch: "retain", filterMetadata: "drop" },
   fuelType: { listingSearch: "retain", filterMetadata: "drop" },
   transmission: { listingSearch: "retain", filterMetadata: "drop" },
+  bodyType: { listingSearch: "retain", filterMetadata: "drop" },
+  activity: { listingSearch: "retain", filterMetadata: "drop" },
   from: { listingSearch: "drop", filterMetadata: "drop" },
   to: { listingSearch: "drop", filterMetadata: "drop" },
   interval: { listingSearch: "drop", filterMetadata: "drop" },
@@ -168,6 +177,8 @@ const LISTING_VIEW_TO_ANALYSIS_POLICY: Record<
   sellerType: "retain",
   fuelType: "retain",
   transmission: "retain",
+  bodyType: "retain",
+  activity: "retain",
   from: "retain",
   to: "retain",
   interval: "retain",
@@ -323,6 +334,7 @@ function validateRanges(
     priceMax?: number;
     mileageMin?: number;
     mileageMax?: number;
+    activity?: "firstObserved" | "priceReduced";
     from?: string;
     to?: string;
   },
@@ -338,6 +350,7 @@ function validateRanges(
   validateRange(value.modelYearFrom, value.modelYearTo, "modelYearTo", "year", context);
   validateRange(value.priceMin, value.priceMax, "priceMax", "price", context);
   validateRange(value.mileageMin, value.mileageMax, "mileageMax", "mileage", context);
+  if (value.activity && (value.from || value.to)) context.addIssue({ code: "custom", path: ["activity"], message: "Clear recent activity when selecting a historical observation period." });
   if (value.from && value.to && value.from > value.to) {
     context.addIssue({
       code: "custom",

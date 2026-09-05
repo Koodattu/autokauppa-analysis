@@ -17,6 +17,7 @@ export function ChartPanel({
   rangeLegend = false,
   activityLegend = false,
   full = false,
+  availability = "all",
   children,
 }: {
   title: string;
@@ -25,6 +26,7 @@ export function ChartPanel({
   rangeLegend?: boolean;
   activityLegend?: boolean;
   full?: boolean;
+  availability?: "all" | "current" | "sold";
   children: ReactNode;
 }) {
   return (
@@ -34,7 +36,7 @@ export function ChartPanel({
           <h3>{title}</h3>
           {meta ? <p>{meta}</p> : null}
         </div>
-        {activityLegend ? <ActivityLegend /> : legend ? <PriceLegend showRange={rangeLegend} /> : null}
+        {activityLegend ? <ActivityLegend /> : legend ? <PriceLegend showRange={rangeLegend} availability={availability} /> : null}
       </div>
       {children}
     </section>
@@ -337,11 +339,11 @@ export function ActivityTable({ data }: { data: Charts["marketOverTime"] }) {
   );
 }
 
-function PriceLegend({ showRange }: { showRange: boolean }) {
+function PriceLegend({ showRange, availability }: { showRange: boolean; availability: "all" | "current" | "sold" }) {
   return (
     <div className="chart-legend" aria-label="Chart legend">
-      <span><i className="legend-line legend-asking" aria-hidden="true" /> Asking</span>
-      <span><i className="legend-line legend-sold" aria-hidden="true" /> Observed-sold listing</span>
+      {availability !== "sold" && <span><i className="legend-line legend-asking" aria-hidden="true" /> Asking</span>}
+      {availability !== "current" && <span><i className="legend-line legend-sold" aria-hidden="true" /> Observed-sold listing</span>}
       {showRange ? (
         <span><i className="legend-range" aria-hidden="true" /> Asking middle 50% (p25–p75)</span>
       ) : null}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useRef, useState, useTransition } from "react";
+import { type FormEvent, useId, useRef, useState, useTransition } from "react";
 import { analysisQueryUrlFilter, listingSearchUrlFilter } from "@nettiauto/schemas";
 import type { FilterMetadata } from "@/lib/api";
 import { singleSearchParam as single, type WebSearchParams } from "@/lib/url-filter-navigation";
@@ -10,14 +10,16 @@ import { singleSearchParam as single, type WebSearchParams } from "@/lib/url-fil
 export type PageSearchParams = WebSearchParams;
 
 type MarketFilterFormProps = {
-  action: "/" | "/listings";
+  action: "/" | "/analyze" | "/listings";
   filters: FilterMetadata;
   params: PageSearchParams;
   variant: "analytics" | "listings";
+  comparisonBase?: string;
 };
 
-export function MarketFilterForm({ action, filters, params, variant }: MarketFilterFormProps) {
+export function MarketFilterForm({ action, filters, params, variant, comparisonBase }: MarketFilterFormProps) {
   const router = useRouter();
+  const formId = useId();
   const initialMake = single(params.make);
   const initialModel = single(params.model);
   const [selectedMake, setSelectedMake] = useState(initialMake);
@@ -32,10 +34,14 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
   const modelRequest = useRef(0);
   const advancedCount = countAdvancedFilters(params, variant);
   const selectedCount = countSelectedFilters(params, variant);
+  const resetParams = new URLSearchParams(comparisonBase ?? "");
+  for (const key of [...resetParams.keys()]) if (key.startsWith("compare")) resetParams.delete(key);
+  if (comparisonBase !== undefined) resetParams.set("comparing", "1");
+  const resetHref = comparisonBase !== undefined ? `/analyze?${resetParams}` : action;
   const selectedFilters = selectedFilterLabels(params, variant);
   const validationProps = (name: string) =>
     invalidFields.includes(name)
-      ? { "aria-invalid": true as const, "aria-describedby": "filter-validation-error" }
+      ? { "aria-invalid": true as const, "aria-describedby": `${formId}-validation` }
       : {};
 
   async function selectMake(make: string) {
@@ -115,21 +121,36 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
         }
         setFormError("");
         setInvalidFields([]);
-        const href = cleanFilterHref(event, action);
+        let href = cleanFilterHref(event, action);
+        if (comparisonBase !== undefined) {
+          const base = new URLSearchParams(comparisonBase);
+          for (const key of [...base.keys()]) if (key.startsWith("compare")) base.delete(key);
+          for (const [key, value] of new URLSearchParams(href.split("?")[1])) {
+            base.set(`compare${key[0].toUpperCase()}${key.slice(1)}`, value);
+          }
+          base.set("comparing", "1");
+          href = `/analyze?${base}`;
+        } else {
+          const next = new URLSearchParams(href.split("?")[1]);
+          for (const [key, value] of Object.entries(params)) {
+            if (key.startsWith("compar") && typeof value === "string") next.set(key, value);
+          }
+          href = `${action}?${next}`;
+        }
         startTransition(() => router.push(href));
       }}
     >
       <div className="filter-surface-header">
         <div>
-          <h2>{variant === "analytics" ? "Define the market" : "Narrow the listings"}</h2>
+          <h2>{comparisonBase !== undefined ? "Comparison group and period" : variant === "analytics" ? "Choose the cars to study" : "Narrow the listings"}</h2>
           <p>
             {variant === "analytics"
-              ? "Start broad, then add only the details needed for your question."
+              ? "Choose model year, mileage and features. Dates below select when prices were observed."
               : "Use the same market scope as the analysis, then sort the evidence."}
           </p>
         </div>
         {selectedCount > 0 ? (
-          <Link className="filter-reset" href={action}>
+          <Link className="filter-reset" href={resetHref}>
             Reset {selectedCount} {selectedCount === 1 ? "filter" : "filters"}
           </Link>
         ) : (
@@ -190,7 +211,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
           />
         </FilterField>
         <FilterField label="Availability">
-          <select name="availability" defaultValue={single(params.availability) || "all"}>
+          <select name="availability" defaultValue={single(params.availability) || "current"}>
             <option value="all">Current + sold</option>
             <option value="current">Current</option>
             <option value="sold">Sold</option>
@@ -198,7 +219,9 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
         </FilterField>
         {variant === "listings" ? (
           <FilterField label="Sort">
-            <select name="sort" defaultValue={single(params.sort) || "lastSeenDesc"}>
+            <select name="sort" defaultValue={single(params.sort) || "firstSeenDesc"}>
+              <option value="firstSeenDesc">First observed: newest</option>
+              <option value="priceReductionDesc">Largest recorded reduction</option>
               <option value="lastSeenDesc">Recently observed</option>
               <option value="sourceUpdatedDesc">Recently updated</option>
               <option value="priceAsc">Lowest price</option>
@@ -221,7 +244,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
 
       <div
         className={modelsError ? "filter-error" : "sr-only"}
-        id="model-options-status"
+        id={`${formId}-models`}
         role="status"
         aria-live="polite"
         aria-atomic="true"
@@ -235,12 +258,12 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
       </div>
 
       {formError ? (
-        <p className="filter-error" id="filter-validation-error" role="alert">
+        <p className="filter-error" id={`${formId}-validation`} role="alert">
           <span>{formError}</span>
         </p>
       ) : null}
 
-      <details className="advanced-filters" open={advancedCount > 0}>
+      <details className="advanced-filters" open={variant === "analytics" || advancedCount > 0}>
         <summary>
           <span>More ways to narrow</span>
           {advancedCount > 0 ? <span className="filter-count">{advancedCount}</span> : null}
@@ -280,6 +303,12 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
                       {transmission}
                     </option>
                   ))}
+                </select>
+              </FilterField>
+              <FilterField label="Body style">
+                <select name="bodyType" defaultValue={single(params.bodyType)}>
+                  <option value="">Any body style</option>
+                  {filters.bodyTypes?.map((body) => <option key={body}>{body}</option>)}
                 </select>
               </FilterField>
               <FilterField label="Fuel type">
@@ -346,7 +375,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
             <legend>{variant === "analytics" ? "Observation window" : "Listing source"}</legend>
             <p>
               {variant === "analytics"
-                ? "Dates apply to trend charts, not the current snapshot."
+                ? "Dates select historical observations for the summary, charts and listing evidence."
                 : "Narrow by seller type when that distinction matters."}
             </p>
             <div className="filter-group-grid">
@@ -360,9 +389,12 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
                   ))}
                 </select>
               </FilterField>
+              <FilterField label="Recent activity">
+                <select name="activity" defaultValue={single(params.activity)}><option value="">Any activity</option><option value="firstObserved">First observed in the latest 7 days</option><option value="priceReduced">Price reduced in the latest 7 days</option></select>
+              </FilterField>
               {variant === "analytics" ? (
                 <>
-                  <FilterField label="Trend from">
+                  <FilterField label="Observed from">
                     <input
                       name="from"
                       type="date"
@@ -370,7 +402,7 @@ export function MarketFilterForm({ action, filters, params, variant }: MarketFil
                       {...validationProps("from")}
                     />
                   </FilterField>
-                  <FilterField label="Trend to">
+                  <FilterField label="Observed to">
                     <input
                       name="to"
                       type="date"
@@ -414,6 +446,8 @@ function countAdvancedFilters(params: PageSearchParams, variant: MarketFilterFor
     "mileageMax",
     "fuelType",
     "transmission",
+    "bodyType",
+    "activity",
     "sellerType",
     ...(variant === "analytics" ? ["from", "to", "interval"] : []),
   ];
@@ -437,12 +471,14 @@ function countSelectedFilters(params: PageSearchParams, variant: MarketFilterFor
     "mileageMax",
     "fuelType",
     "transmission",
+    "bodyType",
+    "activity",
     "sellerType",
     ...(variant === "analytics" ? ["from", "to", "interval"] : ["sort"]),
   ];
   return keys.filter((key) => {
     const value = single(params[key]);
-    return value && value !== "all" && value !== "week" && value !== "lastSeenDesc";
+    return value && !(key === "availability" && value === "current") && value !== "week" && value !== "firstSeenDesc";
   }).length;
 }
 
@@ -460,11 +496,13 @@ function selectedFilterLabels(params: PageSearchParams, variant: MarketFilterFor
     ["Mileage to", distanceFilterLabel(single(params.mileageMax))],
     ["Fuel type", single(params.fuelType)],
     ["Transmission", single(params.transmission)],
+    ["Body style", single(params.bodyType)],
+    ["Activity", single(params.activity) === "firstObserved" ? "First observed in latest 7 days" : single(params.activity) === "priceReduced" ? "Price reduced in latest 7 days" : ""],
     ["Seller", single(params.sellerType)],
     ...(variant === "analytics"
       ? ([
-          ["Trend from", single(params.from)],
-          ["Trend to", single(params.to)],
+          ["Observed from", single(params.from)],
+          ["Observed to", single(params.to)],
           ["Interval", intervalLabel(single(params.interval))],
         ] as Array<[string, string]>)
       : ([
@@ -493,6 +531,9 @@ function intervalLabel(value: string) {
 
 function sortLabel(value: string) {
   const labels: Record<string, string> = {
+    firstSeenDesc: "First observed recently",
+    lastSeenDesc: "Last observed recently",
+    priceReductionDesc: "Largest recorded price reduction",
     sourceUpdatedDesc: "Recently updated",
     priceAsc: "Lowest price",
     priceDesc: "Highest price",

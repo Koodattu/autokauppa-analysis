@@ -1,4 +1,7 @@
 import Link from "next/link";
+import Image from "next/image";
+import { isAllowedListingImageUrl } from "@/lib/listing-images";
+import { SaveCar, SaveSearch } from "../saved-workspace";
 import {
   ApiError,
   getFilterMetadata,
@@ -27,7 +30,7 @@ type PageProps = {
 };
 
 export default async function ListingsPage({ searchParams }: PageProps) {
-  const params = await searchParams;
+  const params = { availability: "current", sort: "firstSeenDesc", ...await searchParams };
   const navigation = resolveListingNavigation(params);
   if (!navigation) {
     return <ListingsError error={new ApiError("Invalid Listing View", 400)} />;
@@ -65,6 +68,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
       />
 
       <MarketCoverage coverage={listings.coverage} title="Result coverage" />
+      <SaveSearch href={`/listings?${navigation.queryString}`} title="Car search" />
 
       <section className="table-wrap listing-results" aria-label="Listings">
         <div className="section-heading">
@@ -97,9 +101,10 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                   <th scope="col">Listing</th>
                   <th scope="col">Price</th>
                   <th scope="col">Mileage</th>
+                  <th scope="col">Features</th>
                   <th scope="col">Availability</th>
                   <th scope="col">Seller</th>
-                  <th scope="col">Last observed</th>
+                  <th scope="col">Compare</th>
                 </tr>
               </thead>
               <tbody>
@@ -110,13 +115,14 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                     </td>
                     <td><ListingPrice listing={listing} /></td>
                     <td>{formatKm(listing.mileageKm)}</td>
+                    <td>{[listing.fuelType, listing.transmission, listing.bodyType].filter(Boolean).join(" · ") || "Not recorded"}</td>
                     <td>
                       <span className={`status-badge status-${statusTone(listing.availability)}`}>
                         {labelAvailability(listing.availability)}
                       </span>
                     </td>
                     <td><ListingSeller listing={listing} /></td>
-                    <td>{formatDateTime(listing.lastSeenAt)}</td>
+                    <td><SaveCar id={listing.listingId} title={`${listing.make} ${listing.model} ${listing.yearModel}`} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -148,6 +154,8 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                       <dd>{formatDateTime(listing.lastSeenAt)}</dd>
                     </div>
                   </dl>
+                  <p>{[listing.fuelType, listing.transmission, listing.bodyType].filter(Boolean).join(" · ") || "Features not recorded"}</p>
+                  <SaveCar id={listing.listingId} title={`${listing.make} ${listing.model} ${listing.yearModel}`} />
                 </article>
               ))}
             </div>
@@ -170,9 +178,10 @@ function ListingLink({
   const title = [listing.make, listing.model].filter(Boolean).join(" ") || "Unknown listing";
   return (
     <Link className="listing-link" href={navigation.detailHref(listing.listingId)}>
+      {listing.thumbnailUrl && isAllowedListingImageUrl(listing.thumbnailUrl) && <Image className="listing-thumbnail" src={listing.thumbnailUrl} alt="" width={100} height={68} unoptimized />}
       <strong>{title}</strong>
       <span>
-        {listing.yearModel ?? "Year unknown"} · {listing.sourceListingId}
+        {listing.yearModel ?? "Year unknown"}{listing.location ? ` · ${listing.location}` : ""}
       </span>
     </Link>
   );
@@ -188,6 +197,7 @@ function ListingPrice({ listing }: { listing: ListingTableItem }) {
     <span className="qualified-value">
       {formatCurrency(listing.askingPriceEur ?? listing.observedSoldPriceEur)}
       {qualifier ? <small>{qualifier}</small> : null}
+      {listing.priceReductionEur ? <small className="price-reduction">Recorded reduction: {formatCurrency(listing.priceReductionEur)}</small> : null}
     </span>
   );
 }

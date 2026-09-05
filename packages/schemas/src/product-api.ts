@@ -22,6 +22,7 @@ export const filterMetadataResponseSchema = z
     sellerTypes: z.array(z.string()),
     fuelTypes: z.array(z.string()),
     transmissions: z.array(z.string()),
+    bodyTypes: z.array(z.string()).optional(),
     availability: z.array(z.enum(["current", "sold", "all"])),
   })
   .strict();
@@ -117,6 +118,13 @@ export const listingTableItemResponseSchema = z
     sellerType: nullableString,
     sourceUpdatedDate: nullableString,
     lastSeenAt: z.string(),
+    fuelType: nullableString.optional(),
+    transmission: nullableString.optional(),
+    bodyType: nullableString.optional(),
+    firstSeenAt: z.string().optional(),
+    thumbnailUrl: nullableString.optional(),
+    location: nullableString.optional(),
+    priceReductionEur: nullableNumber.optional(),
   })
   .strict();
 
@@ -207,6 +215,9 @@ export const publicListingDetailResponseSchema = z
         pricePercentile: nullableNumber,
         observedDays: z.number().int().nonnegative(),
         recordedPriceChangeCount: z.number().int().nonnegative(),
+        comparableListings: z.array(listingTableItemResponseSchema).optional(),
+        limitations: z.array(z.string()).optional(),
+        comparisonHref: z.string().optional(),
       })
       .strict(),
     vehicleDetails: publicVehicleDetailsResponseSchema.nullable(),

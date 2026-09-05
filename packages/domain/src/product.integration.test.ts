@@ -1,10 +1,15 @@
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { listingFiltersQuerySchema, publicListingDetailResponseSchema } from "@nettiauto/schemas";
+import { listingFiltersQuerySchema, listingSearchQuerySchema, publicListingDetailResponseSchema } from "@nettiauto/schemas";
 import {
   completeCrawlRun,
   getAdminCrawlerDiagnostics,
   getAnalyticsTimeSeries,
+  getPriceResearch,
+  getDatasetOverview,
+  searchListings,
+  parseNettiautoDetailPage,
+  persistNettiautoDetailPage,
   getPublicListingDetail,
   getSchedulableSourceSearchQueries,
   reserveCrawlRunDetailJobs,
@@ -93,6 +98,71 @@ describeDatabase("PostgreSQL product integration", () => {
     });
   });
 
+  it("research uses historical attributes, excludes incomplete runs and never invents missing periods", async () => {
+    const queryId = await insertSourceQuery("current", "research");
+    const earlyRun = await insertRun(queryId, "current", "2023-06-15T10:00:00Z");
+    const laterRun = await insertRun(queryId, "current", "2025-06-15T10:00:00Z");
+    const listingId = await insertObservation(earlyRun, queryId, "current", "research-1", "active", "2023-06-15T09:00:00Z", 20000);
+    await insertObservation(laterRun, queryId, "current", "research-1", "active", "2025-06-15T09:00:00Z", 15000);
+    await sql`update listing_snapshots set mileage_km = 180000 where listing_id = ${listingId} and observed_at > '2025-01-01'`;
+    const query = listingSearchQuerySchema.parse({ make: "Toyota", model: "Corolla", transmission: "Automatic", availability: "current", mileageMax: 120000, from: "2023-01-01", to: "2023-12-31" });
+    const early = await getPriceResearch(sql, query);
+    expect(early.summary).toMatchObject({ count: 1, median: 20000, medianMileage: 100000 });
+    expect(early.evidence[0]).toMatchObject({ listingId, askingPriceEur: 20000, mileageKm: 100000 });
+    const later = await getPriceResearch(sql, { ...query, from: "2025-01-01", to: "2025-12-31" });
+    expect(later.summary.count).toBe(0);
+    expect(later.coverage.completeness).toBe("complete");
+    const missing = await getPriceResearch(sql, { ...query, from: "2022-01-01", to: "2022-12-31" });
+    expect(missing.summary.median).toBeNull();
+    expect(missing.coverage.completeness).toBe("unknown");
+    await sql`update crawl_runs set is_complete = false where id = ${earlyRun}`;
+    expect((await getPriceResearch(sql, query)).evidence).toEqual([]);
+    const overview = await getDatasetOverview(sql);
+    expect(overview.current).toBe(1);
+    expect(overview.reduced).toBe(1);
+    const reduced = await searchListings(sql, listingSearchQuerySchema.parse({ availability: "current", activity: "priceReduced", sort: "priceReductionDesc" }));
+    expect(reduced.items.map((item) => item.listingId)).toEqual([listingId]);
+    expect(reduced.items[0]?.priceReductionEur).toBe(5000);
+    expect((await searchListings(sql, listingSearchQuerySchema.parse({ availability: "current", sort: "firstSeenDesc" }))).items[0]?.listingId).toBe(listingId);
+    await sql`update crawl_runs set is_complete = true where id = ${earlyRun}`;
+    for (let index = 1; index <= 5; index++) {
+      await insertObservation(earlyRun, queryId, "current", `research-peer-${index}`, "active", "2023-06-15T09:00:00Z", 20000 + index * 1000);
+      await insertObservation(laterRun, queryId, "current", `research-peer-${index}`, "active", "2025-06-15T09:00:00Z", 15000 + index * 1000);
+    }
+    expect((await getPriceResearch(sql, query)).summary).toMatchObject({ count: 6, median: 22500 });
+    expect((await getPriceResearch(sql, { ...query, from: "2025-01-01", to: "2025-12-31" })).summary).toMatchObject({ count: 5, median: 18000 });
+    await insertRun(queryId, "current", "2024-01-15T10:00:00Z");
+    const trend = await getAnalyticsTimeSeries(sql, listingFiltersQuerySchema.parse({ availability: "current", interval: "month", from: "2023-06-01", to: "2024-02-01" }));
+    expect(trend.marketOverTime.find((point) => point.bucket === "2023-07-01")).toMatchObject({ includesCurrentRun: false, activeCount: null, medianAskingPriceEur: null });
+  });
+
+  it("preserves earlier snapshots when detail enrichment arrives out of order", async () => {
+    const queryId = await insertSourceQuery("current", "delayed-detail");
+    const earlyRun = await insertRun(queryId, "current", "2023-06-15T10:00:00Z");
+    const laterRun = await insertRun(queryId, "current", "2025-06-15T10:00:00Z");
+    const listingId = await insertObservation(earlyRun, queryId, "current", "12345678", "active", "2023-06-15T09:00:00Z", 20000);
+    await insertObservation(laterRun, queryId, "current", "12345678", "active", "2025-06-15T09:00:00Z", 15000);
+    const input = {
+      crawlRunId: earlyRun, searchQueryId: queryId, sourceListingId: "12345678",
+      sourceUrl: "https://www.nettiauto.com/toyota/corolla/12345678", responseStatus: 200,
+      responseContentType: "text/html", responseBodyShape: "html_document" as const,
+      responseBodySha256: null, responseBytes: null, durationMs: 1, requestHeaders: {},
+      fetchedAt: new Date("2023-06-15T09:01:00Z"),
+      parsedDetail: parseNettiautoDetailPage('<html><body><div class="page-header__item_date-location">Päivitetty 15.06.2023 Helsinki ID 12345678</div></body></html>', { sourceListingId: "12345678" }),
+    };
+    await persistNettiautoDetailPage(sql, input);
+    const snapshots = await sql`select asking_price_eur, observed_at, normalized_data from listing_snapshots where listing_id = ${listingId} order by observed_at`;
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots[0]?.normalized_data).toEqual({});
+    expect(snapshots[1]?.asking_price_eur).toBe(20000);
+    expect(snapshots[1]?.normalized_data.detailParserVersion).toBeTruthy();
+    expect(snapshots[2]?.asking_price_eur).toBe(15000);
+    expect((await getPublicListingDetail(sql, listingId))?.listing.askingPriceEur).toBe(15000);
+    await persistNettiautoDetailPage(sql, { ...input, fetchedAt: new Date("2025-06-15T09:01:00Z"), crawlRunId: laterRun });
+    expect((await sql`select id from listing_snapshots where listing_id = ${listingId}`)).toHaveLength(4);
+    expect((await getPublicListingDetail(sql, listingId))?.listing.askingPriceEur).toBe(15000);
+  });
+
   it("enforces detail budgets and excludes administratively paused queries", async () => {
     const queryId = await insertSourceQuery("current", "budget-test");
     const [run] = await sql<{ id: string }[]>`
@@ -142,9 +212,9 @@ describeDatabase("PostgreSQL product integration", () => {
     const detail = await getPublicListingDetail(sql, listingId);
     expect(detail?.marketContext).toMatchObject({
       priceBasis: "asking",
-      sampleSize: 3,
+      sampleSize: 2,
       medianPriceEur: 20_000,
-      pricePercentile: 67,
+      pricePercentile: null,
       observedDays: 1,
       recordedPriceChangeCount: 0,
     });

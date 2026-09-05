@@ -19,7 +19,7 @@ import {
   formatCompactNumber,
   formatCurrency,
   formatKm,
-  formatMonthYear,
+  formatDate,
   formatNumber,
 } from "@/lib/format";
 import {
@@ -357,7 +357,7 @@ function withBucketTime<T extends { bucket: string }>(data: T[]) {
 }
 
 function formatTimeAxis(value: number) {
-  return formatMonthYear(value);
+  return formatDate(value);
 }
 
 function formatCurrencyCompact(value: number) {

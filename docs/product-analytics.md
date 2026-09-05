@@ -1,6 +1,20 @@
 # Product Analytics Ideas
 
-Status: product direction and analysis ideas only. No implementation exists yet.
+Status: the overview, price research workspace and listing comparison are implemented. The ideas below include longer-term opportunities.
+
+## Implemented Research Flow
+
+- `/` separates active inventory, its median and middle 50% asking-price range, recent first observations and recorded reductions from the sold archive. Cards and budget/model links open matching evidence.
+- `/analyze` studies a group defined by make, model, model year, mileage, fuel, transmission, body style and seller. Price distribution, feature summaries, sampled price-versus-mileage points and model-year/mileage groups link to the underlying observations.
+- Optional observation dates select the latest complete collection per source search within the window. Historical filters use snapshots at or before each sighting; they do not substitute current mileage or price. Missing periods remain unobserved, and gaps break trend lines.
+- A second independent group supports the same car specification in two different years, or two groups of cars. Each side shows its sample, median, quartiles and observed dates. Headline differences require at least five prices on each side and describe changing cohorts, not same-car depreciation or causal feature premiums.
+- `/listings` defaults to current cars, ordered by first observation. `/listings/[id]` shows recorded history and actual peer listings with explicit matching rules; the target car is excluded from its own benchmark.
+- Up to four cars can be compared at `/compare`, with a reference car and a differences-only view. Up to twelve named searches/research views and the shortlist are stored locally in the browser. URLs can be shared without accounts.
+- `/lookup` resolves an already-collected Nettiauto URL or ID. It does not start a crawl.
+
+Research uses all matching priced listings for aggregates, up to 300 consistently sampled scatter points and 25 evidence rows per page. Paging is bounded at 1,000 pages; users can narrow the filters to inspect more specific subsets. Fuel and transmission aliases are normalized for comparison without altering source labels. New detail enrichment creates a dated snapshot; older snapshots may retain enrichment written by the previous persistence behavior.
+
+There is no historical backfill, matched-listing depreciation estimate, automated valuation, account synchronization or alert delivery in this flow. These require separate data or product work.
 
 ## First Useful Analytics
 
@@ -18,8 +32,7 @@ The first version should make broad Market Trend questions fast to answer:
 - Recently changed Listings.
 
 Analysis Queries should be represented as URL Filters in the first version so
-public analytics views are shareable without user accounts. Saved Views,
-watchlists, and alerts are deferred.
+public analytics views are shareable without user accounts. Local saved views and a comparison shortlist are implemented; synchronized watchlists and alerts remain future work.
 
 ## Strong Early Views
 

@@ -19,6 +19,7 @@ import {
 import { SiteHeader } from "../../site-header";
 import { ListingGallery } from "./listing-gallery";
 import { LazyListingHistoryChart } from "./lazy-listing-history-chart";
+import { SaveCar } from "../../saved-workspace";
 
 type PageProps = {
   params: Promise<{ listingId: string }>;
@@ -92,6 +93,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
           <div className="listing-price">
             <span>{data.listing.askingPriceEur !== null ? "Asking price" : "Price shown on observed-sold listing"}</span>
             <strong>{formatCurrency(data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur)}</strong>
+            <PricePosition context={data.marketContext} price={data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur} />
             <p>
               Observed listing evidence—not a confirmed completed transaction price.
             </p>
@@ -104,10 +106,11 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
             <SummaryRow label="First observed" value={formatDateTime(data.listing.firstSeenAt)} />
             <SummaryRow label="Last observed" value={formatDateTime(data.listing.lastSeenAt)} />
           </dl>
+          <SaveCar id={data.listing.listingId} title={title} />
         </aside>
       </section>
 
-      <MarketContext context={data.marketContext} />
+      <MarketContext context={data.marketContext} returnTo={listingsHref} />
 
       <section className="panel history-panel">
         <div className="panel-heading">
@@ -123,7 +126,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
           <>
             <HistoryInsight history={data.history} />
             {hasHistoryChart ? <LazyListingHistoryChart history={data.history} /> : null}
-            <div className="history-table-wrap">
+            <details className="chart-data"><summary>View recorded observations</summary><div className="history-table-wrap">
               <table className="history-table">
                 <thead>
                   <tr>
@@ -146,7 +149,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </div></details>
           </>
         )}
       </section>
@@ -216,7 +219,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
   );
 }
 
-function MarketContext({ context }: { context: PublicListingDetailResponse["marketContext"] }) {
+function MarketContext({ context, returnTo }: { context: PublicListingDetailResponse["marketContext"]; returnTo: string }) {
   const priceBasis = context.priceBasis === "asking"
     ? "asking-price"
     : context.priceBasis === "observed_sold"
@@ -226,7 +229,7 @@ function MarketContext({ context }: { context: PublicListingDetailResponse["mark
     <section className="panel market-context-panel" aria-labelledby="market-context-title">
       <div className="panel-heading">
         <div>
-          <h2 id="market-context-title">Market context</h2>
+          <h2 id="market-context-title">Comparable cars and evidence</h2>
           <p>{context.cohortDescription}. Comparisons are unadjusted for other equipment and condition differences.</p>
         </div>
         <span>{formatNumber(context.sampleSize)} comparable prices</span>
@@ -241,8 +244,25 @@ function MarketContext({ context }: { context: PublicListingDetailResponse["mark
       {context.sampleSize > 0 && context.sampleSize < 5 ? (
         <p className="market-context-caveat">The comparable sample is very small; treat the price position as directional only.</p>
       ) : null}
+      {context.limitations?.map((limitation) => <p className="muted" key={limitation}>{limitation}</p>)}
+      <p className="muted">Observed duration runs from first to last capture, not from publication to sale. The target listing is excluded from its own benchmark.</p>
+      <div className="comparable-grid">{context.comparableListings?.map((car) => <article className="listing-card" key={car.listingId}><Link href={`/listings/${car.listingId}?${new URLSearchParams({ returnTo })}`}><strong>{car.make} {car.model} {car.yearModel}</strong></Link><p>{formatCurrency(car.askingPriceEur ?? car.observedSoldPriceEur)} · {formatKm(car.mileageKm)}</p><p>{[car.fuelType, car.transmission, car.bodyType].filter(Boolean).join(" · ")}</p><p>Observed {formatDate(car.lastSeenAt)}</p><SaveCar id={car.listingId} title={`${car.make} ${car.model} ${car.yearModel}`} /></article>)}</div>
+      {!context.sampleSize && <p>No other priced listings meet these comparison criteria.</p>}
+      {context.comparisonHref && <Link className="button-link secondary-button" href={context.comparisonHref}>Adjust the comparison group</Link>}
     </section>
   );
+}
+
+function PricePosition({ context, price }: { context: PublicListingDetailResponse["marketContext"]; price: number | null }) {
+  if (price === null || context.medianPriceEur === null || context.sampleSize < 5) return <p>Not enough comparable prices for a price position. Inspect the available evidence below.</p>;
+  const difference = price - context.medianPriceEur;
+  const low = Math.min(price, context.priceP25Eur ?? price) * 0.9;
+  const high = Math.max(price, context.priceP75Eur ?? price) * 1.1;
+  const position = (value: number) => (value - low) / Math.max(1, high - low) * 100;
+  return <div className="price-position"><p><strong>{formatCurrency(Math.abs(difference))} {difference > 0 ? "above" : difference < 0 ? "below" : "difference from"} the comparable median</strong></p>
+    <div className="price-position-bar" role="img" aria-label={`This listing ${formatCurrency(price)}. Middle 50% ${formatCurrency(context.priceP25Eur)} to ${formatCurrency(context.priceP75Eur)}. Median ${formatCurrency(context.medianPriceEur)}.`}>
+      <span className="price-position-range" style={{ left: `${position(context.priceP25Eur ?? price)}%`, width: `${position(context.priceP75Eur ?? price) - position(context.priceP25Eur ?? price)}%` }} /><span className="price-position-median" style={{ left: `${position(context.medianPriceEur)}%` }} /><span className="price-position-target" style={{ left: `${position(price)}%` }}>●</span>
+    </div><p>Middle 50%: {formatCurrency(context.priceP25Eur)}–{formatCurrency(context.priceP75Eur)} · {context.sampleSize} other prices. Equipment and condition can explain differences.</p></div>;
 }
 
 function formatPriceRange(low: number | null, high: number | null) {
@@ -252,7 +272,7 @@ function formatPriceRange(low: number | null, high: number | null) {
 function formatPricePosition(percentile: number | null) {
   return percentile === null
     ? "–"
-    : `At or above ${formatNumber(percentile)}% of comparable prices`;
+    : `${formatNumber(percentile)}% of comparable prices are at or below this price`;
 }
 
 function HistoryInsight({ history }: { history: PublicListingDetailResponse["history"] }) {

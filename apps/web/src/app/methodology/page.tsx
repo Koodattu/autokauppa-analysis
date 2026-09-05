@@ -32,11 +32,17 @@ export default function MethodologyPage() {
           <p>Medians reduce the effect of extreme prices. Middle-50% ranges run from the 25th to the 75th percentile. Every chart reports or exposes its sample size; sparse groups should be treated as directional.</p>
         </MethodSection>
         <MethodSection title="Comparisons">
-          <p>Side-by-side market comparisons apply the shared availability, price, mileage, seller, and observation-window filters to both scopes. Price differences are descriptive and are not adjusted for equipment, condition, location, or changing vehicle mix.</p>
-          <p>Listing-level market context uses the same make and model, model years within one year, and matching known fuel type and transmission. It compares asking prices with asking prices, or observed-sold listing prices with the same kind of evidence.</p>
+          <p>Price research supports independent vehicle filters and observation windows for two groups. Model year describes the car; observation dates describe when we captured its price. A historical window uses the latest complete collection for each search within that window, rather than an average of every listing seen during the year.</p>
+          <p>Historical filters use snapshots recorded at or before each sighting. Period differences describe group medians, not depreciation of the same cars or the isolated effect of an equipment feature. The vehicle mix, condition, location and unrecorded equipment can differ. Fewer than five priced listings on either side suppresses the headline difference.</p>
+          <p>Listing-level comparisons exclude the selected car. They use the same make, model and availability, model years within one year, mileage within the larger of 25,000 km or 20%, and matching known fuel, transmission and body style. Unknown fuel, transmission or body style relaxes that criterion and is disclosed. A valid model year and mileage are required. Asking prices and observed-sold listing prices are compared separately.</p>
+        </MethodSection>
+        <MethodSection title="Overview and activity">
+          <p>The overview separates latest active listings from the observed-sold archive. Activity covers the seven days ending at the latest active observation. First observed means first captured by this dataset; an initial import can include older ads. Price reductions require a lower recorded asking price than an earlier observation.</p>
+          <p>Feature summaries show the priced sample and its median mileage and model year. The scatter plot shows up to 300 consistently sampled listings; aggregate summaries use the full matching sample. Saved searches and the four-car shortlist stay in this browser. Shared links contain filters or listing IDs, and their latest results can change.</p>
         </MethodSection>
         <MethodSection title="Source detail and data quality">
           <p>Core fields can come from search results. Detail-page enrichment is optional and separately identified. Source labels are retained where possible, and the admin data-quality view reports latest-field coverage, parser versions, and parse failures.</p>
+          <p>Recognized fuel and transmission labels are grouped consistently; unrecognized labels count as unknown. New detail enrichment creates a dated snapshot without rewriting earlier observations. Legacy snapshots may contain details enriched later, so older attribute history has that limitation.</p>
         </MethodSection>
         <MethodSection title="Known limitations">
           <ul>

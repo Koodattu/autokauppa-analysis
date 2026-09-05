@@ -1,4 +1,5 @@
 import type postgres from "postgres";
+import { categorySql, normalizeVehicleCategory } from "./vehicle-categories";
 import {
   MAX_LISTING_PAGE,
   type AdminCrawlerDiagnosticsResponse,
@@ -156,9 +157,24 @@ export async function searchListings(
     availabilityExpression: "l.current_availability",
   });
   const orderBy = sortToOrderBy(query.sort);
+  const reductionJoin = `left join lateral (
+        select previous - asking_price_eur as amount from (
+          select asking_price_eur, observed_at,
+            lag(asking_price_eur) over(order by observed_at, created_at, id) as previous
+          from listing_snapshots where listing_id = l.id and availability = 'active' and asking_price_eur > 0
+        ) prices where previous > asking_price_eur order by observed_at desc limit 1
+      ) reductions on true`;
   const offset = (query.page - 1) * query.pageSize;
   const rows = await sql.unsafe<ListingTableItem[]>(
     `
+      with selected as materialized (
+        select l.id, row_number() over (order by ${orderBy}) as position
+        from listings l join listing_snapshots s on s.id = l.latest_snapshot_id
+        ${query.sort === "priceReductionDesc" ? reductionJoin : ""}
+        ${whereSql}
+        order by ${orderBy}
+        limit $${params.length + 1} offset $${params.length + 2}
+      )
       select
         l.id as "listingId",
         l.source_listing_id as "sourceListingId",
@@ -172,13 +188,21 @@ export async function searchListings(
         s.seller_source_label as "seller",
         s.seller_type_source_label as "sellerType",
         s.source_updated_date::text as "sourceUpdatedDate",
+        ${categorySql("s.fuel_type_source_label", "fuel")} as "fuelType",
+        ${categorySql("s.transmission_source_label", "transmission")} as transmission,
+        s.body_type_source_label as "bodyType",
+        l.first_seen_at::text as "firstSeenAt",
+        case when hero.object_key is not null then '/media/heroes/' || hero.object_key end as "thumbnailUrl",
+        detail.normalized_data->>'sourceLocationLabel' as location,
+        reductions.amount as "priceReductionEur",
         l.last_seen_at::text as "lastSeenAt"
-      from listings l
+      from selected
+      join listings l on l.id = selected.id
       join listing_snapshots s on s.id = l.latest_snapshot_id
-      ${whereSql}
-      order by ${orderBy}
-      limit $${params.length + 1}
-      offset $${params.length + 2}
+      left join listing_hero_images hero on hero.listing_id = l.id
+      left join listing_details detail on detail.listing_id = l.id
+      ${reductionJoin}
+      order by selected.position
     `,
     [...params, query.pageSize, offset],
   );
@@ -355,6 +379,8 @@ export async function getPublicListingDetail(
   ]);
 
   const observationContext = getListingObservationContext(history, firstSeenAt, listing.lastSeenAt);
+  const normalizedFuel = normalizeVehicleCategory(fuelTypeSourceLabel, "fuel");
+  const normalizedTransmission = normalizeVehicleCategory(transmissionSourceLabel, "transmission");
 
   return {
     listing: {
@@ -370,7 +396,23 @@ export async function getPublicListingDetail(
     history,
     imageMetadata: images,
     marketContext: {
-      cohortDescription: "Same make and model, within one model year, matching known fuel type and transmission",
+      cohortDescription: "Same make and model, within one model year and 25,000 km or 20% mileage (whichever is wider), matching known fuel type, transmission and body style; same availability",
+      limitations: [
+        ...(!normalizedTransmission ? ["Transmission is unknown, so this comparison includes different transmissions."] : []),
+        ...(!normalizedFuel ? ["Fuel type is unknown, so this comparison includes different powertrains."] : []),
+        ...(!bodyTypeSourceLabel ? ["Body style is unknown, so this comparison includes different body styles."] : []),
+        ...(listing.mileageKm === null || listing.mileageKm < 0 || listing.mileageKm > 2000000 || listing.yearModel === null ? ["A valid model year and mileage are required to find comparable cars."] : []),
+        "Equipment, engine variant and condition can explain price differences.",
+      ],
+      comparisonHref: `/analyze?${new URLSearchParams({
+        ...(listing.make ? { make: listing.make } : {}), ...(listing.model ? { model: listing.model } : {}),
+        ...(listing.yearModel ? { modelYearFrom: String(listing.yearModel - 1), modelYearTo: String(listing.yearModel + 1) } : {}),
+        ...(listing.mileageKm !== null && listing.mileageKm >= 0 && listing.mileageKm <= 2000000 ? { mileageMin: String(Math.max(0, Math.floor(listing.mileageKm - Math.max(25000, listing.mileageKm * 0.2)))), mileageMax: String(Math.min(2000000, Math.ceil(listing.mileageKm + Math.max(25000, listing.mileageKm * 0.2)))) } : {}),
+        ...(normalizedFuel ? { fuelType: normalizedFuel } : {}),
+        ...(normalizedTransmission ? { transmission: normalizedTransmission } : {}),
+        ...(bodyTypeSourceLabel ? { bodyType: bodyTypeSourceLabel } : {}),
+        availability: listing.availability === "active" ? "current" : "sold",
+      }).toString()}`,
       ...marketPriceContext,
       ...observationContext,
     },
@@ -430,6 +472,7 @@ async function getListingMarketPriceContext(sql: Sql, listingId: string) {
       medianPriceEur: number | string | null;
       priceP75Eur: number | string | null;
       pricePercentile: number | string | null;
+      comparableListings: ListingTableItem[];
     }>
   >(
     `
@@ -439,6 +482,9 @@ async function getListingMarketPriceContext(sql: Sql, listingId: string) {
           snapshot.make_source_label,
           snapshot.model_source_label,
           snapshot.year_model,
+          snapshot.mileage_km,
+          snapshot.body_type_source_label,
+          snapshot.current_availability,
           snapshot.fuel_type_source_label,
           snapshot.transmission_source_label,
           snapshot.asking_price_eur,
@@ -460,14 +506,31 @@ async function getListingMarketPriceContext(sql: Sql, listingId: string) {
             else null
           end as price,
           target.target_price,
-          target.price_basis
+          target.price_basis,
+          jsonb_build_object('listingId', candidate.listing_id, 'sourceListingId', l.source_listing_id,
+            'make', candidate.make_source_label, 'model', candidate.model_source_label, 'yearModel', candidate.year_model,
+            'availability', candidate.current_availability, 'askingPriceEur', candidate.asking_price_eur,
+            'observedSoldPriceEur', candidate.observed_sold_price_eur, 'mileageKm', candidate.mileage_km,
+            'seller', candidate.seller_source_label, 'sellerType', candidate.seller_type_source_label,
+            'sourceUpdatedDate', candidate.source_updated_date::text, 'lastSeenAt', l.last_seen_at::text,
+            'fuelType', ${categorySql("candidate.fuel_type_source_label", "fuel")},
+            'transmission', ${categorySql("candidate.transmission_source_label", "transmission")},
+            'bodyType', candidate.body_type_source_label) as listing,
+          abs(candidate.mileage_km - target.mileage_km) as mileage_distance
         from target
         join latest_snapshots candidate
           on candidate.make_source_label = target.make_source_label
+          and candidate.listing_id <> $1
+          and candidate.current_availability = target.current_availability
           and candidate.model_source_label = target.model_source_label
-          and (target.year_model is null or candidate.year_model between target.year_model - 1 and target.year_model + 1)
-          and (target.fuel_type_source_label is null or candidate.fuel_type_source_label = target.fuel_type_source_label)
-          and (target.transmission_source_label is null or candidate.transmission_source_label = target.transmission_source_label)
+          and candidate.year_model between target.year_model - 1 and target.year_model + 1
+          and target.mileage_km between 0 and 2000000
+          and candidate.mileage_km between greatest(0, target.mileage_km - greatest(25000, target.mileage_km * 0.2))
+            and least(2000000, target.mileage_km + greatest(25000, target.mileage_km * 0.2))
+          and (${categorySql("target.fuel_type_source_label", "fuel")} is null or ${categorySql("candidate.fuel_type_source_label", "fuel")} = ${categorySql("target.fuel_type_source_label", "fuel")})
+          and (${categorySql("target.transmission_source_label", "transmission")} is null or ${categorySql("candidate.transmission_source_label", "transmission")} = ${categorySql("target.transmission_source_label", "transmission")})
+          and (target.body_type_source_label is null or candidate.body_type_source_label = target.body_type_source_label)
+        join listings l on l.id = candidate.listing_id
         where target.make_source_label is not null
           and target.model_source_label is not null
       )
@@ -480,11 +543,14 @@ async function getListingMarketPriceContext(sql: Sql, listingId: string) {
           filter (where price is not null))::int as "medianPriceEur",
         (percentile_cont(0.75) within group (order by price)
           filter (where price is not null))::int as "priceP75Eur",
-        round(
+        case when count(price) filter(where price > 0) >= 5 then round(
           100.0 * count(price) filter (where price <= target_price)
           / nullif(count(price), 0)
-        )::int as "pricePercentile"
+        )::int end as "pricePercentile",
+        coalesce((select jsonb_agg(listing) from (select listing from comparable_prices where price > 0
+          order by mileage_distance, listing->>'listingId' limit 6) examples), '[]') as "comparableListings"
       from comparable_prices
+      where price > 0
     `,
     [listingId],
   );
@@ -496,6 +562,7 @@ async function getListingMarketPriceContext(sql: Sql, listingId: string) {
     medianPriceEur: nullableNumber(row?.medianPriceEur ?? null),
     priceP75Eur: nullableNumber(row?.priceP75Eur ?? null),
     pricePercentile: nullableNumber(row?.pricePercentile ?? null),
+    comparableListings: row?.comparableListings ?? [],
   };
 }
 
@@ -792,10 +859,14 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
       sellerTypes: string[] | null;
       fuelTypes: string[] | null;
       transmissions: string[] | null;
+      bodyTypes: string[] | null;
     }[]
   >(
     `
-      with latest_snapshots as (${latestSnapshotSql()})
+      with latest_snapshots as (${latestSnapshotSql()}), facets as (
+        select *, ${categorySql("fuel_type_source_label", "fuel")} as fuel,
+          ${categorySql("transmission_source_label", "transmission")} as transmission from latest_snapshots
+      )
       select
         array_remove(array_agg(distinct make_source_label order by make_source_label), null) as makes,
         array_remove(
@@ -813,7 +884,7 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
         )::int as "maxYear",
         array_remove(array_agg(distinct seller_type_source_label order by seller_type_source_label), null) as "sellerTypes",
         array_remove(
-          array_agg(distinct fuel_type_source_label order by fuel_type_source_label)
+          array_agg(distinct fuel order by fuel)
             filter (
               where ($1::text is null or make_source_label = $1)
                 and ($2::text is null or model_source_label = $2)
@@ -821,14 +892,15 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
           null
         ) as "fuelTypes",
         array_remove(
-          array_agg(distinct transmission_source_label order by transmission_source_label)
+          array_agg(distinct transmission order by transmission)
             filter (
               where ($1::text is null or make_source_label = $1)
                 and ($2::text is null or model_source_label = $2)
             ),
           null
-        ) as transmissions
-      from latest_snapshots
+        ) as transmissions,
+        array_remove(array_agg(distinct body_type_source_label order by body_type_source_label), null) as "bodyTypes"
+      from facets
     `,
     [filters.make ?? null, filters.model ?? null],
   );
@@ -840,6 +912,7 @@ async function queryFacets(sql: Sql, filters: Partial<ListingFiltersQuery>) {
     sellerTypes: row?.sellerTypes ?? [],
     fuelTypes: row?.fuelTypes ?? [],
     transmissions: row?.transmissions ?? [],
+    bodyTypes: row?.bodyTypes ?? [],
   };
 }
 
@@ -907,7 +980,7 @@ async function getSummaryAndCoverage(
       sampleSize: row?.sampleSize ?? 0,
       includesCurrent: row?.includesCurrent ?? false,
       includesSold: row?.includesSold ?? false,
-      dataSource: filters.transmission ? "search_and_detail_data" : "search_result_data",
+      dataSource: filters.transmission || filters.bodyType ? "search_and_detail_data" : "search_result_data",
       completeness: coverageState.completeness,
     },
   };
@@ -956,13 +1029,23 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         ${runTimeFilter.whereSql}
         order by date_trunc('${interval}', cr.finished_at), cr.search_query_id, cr.finished_at desc
       ),
-      run_buckets as (
+      observed_run_buckets as (
         select
           bucket_start,
           bool_or(crawl_kind = 'current') as includes_current_run,
           bool_or(crawl_kind = 'sold') as includes_sold_run
         from selected_runs
         group by bucket_start
+      ),
+      run_buckets as (
+        select series.bucket_start,
+          coalesce(observed.includes_current_run, false) as includes_current_run,
+          coalesce(observed.includes_sold_run, false) as includes_sold_run
+        from generate_series(
+          (select min(bucket_start) from observed_run_buckets),
+          (select max(bucket_start) from observed_run_buckets), interval '${bucketStep}'
+        ) series(bucket_start)
+        left join observed_run_buckets observed using (bucket_start)
       ),
       sighting_buckets as materialized (
         select
@@ -980,7 +1063,7 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
           snapshot.observed_at,
           lag(snapshot.observed_at) over (
             partition by snapshot.listing_id
-            order by snapshot.observed_at desc, snapshot.created_at desc
+            order by snapshot.observed_at desc, snapshot.created_at desc, snapshot.id desc
           ) as next_observed_at,
           snapshot.availability,
           snapshot.asking_price_eur,
@@ -991,7 +1074,8 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
           snapshot.model_source_label,
           snapshot.seller_type_source_label,
           snapshot.fuel_type_source_label,
-          snapshot.transmission_source_label
+          snapshot.transmission_source_label,
+          snapshot.body_type_source_label
         from listing_snapshots snapshot
       ),
       bucketed_snapshots as (
@@ -1008,10 +1092,10 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         join listings l on l.id = b.listing_id
         join snapshot_periods s
           on s.listing_id = b.listing_id
-          and s.observed_at <= b.seen_at + interval '1 minute'
+          and s.observed_at <= b.seen_at
           and (
             s.next_observed_at is null
-            or s.next_observed_at > b.seen_at + interval '1 minute'
+            or s.next_observed_at > b.seen_at
           )
         ${whereSql}
       )
@@ -1221,7 +1305,7 @@ async function getPriceByTransmission(
     `
       with latest_snapshots as (${latestSnapshotSql()})
       select
-        s.transmission_source_label as transmission,
+        ${categorySql("s.transmission_source_label", "transmission")} as transmission,
         count(*)::int as "listingCount",
         count(s.asking_price_eur)::int as "askingPriceSampleSize",
         count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
@@ -1240,8 +1324,8 @@ async function getPriceByTransmission(
         (percentile_cont(0.75) within group (order by s.observed_sold_price_eur)
           filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP75Eur"
       from latest_snapshots s
-      ${appendWhereCondition(whereSql, "s.transmission_source_label is not null")}
-      group by s.transmission_source_label
+      ${appendWhereCondition(whereSql, `${categorySql("s.transmission_source_label", "transmission")} is not null`)}
+      group by ${categorySql("s.transmission_source_label", "transmission")}
       order by "listingCount" desc, transmission asc
       limit 12
     `,
@@ -1282,7 +1366,7 @@ async function getPriceByFuelType(
     `
       with latest_snapshots as (${latestSnapshotSql()})
       select
-        s.fuel_type_source_label as "fuelType",
+        ${categorySql("s.fuel_type_source_label", "fuel")} as "fuelType",
         count(*)::int as "listingCount",
         count(s.asking_price_eur)::int as "askingPriceSampleSize",
         count(s.observed_sold_price_eur)::int as "observedSoldPriceSampleSize",
@@ -1301,8 +1385,8 @@ async function getPriceByFuelType(
         (percentile_cont(0.75) within group (order by s.observed_sold_price_eur)
           filter (where s.observed_sold_price_eur is not null))::int as "observedSoldPriceP75Eur"
       from latest_snapshots s
-      ${appendWhereCondition(whereSql, "s.fuel_type_source_label is not null")}
-      group by s.fuel_type_source_label
+      ${appendWhereCondition(whereSql, `${categorySql("s.fuel_type_source_label", "fuel")} is not null`)}
+      group by ${categorySql("s.fuel_type_source_label", "fuel")}
       order by "listingCount" desc, "fuelType" asc
       limit 12
     `,
@@ -1331,7 +1415,7 @@ async function getSearchCoverage(
   return {
     lastRelevantCrawlAt: coverageState.lastRelevantCrawlAt,
     ...matches,
-    dataSource: filters.transmission ? "search_and_detail_data" : "search_result_data",
+    dataSource: filters.transmission || filters.bodyType ? "search_and_detail_data" : "search_result_data",
     completeness: coverageState.completeness,
   };
 }
@@ -1482,7 +1566,7 @@ function latestSnapshotSql() {
   `;
 }
 
-function buildFilterWhere(
+export function buildFilterWhere(
   filters: Partial<ListingFiltersQuery>,
   options: {
     snapshotAlias?: string;
@@ -1538,10 +1622,21 @@ function buildFilterWhere(
     add(`${column("seller_type_source_label")} = ?`, filters.sellerType);
   }
   if (filters.fuelType) {
-    add(`${column("fuel_type_source_label")} = ?`, filters.fuelType);
+    add(`${categorySql(column("fuel_type_source_label"), "fuel")} = ${categorySql("?", "fuel")}`, filters.fuelType);
   }
   if (filters.transmission) {
-    add(`${column("transmission_source_label")} = ?`, filters.transmission);
+    add(`${categorySql(column("transmission_source_label"), "transmission")} = ${categorySql("?", "transmission")}`, filters.transmission);
+  }
+  if (filters.bodyType) add(`${column("body_type_source_label")} = ?`, filters.bodyType);
+  if (filters.activity) {
+    const anchor = "(select max(last_seen_at) from listings where current_availability = 'active')";
+    if (filters.activity === "firstObserved") conditions.push(`exists (select 1 from listings activity_listing
+      where activity_listing.id = ${column("listing_id")} and activity_listing.first_seen_at >= ${anchor} - interval '7 days'
+        and activity_listing.first_seen_at <= ${anchor})`);
+    else conditions.push(`exists (select 1 from (
+      select observed_at, asking_price_eur, lag(asking_price_eur) over(order by observed_at, created_at, id) as previous
+      from listing_snapshots where listing_id = ${column("listing_id")} and availability = 'active' and asking_price_eur > 0
+    ) changes where asking_price_eur < previous and observed_at >= ${anchor} - interval '7 days' and observed_at <= ${anchor})`);
   }
   if (filters.availability === "current") {
     conditions.push(`${availabilityExpression} = 'active'`);
@@ -1558,7 +1653,7 @@ function buildFilterWhere(
   };
 }
 
-function buildCompletedRunTimeWhere(
+export function buildCompletedRunTimeWhere(
   filters: Pick<ListingFiltersQuery, "availability" | "from" | "to">,
 ) {
   const conditions: string[] = [];
@@ -1619,6 +1714,8 @@ function hasSnapshotFilters(filters: ListingSearchQuery) {
     filters.sellerType !== undefined ||
     filters.fuelType !== undefined ||
     filters.transmission !== undefined
+    || filters.bodyType !== undefined
+    || filters.activity !== undefined
   );
 }
 
@@ -1636,6 +1733,10 @@ function intervalToSqlInterval(interval: ListingFiltersQuery["interval"]) {
 
 function sortToOrderBy(sort: string) {
   switch (sort) {
+    case "firstSeenDesc":
+      return "l.first_seen_at desc, l.id asc";
+    case "priceReductionDesc":
+      return "reductions.amount desc nulls last, l.id asc";
     case "priceAsc":
       return "coalesce(s.asking_price_eur, s.observed_sold_price_eur) asc nulls last, l.id asc";
     case "priceDesc":

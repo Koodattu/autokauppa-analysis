@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { APP_LOCALE } from "@/lib/format";
 import "./globals.css";
 import "./public.css";
+import { ComparisonTray } from "./saved-workspace";
 
 export const metadata: Metadata = {
   title: {
@@ -22,7 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang={APP_LOCALE}>
-      <body>{children}</body>
+      <body>{children}<ComparisonTray /></body>
     </html>
   );
 }

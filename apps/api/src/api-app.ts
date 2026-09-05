@@ -16,6 +16,9 @@ import {
   getMarketOverview,
   getPublicListingDetail,
   searchListings,
+  getPriceResearch,
+  getDatasetOverview,
+  findSourceListing,
 } from "@nettiauto/domain";
 import type { AppLogger } from "@nettiauto/logging";
 import {
@@ -41,6 +44,10 @@ import {
   listingSearchUrlFilter,
   marketOverviewResponseSchema,
   publicListingDetailResponseSchema,
+  researchResponseSchema,
+  datasetOverviewResponseSchema,
+  listingLookupResponseSchema,
+  type ListingSearchQuery,
   type ListingFiltersQuery,
 } from "@nettiauto/schemas";
 import { ResponseCache } from "./analytics-cache";
@@ -108,6 +115,15 @@ const analyticsTimeSeriesCache = new ResponseCache({
   now,
 });
 const defaultAnalyticsFilters = listingFiltersQuerySchema.parse({});
+const researchCache = new ResponseCache({
+  name: "price-research", ttlMs: RESPONSE_CACHE_TTL_MS, maxEntries: RESPONSE_CACHE_MAX_ENTRIES,
+  key: (query: ListingSearchQuery) => listingSearchUrlFilter.format(query).toString(),
+  loader: (query) => getPriceResearch(sql, query), logger, now,
+});
+const overviewCache = new ResponseCache({
+  name: "dataset-overview", ttlMs: RESPONSE_CACHE_TTL_MS, maxEntries: 1,
+  key: () => "overview", loader: () => getDatasetOverview(sql), logger, now,
+});
 
 const app = new Hono();
 const publicQueryLimiter = new FixedWindowRateLimiter({ limit: 120, windowMs: 60_000 });
@@ -288,6 +304,13 @@ app.get("/listings", async (c) => {
   return c.json(listingSearchResponseSchema.parse(await searchListings(sql, result.query)));
 });
 
+app.get("/listings/lookup/:sourceId", async (c) => {
+  const sourceId = c.req.param("sourceId");
+  if (!/^\d{1,15}$/.test(sourceId)) return c.json({ error: "not_found" }, 404);
+  const listing = await findSourceListing(sql, sourceId);
+  return listing ? c.json(listingLookupResponseSchema.parse(listing)) : c.json({ error: "not_found" }, 404);
+});
+
 app.get("/listings/:listingId", async (c) => {
   const listingId = listingIdSchema.safeParse(c.req.param("listingId"));
   if (!listingId.success) {
@@ -356,6 +379,20 @@ app.get("/admin/crawler/status", adminOnly, async (c) => {
 
 app.get("/admin/crawler/diagnostics", adminOnly, async (c) => {
   return c.json(adminCrawlerDiagnosticsResponseSchema.parse(await crawlerDiagnostics.inspect()));
+});
+
+app.get("/analytics/research", async (c) => {
+  const result = listingSearchUrlFilter.parse(new URL(c.req.url).searchParams);
+  if (!result.ok) return c.json({ error: "invalid_query", issues: result.issues }, 400);
+  const cached = await researchCache.get(result.query);
+  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  return c.json(researchResponseSchema.parse(cached.value));
+});
+
+app.get("/market/dataset", async (c) => {
+  const cached = await overviewCache.get(undefined);
+  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  return c.json(datasetOverviewResponseSchema.parse(cached.value));
 });
 
 app.get("/admin/crawler/detail-backfill", adminOnly, async (c) => {
@@ -552,6 +589,8 @@ function analyticsSnapshotCacheKey(query: ListingFiltersQuery) {
     sellerType: query.sellerType ?? null,
     fuelType: query.fuelType ?? null,
     transmission: query.transmission ?? null,
+    bodyType: query.bodyType ?? null,
+    activity: query.activity ?? null,
   });
 }
 

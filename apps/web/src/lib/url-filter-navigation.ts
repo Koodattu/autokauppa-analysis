@@ -74,7 +74,7 @@ export function resolveListingNavigation(params: WebSearchParams): ListingNaviga
     filterMetadataQueryString: analysisQueryUrlFilter
       .formatForFilterMetadata(analysis)
       .toString(),
-    analyticsHref: routeWithQuery("/", analysisQueryString),
+    analyticsHref: routeWithQuery("/analyze", analysisQueryString),
     pageHref(page) {
       const next = listingSearchUrlFilter.withPage(parsed.query, page);
       return routeWithQuery("/listings", listingSearchUrlFilter.format(next).toString());
@@ -163,6 +163,6 @@ function toUrlSearchParams(params: WebSearchParams) {
   return result;
 }
 
-function routeWithQuery(path: "/" | "/listings", queryString: string) {
+function routeWithQuery(path: "/" | "/analyze" | "/listings", queryString: string) {
   return queryString ? `${path}?${queryString}` : path;
 }

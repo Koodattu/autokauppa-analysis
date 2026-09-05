@@ -1386,18 +1386,38 @@ async function updateListingFromDetailPage(
     return null;
   }
 
+  // Enrichment is evidence from its fetch time, not a correction to an earlier observation.
+  await tx`select id from listings where id = ${listing.id} for update`;
   await tx`
-    update listing_snapshots
-    set
-      source_updated_date = coalesce(${sourceUpdatedDate}::date, source_updated_date),
-      mileage_km = coalesce(${detailData.mileageKm}, mileage_km),
-      year_model = coalesce(${detailData.yearModel}, year_model),
-      fuel_type_source_label = coalesce(${detailData.fuelTypeSourceLabel}, fuel_type_source_label),
-      transmission_source_label = coalesce(${detailData.transmissionSourceLabel}, transmission_source_label),
-      body_type_source_label = coalesce(${detailData.bodyTypeSourceLabel}, body_type_source_label),
-      color_source_label = coalesce(${detailData.colorSourceLabel}, color_source_label),
-      normalized_data = normalized_data || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb)
-    where id = (select latest_snapshot_id from listings where id = ${listing.id})
+    with enriched as (
+      insert into listing_snapshots (
+        listing_id, raw_listing_record_id, parser_version, observed_at, availability,
+        source_status_label, asking_price_eur, observed_sold_price_eur, price_source_label,
+        mileage_km, mileage_source_label, year_model, make_source_label, model_source_label,
+        fuel_type_source_label, transmission_source_label, body_type_source_label, color_source_label,
+        seller_source_label, seller_type_source_label, source_updated_date, normalized_data, change_hash
+      )
+      select listing_id, ${input.rawListingRecordId}, ${input.parsedDetail.parserVersion}, ${input.fetchedAt}, availability,
+        source_status_label, asking_price_eur, observed_sold_price_eur, price_source_label,
+        coalesce(${detailData.mileageKm}, mileage_km), mileage_source_label, coalesce(${detailData.yearModel}, year_model),
+        make_source_label, model_source_label, coalesce(${detailData.fuelTypeSourceLabel}, fuel_type_source_label),
+        coalesce(${detailData.transmissionSourceLabel}, transmission_source_label), coalesce(${detailData.bodyTypeSourceLabel}, body_type_source_label),
+        coalesce(${detailData.colorSourceLabel}, color_source_label), seller_source_label, seller_type_source_label,
+        coalesce(${sourceUpdatedDate}::date, source_updated_date),
+        normalized_data || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb),
+        md5(change_hash || ${input.rawListingRecordId})
+      from listing_snapshots
+      where id = (
+        select id from listing_snapshots where listing_id = ${listing.id} and observed_at <= ${input.fetchedAt}
+        order by observed_at desc, created_at desc, id desc limit 1
+      )
+        and normalized_data is distinct from normalized_data || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb)
+        and not exists (select 1 from listing_snapshots where raw_listing_record_id = ${input.rawListingRecordId})
+      returning id, observed_at
+    )
+    update listings set latest_snapshot_id = enriched.id from enriched
+    where listings.id = ${listing.id}
+      and enriched.observed_at >= (select observed_at from listing_snapshots where id = listings.latest_snapshot_id)
   `;
 
   await tx`

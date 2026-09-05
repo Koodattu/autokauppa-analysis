@@ -51,9 +51,9 @@ function CoverageFact({ label, value }: { label: string; value: string }) {
 function coverageStatus(completeness: CoverageMetadata["completeness"]) {
   if (completeness === "complete") {
     return {
-      label: "Complete",
+      label: "Collection complete",
       tone: "",
-      description: "This view uses the latest complete set of observed listings for the selected scope.",
+      description: "The latest collection finished. Individual attributes may still be missing; availability is only as recent as the observation date.",
     };
   }
   if (completeness === "partial") {
