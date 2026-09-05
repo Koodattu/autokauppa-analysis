@@ -12,6 +12,7 @@ import {
 import { createProductApiResponseSchemas } from "./product-api";
 
 export * from "./admin-panel";
+export * from "./saved-views";
 export * from "./product-api";
 export * from "./research";
 export { coverageMetadataResponseSchema as coverageMetadataSchema } from "./product-api";
