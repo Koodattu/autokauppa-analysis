@@ -15,7 +15,7 @@ jobs:
       postgres:
         image: postgres:18.4-alpine
         env:
-          POSTGRES_DB: nettiauto_test
+          POSTGRES_DB: nettiauto_storage_fixture_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         ports:
@@ -26,8 +26,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/nettiauto_test
-      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/nettiauto_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/nettiauto_storage_fixture_test
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/nettiauto_storage_fixture_test
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
