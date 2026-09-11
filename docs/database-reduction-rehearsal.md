@@ -1,6 +1,8 @@
 # Lossless database storage migration
 
-Local rehearsal started 2026-09-11. Production remains unchanged by this work.
+Local rehearsal started 2026-09-11. This document records the isolated rehearsal;
+see [the production result](database-reduction-production.md) for the subsequent
+authorized deployment and live measurements.
 The restore, lossless migration, physical reclamation, post-rewrite full-data
 verification and final API comparison are complete.
 The restored baseline occupies 16,561,903,295 bytes and contains 2,160,024 raw
@@ -193,7 +195,12 @@ after that migration succeeds. Commit/push and production execution remain
 separate from this local rehearsal. The 13-second rewrite is only one step;
 budget the ingestion pause for the backfills and full verification as well.
 
-1. Confirm production code/database versions, current disk headroom, no active
+1. Acquire the existing auto-deployer maintenance lock at
+   `/run/lock/koodattu-auto-deploy.lock` with `flock`, and keep it held through
+   verification and controlled worker resumption. The automatic deployer can
+   rebuild containers, restart a stopped worker, and prune unused recovery images.
+   Use an owned, bounded lock holder; release it when maintenance is complete.
+   Confirm production code/database versions, current disk headroom, no active
    crawl/backfill jobs, and a fresh recoverable backup. Recheck the deployed direct
    readers of `source_payload`, HTML and `listing_images`, including external scripts.
    The local rehearsal copy is not a replacement for later production writes.
@@ -235,9 +242,9 @@ budget the ingestion pause for the backfills and full verification as well.
    before designing bounded orphan collection. No automatic evidence deletion is
    included here.
 
-The production pause, deployment and destructive contract must be explicitly
-authorized at the execution step. No production job or configuration has been
-changed during this rehearsal.
+The production pause, deployment and destructive contract require explicit
+authorization. The subsequent production execution was authorized and is recorded
+in [the production result](database-reduction-production.md).
 
 After those gates, the deployed worker contains the explicit operator commands
 below. These run bounded batches in a foreground process and can be resumed;

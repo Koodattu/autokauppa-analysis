@@ -1,6 +1,8 @@
 # Database reduction after the v4 backfill
 
-Status: implementation and isolated local rehearsal in progress, 2026-09-11.
+Status: lossless implementation and isolated rehearsal completed; see
+[the production result](database-reduction-production.md) for the authorized rollout
+on September 11–12, 2026.
 The first implementation preserves **all** raw JSON/HTML and full legacy image rows
 in Brotli bundles; it does not apply the selective retention ideas below.
 See [the implementation runbook](database-reduction-rehearsal.md) for the current
