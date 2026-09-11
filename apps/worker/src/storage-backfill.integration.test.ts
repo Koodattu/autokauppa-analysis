@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { runMigrations } from "graphile-worker";
 import { createSqlClient } from "@nettiauto/db";
 import { storeRawEvidence } from "@nettiauto/domain";
@@ -19,6 +19,10 @@ describeDatabase("Offline v2 storage migration", () => {
   let runId = "";
   beforeAll(async () => { await runMigrations({ connectionString: databaseUrl }); });
   beforeEach(async () => {
+    vi.stubEnv("DATABASE_URL", databaseUrl);
+    vi.stubEnv("APP_ENV", "test");
+    vi.stubEnv("CRAWLER_ENABLED", "false");
+    vi.stubEnv("CRAWLER_PAUSED", "true");
     await sql`delete from graphile_worker._private_jobs where key like 'storage:v2_details:%'`;
     await sql`truncate source_search_queries, listings, reprocessing_runs, raw_listing_payloads cascade`;
     const [query] = await sql`insert into source_search_queries(source,vehicle_category,crawl_kind,entry_path,source_search_hash)
@@ -30,6 +34,7 @@ describeDatabase("Offline v2 storage migration", () => {
       values (${runId},${query!.id},'nettiauto','detail_page','https://example.invalid/test','html_document',now()) returning id`;
     fetchId = fetch!.id;
   });
+  afterEach(() => { vi.unstubAllEnvs(); });
   afterAll(async () => {
     await sql`delete from graphile_worker._private_jobs where key like 'storage:v2_details:%'`;
     await sql`truncate storage_migration_progress cascade`;
