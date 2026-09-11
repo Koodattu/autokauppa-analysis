@@ -13,6 +13,7 @@
 **/*.tsbuildinfo
 **/next-env.d.ts
 coverage
+backups
 dist
 docs
 logs

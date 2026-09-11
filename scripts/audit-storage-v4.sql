@@ -38,11 +38,20 @@ select
   count(*) filter (where variant_mask <= 0 or variant_mask > 15)::bigint as invalid_variant_masks
 from listing_image_assets;
 
+select to_regclass('listing_images') is not null as legacy_images_present \gset
+\if :legacy_images_present
 select
   count(*)::bigint as legacy_image_rows,
   count(*) filter (where image_url like '%?%')::bigint as queried_urls,
   round(avg(octet_length(image_url)), 1) as average_legacy_url_bytes
 from listing_images;
+\else
+select
+  coalesce(sum(row_count), 0)::bigint as preserved_legacy_image_rows,
+  count(*)::bigint as listings_with_legacy_image_bundles,
+  pg_total_relation_size('listing_legacy_image_bundles') as stored_bytes
+from listing_legacy_image_bundles;
+\endif
 
 select
   target_parser_version,

@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { listingFiltersQuerySchema, listingSearchQuerySchema, publicListingDetailResponseSchema } from "@nettiauto/schemas";
+import { packRawEvidenceBatch, readRawEvidence, packLegacyImagesBatch, verifyLegacyImages, verifyRawEvidence } from "./storage";
 import {
   completeCrawlRun,
   getAdminCrawlerDiagnostics,
@@ -51,12 +52,14 @@ describeDatabase("PostgreSQL product integration", () => {
         source_fetches,
         crawl_runs,
         source_search_queries,
-        reprocessing_runs
+        reprocessing_runs,
+        raw_listing_payloads
       restart identity cascade
     `);
   });
 
   afterAll(async () => {
+    await sql`truncate storage_migration_progress cascade`;
     await sql.end({ timeout: 5 });
   });
 
@@ -198,11 +201,12 @@ describeDatabase("PostgreSQL product integration", () => {
   });
 
   it("computes listing market context and data-quality coverage from PostgreSQL", async () => {
+    const observationDay = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const queryId = await insertSourceQuery("current", "context-test");
-    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
-    const listingId = await insertObservation(runId, queryId, "current", "context-1", "active", "2026-08-03T09:00:00Z", 20_000);
-    await insertObservation(runId, queryId, "current", "context-2", "active", "2026-08-03T09:01:00Z", 18_000);
-    await insertObservation(runId, queryId, "current", "context-3", "active", "2026-08-03T09:02:00Z", 22_000);
+    const runId = await insertRun(queryId, "current", `${observationDay}T10:00:00Z`);
+    const listingId = await insertObservation(runId, queryId, "current", "context-1", "active", `${observationDay}T09:00:00Z`, 20_000);
+    await insertObservation(runId, queryId, "current", "context-2", "active", `${observationDay}T09:01:00Z`, 18_000);
+    await insertObservation(runId, queryId, "current", "context-3", "active", `${observationDay}T09:02:00Z`, 22_000);
     await sql`
       update listing_snapshots
       set normalized_data = jsonb_build_object('detailParserVersion', 'integration-test')
@@ -230,7 +234,7 @@ describeDatabase("PostgreSQL product integration", () => {
       parserVersion: "integration-test",
       recordCount: 3,
       failedCount: 0,
-      latestCapturedAt: "2026-08-03 09:02:00+00",
+      latestCapturedAt: `${observationDay} 09:02:00+00`,
     });
     expect(diagnostics.dataQuality.fieldCoverage.find((field) => field.field === "Fuel type"))
       .toMatchObject({ presentCount: 3, percentage: 100 });
@@ -341,6 +345,112 @@ describeDatabase("PostgreSQL product integration", () => {
     expect(detail?.vehicleDetails).not.toHaveProperty("vin");
     expect(detail?.vehicleDetails).not.toHaveProperty("additionalSourceFields");
     expect(publicListingDetailResponseSchema.safeParse(detail).success).toBe(true);
+  });
+
+  it("updates only listing provenance when missing v2 details become available", async () => {
+    const queryId = await insertSourceQuery("current", "storage-provenance");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const listingId = await insertObservation(runId, queryId, "current", "provenance-1", "active", "2026-08-03T09:00:00Z", 20000);
+    const before = await getPublicListingDetail(sql, listingId);
+    expect(before?.listing.sourceAttribution.observedDataLabel).toBe("Search Result Data");
+    await sql`insert into listing_details(listing_id,source_parser_version,normalization_schema_version,
+      source_raw_listing_record_id,source_fetch_id,fetched_at,normalized_data)
+      select ${listingId},'nettiauto-detail-v2','nettiauto-detail-v4',id,source_fetch_id,captured_at,
+        '{"detailParserVersion":"nettiauto-detail-v2"}'::jsonb from raw_listing_records where source_listing_id='provenance-1'`;
+    const after = await getPublicListingDetail(sql, listingId);
+    expect(after?.listing).toEqual({ ...before!.listing, sourceAttribution: {
+      ...before!.listing.sourceAttribution, observedDataLabel: "Search Result and Detail Page Data",
+    } });
+    expect(after?.history).toEqual(before?.history);
+    expect(after?.imageMetadata).toEqual(before?.imageMetadata);
+  });
+
+  it("preserves raw evidence and API images across resumable compression", async () => {
+    const queryId = await insertSourceQuery("current", "storage-test");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const listingId = await insertObservation(runId, queryId, "current", "storage-1", "active", "2026-08-03T09:00:00Z", 20000);
+    const [raw] = await sql<{ id: string }[]>`select id from raw_listing_records where source_listing_id='storage-1'`;
+    await sql`update raw_listing_records set source_payload = '{"number":900719925474099312345,"text":"ää😀"}'::jsonb,
+      source_html_fragment = '<p>original &amp; 😀</p>' where id=${raw!.id}`;
+    const evidence = await readRawEvidence(sql, raw!.id);
+    await sql`insert into listing_images(listing_id,source,image_url,image_role,position,width,height,first_seen_at,last_seen_at,last_raw_listing_record_id)
+      values (${listingId},'nettiauto','https://images.nettiauto.com/live/2026/08/03/abc-large.jpg','gallery',0,1200,800,now(),now(),${raw!.id}),
+      (${listingId},'nettiauto','https://images.nettiauto.com/live/2026/08/03/abc-large.webp','gallery',0,1200,800,now(),now(),${raw!.id}),
+      (${listingId},'nettiauto','https://example.invalid/unrecognized.png',null,null,null,null,now(),now(),null)`;
+    const before = await getPublicListingDetail(sql, listingId);
+    expect(before?.imageMetadata).toHaveLength(1);
+    expect(before?.imageMetadata[0]).toMatchObject({ width: 1200, height: 800 });
+    expect(before?.imageMetadata[0]?.fallbackImageUrls).toHaveLength(1);
+    expect((await packLegacyImagesBatch(sql, 1)).status).toBe("running");
+    expect(await getPublicListingDetail(sql, listingId)).toEqual(before);
+    expect((await packLegacyImagesBatch(sql, 1)).status).toBe("ready");
+    expect(await verifyLegacyImages(sql)).toBe(3);
+    await expect(sql`update listing_images set width=1 where listing_id=${listingId}`).rejects.toThrow("read-only");
+    expect(await getPublicListingDetail(sql, listingId)).toEqual(before);
+    expect((await packRawEvidenceBatch(sql, 1)).migratedCount).toBe(1);
+    expect((await packRawEvidenceBatch(sql, 1)).status).toBe("completed");
+    expect((await packRawEvidenceBatch(sql, 1)).migratedCount).toBe(1);
+    expect(await readRawEvidence(sql, raw!.id)).toEqual(evidence);
+    expect(await verifyRawEvidence(sql)).toMatchObject({ records: 1, bundles: 1 });
+    await sql`update raw_listing_records set payload_index=99 where id=${raw!.id}`;
+    await expect(verifyRawEvidence(sql)).rejects.toThrow("Invalid raw evidence references");
+    await expect(readRawEvidence(sql, raw!.id)).rejects.toThrow("bundle index missing");
+    await sql`update raw_listing_records set payload_index=0 where id=${raw!.id}`;
+    await expect(sql`update raw_listing_records set source_payload='{}', payload_digest=null, payload_index=null where id=${raw!.id}`).rejects.toThrow("read-only");
+    expect(await getPublicListingDetail(sql, listingId)).toEqual(before);
+    // Prove the completed reader does not need the old relation.
+    await sql`alter table listing_images rename to listing_images_rehearsal_hidden`;
+    try {
+      expect(await getPublicListingDetail(sql, listingId)).toEqual(before);
+    } finally {
+      await sql`alter table listing_images_rehearsal_hidden rename to listing_images`;
+    }
+  });
+
+  it("rolls back payload replacement and its checkpoint together on failure", async () => {
+    const queryId = await insertSourceQuery("current", "storage-rollback");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    await insertObservation(runId, queryId, "current", "rollback-1", "active", "2026-08-03T09:00:00Z", 20000);
+    await sql.unsafe(`create function fail_storage_test() returns trigger language plpgsql as $$ begin raise exception 'injected failure'; end $$`);
+    await sql`create trigger fail_storage_test before update on raw_listing_records for each row execute function fail_storage_test()`;
+    try {
+      await expect(packRawEvidenceBatch(sql, 1)).rejects.toThrow("injected failure");
+      const [state] = await sql`select (select count(*) from storage_migration_progress)::int as progress,
+        (select count(*) from raw_listing_payloads)::int as bundles,
+        (select count(*) from raw_listing_records where source_payload is not null)::int as inline`;
+      expect(state).toEqual({ progress: 0, bundles: 0, inline: 1 });
+    } finally {
+      await sql`drop trigger fail_storage_test on raw_listing_records`;
+      await sql`drop function fail_storage_test()`;
+    }
+    expect((await packRawEvidenceBatch(sql, 10)).status).toBe("completed");
+  });
+
+  it("rescans late inline rows below the UUID cursor before completing", async () => {
+    const queryId = await insertSourceQuery("current", "storage-late-row");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    await insertObservation(runId, queryId, "current", "first-1", "active", "2026-08-03T09:00:00Z", 20000);
+    expect((await packRawEvidenceBatch(sql, 1)).status).toBe("running");
+    await sql`insert into raw_listing_records(id,source,source_listing_id,crawl_run_id,source_fetch_id,record_kind,
+      source_payload,source_payload_sha256,parser_version,parser_status,captured_at)
+      select '00000000-0000-0000-0000-000000000001',source,'late-1',crawl_run_id,source_fetch_id,record_kind,
+        '{}'::jsonb,'late-hash',parser_version,parser_status,captured_at from raw_listing_records limit 1`;
+    expect(await packRawEvidenceBatch(sql, 1)).toMatchObject({ status: "running", cursorId: null, migratedCount: 1 });
+    expect(await packRawEvidenceBatch(sql, 10)).toMatchObject({ status: "completed", migratedCount: 2 });
+    expect(await readRawEvidence(sql, "00000000-0000-0000-0000-000000000001")).toEqual(["{}", null]);
+  });
+
+  it("refuses the image reader switch if a legacy row changes after packing", async () => {
+    const queryId = await insertSourceQuery("current", "storage-mismatch");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const listingId = await insertObservation(runId, queryId, "current", "mismatch-1", "active", "2026-08-03T09:00:00Z", 20000);
+    await sql`insert into listing_images(listing_id,source,image_url,first_seen_at,last_seen_at)
+      values (${listingId},'nettiauto','https://example.invalid/original',now(),now())`;
+    await packLegacyImagesBatch(sql, 10);
+    await sql`update listing_images set width=999 where listing_id=${listingId}`;
+    await expect(verifyLegacyImages(sql)).rejects.toThrow("preservation verification failed");
+    const [state] = await sql`select status from storage_migration_progress where stage='legacy_images'`;
+    expect(state?.status).toBe("ready");
   });
 
   async function insertSourceQuery(crawlKind: "current" | "sold", searchHash: string) {

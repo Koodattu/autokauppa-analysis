@@ -12,6 +12,11 @@ const task: Task = async (payload, helpers) => {
   const config = parseWorkerConfig();
   const sql = createSqlClient(config.DATABASE_URL, 1);
   try {
+    const [storage] = await sql<{ completed: boolean }[]>`
+      select exists(select 1 from storage_migration_progress
+        where stage = 'legacy_images' and status = 'completed' and error_count = 0) as completed
+    `;
+    if (storage?.completed) return;
     const rows = await sql<{
       id: string;
       listingId: string;

@@ -2,7 +2,9 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  bigint,
   check,
+  customType,
   date,
   index,
   integer,
@@ -19,6 +21,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 const jsonbEmptyObject = sql`'{}'::jsonb`;
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 const createdAtColumn = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAtColumn = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
@@ -214,6 +217,18 @@ export const sourceFetches = pgTable(
   ],
 );
 
+export const rawListingPayloads = pgTable("raw_listing_payloads", {
+  digest: text("digest").primaryKey(),
+  codec: text("codec").notNull(),
+  decodedBytes: integer("decoded_bytes").notNull(),
+  recordCount: integer("record_count").notNull(),
+  content: bytea("content").notNull(),
+}, (table) => [
+  check("raw_listing_payloads_codec_check", sql`${table.codec} = 'brotli-json-v1'`),
+  check("raw_listing_payloads_decoded_bytes_check", sql`${table.decodedBytes} between 0 and 67108864`),
+  check("raw_listing_payloads_record_count_check", sql`${table.recordCount} > 0`),
+]);
+
 export const rawListingRecords = pgTable(
   "raw_listing_records",
   {
@@ -227,8 +242,10 @@ export const rawListingRecords = pgTable(
       .references(() => sourceFetches.id),
     recordKind: rawListingRecordKindEnum("record_kind").notNull(),
     sourceUrl: text("source_url"),
-    sourcePayload: jsonb("source_payload").notNull(),
+    sourcePayload: jsonb("source_payload"),
     sourceHtmlFragment: text("source_html_fragment"),
+    payloadDigest: text("payload_digest").references(() => rawListingPayloads.digest),
+    payloadIndex: integer("payload_index"),
     sourcePayloadSha256: text("source_payload_sha256").notNull(),
     sourceUpdatedDate: date("source_updated_date"),
     parserVersion: text("parser_version").notNull(),
@@ -241,6 +258,13 @@ export const rawListingRecords = pgTable(
       "raw_listing_records_single_run_context_ck",
       sql`num_nonnulls(${table.crawlRunId}, ${table.detailBackfillRunId}) = 1`,
     ),
+    check("raw_listing_records_evidence_ck", sql`
+      (${table.sourcePayload} is not null and ${table.payloadDigest} is null and ${table.payloadIndex} is null)
+      or (${table.sourcePayload} is null and ${table.sourceHtmlFragment} is null
+        and ${table.payloadDigest} is not null and ${table.payloadIndex} is not null and ${table.payloadIndex} >= 0)
+    `),
+    index("raw_listing_records_payload_idx").on(table.payloadDigest)
+      .where(sql`${table.payloadDigest} is not null`),
     uniqueIndex("raw_listing_records_fetch_listing_kind_uq").on(
       table.sourceFetchId,
       table.sourceListingId,
@@ -291,6 +315,37 @@ export const listings = pgTable(
       .where(sql`${table.latestSnapshotId} is not null`),
   ],
 );
+
+export const listingLegacyImageBundles = pgTable("listing_legacy_image_bundles", {
+  listingId: uuid("listing_id").primaryKey().references(() => listings.id),
+  digest: text("digest").notNull(),
+  codec: text("codec").notNull(),
+  decodedBytes: integer("decoded_bytes").notNull(),
+  rowCount: integer("row_count").notNull(),
+  content: bytea("content").notNull(),
+}, (table) => [
+  check("listing_legacy_image_bundles_codec_check", sql`${table.codec} = 'brotli-json-v1'`),
+  check("listing_legacy_image_bundles_decoded_bytes_check", sql`${table.decodedBytes} between 0 and 67108864`),
+  check("listing_legacy_image_bundles_row_count_check", sql`${table.rowCount} > 0`),
+]);
+
+export const storageMigrationProgress = pgTable("storage_migration_progress", {
+  stage: text("stage").primaryKey(),
+  cursorId: uuid("cursor_id"),
+  status: text("status").notNull().default("running"),
+  runId: uuid("run_id").references(() => reprocessingRuns.id),
+  processedCount: bigint("processed_count", { mode: "number" }).notNull().default(0),
+  migratedCount: bigint("migrated_count", { mode: "number" }).notNull().default(0),
+  skippedCount: bigint("skipped_count", { mode: "number" }).notNull().default(0),
+  errorCount: bigint("error_count", { mode: "number" }).notNull().default(0),
+  updatedAt: updatedAtColumn(),
+}, (table) => [check("storage_migration_progress_status_check", sql`${table.status} in ('running', 'ready', 'completed', 'partial')`)]);
+
+export const storageMigrationExceptions = pgTable("storage_migration_exceptions", {
+  stage: text("stage").notNull().references(() => storageMigrationProgress.stage),
+  sourceId: uuid("source_id").notNull(),
+  reason: text("reason").notNull(),
+}, (table) => [primaryKey({ columns: [table.stage, table.sourceId] })]);
 
 export const detailBackfillTargets = pgTable(
   "detail_backfill_targets",

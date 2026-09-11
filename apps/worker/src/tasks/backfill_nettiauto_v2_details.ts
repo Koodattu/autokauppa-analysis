@@ -1,24 +1,23 @@
 import { parseWorkerConfig } from "@nettiauto/config";
-import { closeSqlClient, createSqlClient } from "@nettiauto/db";
+import { closeSqlClient, createSqlClient, type SqlClient, type TransactionSqlClient } from "@nettiauto/db";
 import {
   NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION,
   upgradeStoredNettiautoDetailToV4,
+  lockStorageProgress, advanceStorageProgress, scheduleStorageContinuation, readRawEvidence,
+  type StorageProgress,
 } from "@nettiauto/domain";
 import type { Task } from "graphile-worker";
-import { z } from "zod";
 
-const BATCH_SIZE = 2_000;
-const payloadSchema = z.object({
-  runId: z.string().uuid().optional(),
-  afterListingId: z.string().uuid().optional(),
-});
-
-const task: Task = async (payload, helpers) => {
-  const command = payloadSchema.parse(payload ?? {});
-  const config = parseWorkerConfig();
-  const sql = createSqlClient(config.DATABASE_URL, 1);
-  try {
-    const runId = command.runId ?? await createRun(sql);
+export async function runV2DetailStorageBatch(client: SqlClient, batchSize = 500, scheduleNext = false): Promise<StorageProgress> {
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 2000) throw new Error("Invalid v2 batch size");
+  return await client.begin(async (sql) => {
+    const progress = await lockStorageProgress(sql, "v2_details");
+    if (progress.status !== "running") return progress;
+    const [saved] = await sql<{ runId: string | null }[]>`
+      select run_id::text as "runId" from storage_migration_progress where stage = 'v2_details'
+    `;
+    const runId = saved?.runId ?? await createRun(sql);
+    await sql`update storage_migration_progress set run_id = ${runId} where stage = 'v2_details'`;
     const sourceRows = await sql<{
       listingId: string;
       sourceParserVersion: string;
@@ -45,38 +44,34 @@ const task: Task = async (payload, helpers) => {
           and record.record_kind = 'detail_page'
           and record.parser_status = 'parsed'
           and record.parser_version = 'nettiauto-detail-v2'
-        order by record.captured_at desc
+        order by record.captured_at desc, record.id desc
         limit 1
       ) detail on true
       where listing.source = 'nettiauto'
         and listing.id > coalesce(
-          ${command.afterListingId ?? null}::uuid,
+          ${progress.cursorId}::uuid,
           '00000000-0000-0000-0000-000000000000'::uuid
         )
         and not exists (
           select 1 from listing_details existing where existing.listing_id = listing.id
         )
       order by listing.id
-      limit ${BATCH_SIZE}
+      limit ${batchSize}
     `;
 
     const failures: string[] = [];
-    const storageRows = sourceRows.flatMap((row) => {
-      const upgraded = upgradeStoredNettiautoDetailToV4(
-        row.sourcePayload,
-        row.sourceParserVersion,
-      );
+    const storageRows = [];
+    for (const row of sourceRows) {
+      const payload = row.sourcePayload ?? JSON.parse((await readRawEvidence(sql, row.sourceRawListingRecordId))[0]);
+      const upgraded = upgradeStoredNettiautoDetailToV4(payload, row.sourceParserVersion);
       if (!upgraded) {
         failures.push(row.listingId);
-        return [];
+        continue;
       }
       const { sourcePayload: _, ...sourceRow } = row;
-      return [{
-        ...sourceRow,
-        normalizationSchemaVersion: NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION,
-        ...upgraded,
-      }];
-    });
+      storageRows.push({ ...sourceRow,
+        normalizationSchemaVersion: NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION, ...upgraded });
+    }
 
     const insertedRows = storageRows.length > 0
       ? await sql<{ listingId: string }[]>`
@@ -157,42 +152,42 @@ const task: Task = async (payload, helpers) => {
       `
       : [];
 
-    await sql`
-      update reprocessing_runs
-      set
-        success_count = success_count + ${insertedRows.length},
-        failure_count = failure_count + ${failures.length},
-        updated_at = now()
-      where id = ${runId}
-    `;
 
-    const lastRow = sourceRows.at(-1);
-    if (sourceRows.length === BATCH_SIZE && lastRow) {
-      await helpers.addJob(
-        "backfill_nettiauto_v2_details",
-        { runId, afterListingId: lastRow.listingId },
-        {
-          queueName: "nettiauto-v2-detail-backfill",
-          maxAttempts: 5,
-          jobKey: `nettiauto:v2-detail-backfill:${runId}:${lastRow.listingId}`,
-        },
-      );
-      return;
+    for (const id of failures) {
+      await sql`insert into storage_migration_exceptions(stage, source_id, reason)
+        values ('v2_details', ${id}, 'legacy_normalized_data_missing') on conflict do nothing`;
     }
-
     await sql`
-      update reprocessing_runs
-      set status = case when failure_count = 0 then 'completed' else 'partial' end,
-          finished_at = now(),
-          updated_at = now()
+      update reprocessing_runs set success_count = success_count + ${insertedRows.length},
+        failure_count = failure_count + ${failures.length}, updated_at = now()
       where id = ${runId}
     `;
+    const next = await advanceStorageProgress(sql, progress, {
+      cursorId: sourceRows.at(-1)?.listingId ?? progress.cursorId,
+      processed: sourceRows.length, migrated: insertedRows.length,
+      skipped: sourceRows.length - insertedRows.length - failures.length,
+      errors: failures.length, finished: sourceRows.length < batchSize,
+    });
+    if (next.status !== "running") {
+      await sql`update reprocessing_runs set status = ${next.status === 'completed' ? 'completed' : 'partial'},
+        finished_at = now(), updated_at = now() where id = ${runId}`;
+    }
+    if (scheduleNext) await scheduleStorageContinuation(sql, "backfill_nettiauto_v2_details", next);
+    return next;
+  }) as unknown as StorageProgress;
+}
+
+const task: Task = async () => {
+  const config = parseWorkerConfig();
+  const sql = createSqlClient(config.DATABASE_URL, 1);
+  try {
+    await runV2DetailStorageBatch(sql, 500, true);
   } finally {
     await closeSqlClient(sql);
   }
 };
 
-async function createRun(sql: ReturnType<typeof createSqlClient>) {
+async function createRun(sql: SqlClient | TransactionSqlClient) {
   const [counts] = await sql<{ targetCount: number }[]>`
     select count(*)::int as "targetCount"
     from listings listing

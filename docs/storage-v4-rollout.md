@@ -1,5 +1,10 @@
 # Detail v4 and compact-media rollout
 
+For the lossless storage reduction after the v4 backfill, follow
+[the measured migration runbook](database-reduction-rehearsal.md). Its full legacy
+image preservation replaces the selective URL compaction in step 3 below when
+retiring `listing_images`.
+
 This rollout is intentionally additive. Do not delete `raw_listing_records`, `listing_images`, or
 detail keys from snapshots until the new tables have been populated and audited against the local
 production clone.

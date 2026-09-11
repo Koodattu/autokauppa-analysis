@@ -1,5 +1,6 @@
 import type postgres from "postgres";
 import { parseNettiautoImageAsset } from "./listing-images";
+import { storeRawEvidence } from "./storage";
 import {
   NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION,
   sha256,
@@ -906,12 +907,19 @@ export async function persistSearchResultPage(
       throw new Error("Failed to insert source fetch.");
     }
 
-    for (const listing of input.parsedPage.listings) {
+    const payloadDigest = input.parsedPage.listings.length > 0
+      ? await storeRawEvidence(tx, input.parsedPage.listings.map((listing) => [
+          JSON.stringify(listing.sourcePayload), listing.sourceHtmlFragment,
+        ]))
+      : null;
+    for (const [payloadIndex, listing] of input.parsedPage.listings.entries()) {
       await persistListingCard(tx, {
         ...input,
         sourceFetchId: fetchRow.id,
         fetchedAt,
         listing,
+        payloadDigest: payloadDigest!,
+        payloadIndex,
       });
     }
 
@@ -1020,6 +1028,9 @@ export async function persistNettiautoDetailPage(
       images: __,
       ...sourcePayload
     } = input.parsedDetail.sourcePayload;
+    const payloadDigest = await storeRawEvidence(tx, [[
+      JSON.stringify(sourcePayload), input.parsedDetail.sourceHtmlFragment,
+    ]]);
     const rawRecordRows = (await tx`
       insert into raw_listing_records (
         source,
@@ -1031,6 +1042,8 @@ export async function persistNettiautoDetailPage(
         source_url,
         source_payload,
         source_html_fragment,
+        payload_digest,
+        payload_index,
         source_payload_sha256,
         source_updated_date,
         parser_version,
@@ -1046,8 +1059,10 @@ export async function persistNettiautoDetailPage(
         ${fetchRow.id},
         'detail_page',
         ${input.sourceUrl},
-        ${tx.json(jsonValue(sourcePayload))},
-        ${input.parsedDetail.sourceHtmlFragment},
+        null,
+        null,
+        ${payloadDigest},
+        0,
         ${sha256(stableStringify(sourcePayload))},
         ${input.parsedDetail.sourceUpdatedDate}::date,
         ${input.parsedDetail.parserVersion},
@@ -1095,6 +1110,8 @@ async function persistListingCard(
     sourceFetchId: string;
     fetchedAt: Date;
     listing: ParsedListingCard;
+    payloadDigest: string;
+    payloadIndex: number;
   },
 ) {
   const normalized = input.listing.normalized;
@@ -1108,6 +1125,8 @@ async function persistListingCard(
       source_url,
       source_payload,
       source_html_fragment,
+      payload_digest,
+      payload_index,
       source_payload_sha256,
       parser_version,
       parser_status,
@@ -1121,8 +1140,10 @@ async function persistListingCard(
       ${input.sourceFetchId},
       'search_result_card',
       ${normalized.sourceUrl},
-      ${tx.json(jsonValue(input.listing.sourcePayload))},
-      ${input.listing.sourceHtmlFragment},
+      null,
+      null,
+      ${input.payloadDigest},
+      ${input.payloadIndex},
       ${input.listing.sourcePayloadSha256},
       ${input.listing.parserVersion},
       'parsed',
@@ -1134,6 +1155,8 @@ async function persistListingCard(
       source_url = excluded.source_url,
       source_payload = excluded.source_payload,
       source_html_fragment = excluded.source_html_fragment,
+      payload_digest = excluded.payload_digest,
+      payload_index = excluded.payload_index,
       source_payload_sha256 = excluded.source_payload_sha256,
       parser_version = excluded.parser_version,
       parser_status = excluded.parser_status,

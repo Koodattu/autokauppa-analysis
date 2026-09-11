@@ -1,5 +1,6 @@
 import type postgres from "postgres";
 import { categorySql, normalizeVehicleCategory } from "./vehicle-categories";
+import { readLegacyPublicImages } from "./storage";
 import {
   MAX_LISTING_PAGE,
   type AdminCrawlerDiagnosticsResponse,
@@ -28,7 +29,6 @@ import {
   selectPublicListingImages,
   type StoredCompactListingImageRow,
   type StoredListingHeroImage,
-  type StoredListingImageRow,
 } from "./listing-images";
 
 export type {
@@ -441,22 +441,7 @@ async function getPublicListingImages(sql: Sql, listingId: string) {
       from listing_hero_images
       where listing_id = ${listingId}
     `,
-    sql<StoredListingImageRow[]>`
-      select
-        image.image_url as "imageUrl",
-        image.image_role as "role",
-        image.position,
-        image.width,
-        image.height,
-        image.last_raw_listing_record_id::text as "cohortId",
-        raw_record.record_kind as "recordKind",
-        raw_record.captured_at::text as "capturedAt",
-        image.last_seen_at::text as "lastSeenAt"
-      from listing_images image
-      join raw_listing_records raw_record on raw_record.id = image.last_raw_listing_record_id
-      where image.listing_id = ${listingId}
-      order by raw_record.captured_at desc, image.position nulls last, image.last_seen_at desc
-    `,
+    readLegacyPublicImages(sql, listingId),
   ]);
   const compactImages = selectCompactPublicListingImages(compactRows, hero);
   const legacyImages = preferArchivedHero(selectPublicListingImages(legacyRows), hero);
