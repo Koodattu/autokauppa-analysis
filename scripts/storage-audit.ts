@@ -24,6 +24,7 @@ const postgres = (await import(requireDb.resolve("postgres"))).default;
 const sql: ReturnType<typeof createSqlClient> = productionAudit
   ? postgres(url.toString(), { max: 4, prepare: false, connection: {
     default_transaction_read_only: "on", application_name: "nettiauto-storage-preservation",
+    max_parallel_workers_per_gather: "0",
   } })
   : createSqlClient(url.toString(), 4);
 const startedAt = Date.now();
