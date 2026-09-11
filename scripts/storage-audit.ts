@@ -20,7 +20,7 @@ if (productionAudit) {
 const directory = process.env.STORAGE_AUDIT_DIRECTORY;
 if (!directory) throw new Error("Run through scripts/run-storage-audit.py");
 const requireDb = createRequire(new URL("../packages/db/package.json", import.meta.url));
-const postgres = requireDb("postgres");
+const postgres = (await import(requireDb.resolve("postgres"))).default;
 const sql: ReturnType<typeof createSqlClient> = productionAudit
   ? postgres(url.toString(), { max: 4, prepare: false, connection: {
     default_transaction_read_only: "on", application_name: "nettiauto-storage-preservation",
