@@ -25,10 +25,28 @@ export interface DetailPageJob {
 export interface CrawlWorkQueue {
   enqueueSearchResultPage(job: SearchPageJob): Promise<void>;
   enqueueDetailPage(job: DetailPageJob): Promise<void>;
+  enqueueHeroImage(job: HeroImageJob): Promise<void>;
+}
+
+export interface HeroImageJob {
+  listingId: string;
+  sourceRawListingRecordId: string;
+  assetPath: string;
+  variantMask: number;
+  runAt?: Date;
 }
 
 export function createGraphileCrawlWorkQueue(addJob: AddJobFunction): CrawlWorkQueue {
   return {
+    async enqueueHeroImage({ runAt, ...payload }) {
+      await addJob("archive_nettiauto_listing_hero", payload, {
+        queueName: "nettiauto-hero-images",
+        maxAttempts: 3,
+        jobKey: `nettiauto:hero:${payload.listingId}`,
+        jobKeyMode: "preserve_run_at",
+        runAt,
+      });
+    },
     async enqueueSearchResultPage(job) {
       await addJob(
         "crawl_nettiauto_search_page",

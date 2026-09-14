@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "bun run build && graphile-worker -C graphile.config.mjs",
     "start": "graphile-worker -C graphile.config.mjs",
-    "build": "tsc -p tsconfig.json --tsBuildInfoFile dist/tsconfig.tsbuildinfo && node -e \"const fs=require('node:fs');fs.mkdirSync('dist/tasks',{recursive:true});fs.copyFileSync('src/sharp-encode.mjs','dist/sharp-encode.mjs')\"",
+    "build": "tsc -p tsconfig.json --tsBuildInfoFile dist/tsconfig.tsbuildinfo && node -e \"const fs=require('node:fs');fs.mkdirSync('dist/tasks',{recursive:true});for(const f of ['sharp-encode.mjs','hero-image-encoder.mjs'])fs.copyFileSync('src/'+f,'dist/'+f)\"",
     "probe:transport": "bun run build && bun dist/probe-nettiauto-transport.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

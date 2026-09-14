@@ -15,13 +15,14 @@ import {
 const execFileAsync = promisify(execFile);
 const encoderScriptPath = fileURLToPath(new URL("./sharp-encode.mjs", import.meta.url));
 
-const HERO_MAX_DIMENSION_PX = 960;
-const HERO_WEBP_QUALITY = 75;
+const HERO_MAX_DIMENSION_PX = 480;
+const HERO_WEBP_QUALITY = 60;
 
 export interface ArchiveListingHeroImageInput {
   listingId: string;
   sourceRawListingRecordId: string;
   sourceImageUrl: string;
+  fallbackImageUrls?: string[];
 }
 
 export interface ListingHeroImageArchiver {
@@ -51,10 +52,18 @@ export function createListingHeroImageArchiver(input: {
         return "skipped";
       }
 
-      const response = await fetchImplementation(command.sourceImageUrl, { redirect: "follow" });
-      if ([404, 410].includes(response.status)) {
-        return "skipped";
+      let response: Response | undefined;
+      for (const url of [command.sourceImageUrl, ...(command.fallbackImageUrls ?? [])]) {
+        if (parseNettiautoImageAsset(url)?.assetPath !== sourceAsset.assetPath) continue;
+        const candidate = await fetchImplementation(url, { redirect: "follow", signal: AbortSignal.timeout(20_000) });
+        if ([404, 410].includes(candidate.status)) {
+          await candidate.body?.cancel();
+          continue;
+        }
+        response = candidate;
+        break;
       }
+      if (!response) return "skipped";
       if (!response.ok) {
         throw new Error(`Nettiauto hero image returned HTTP ${response.status}.`);
       }

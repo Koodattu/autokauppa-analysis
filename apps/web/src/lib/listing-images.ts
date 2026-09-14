@@ -41,3 +41,28 @@ export function firstAvailableListingImageUrl(
     (candidate) => isAllowedListingImageUrl(candidate) && !failedUrls.has(candidate),
   ) ?? null;
 }
+
+export function availableListingGalleryImages<T extends { imageUrl: string; fallbackImageUrls?: string[] }>(
+  images: T[],
+  failedUrls: ReadonlySet<string>,
+) {
+  const remoteImages = images.flatMap((image) => {
+    const urls = [image.imageUrl, ...(image.fallbackImageUrls ?? [])]
+      .filter((url) => !url.startsWith("/media/heroes/"));
+    const [imageUrl, ...fallbackImageUrls] = urls;
+    const displayUrl = imageUrl
+      ? firstAvailableListingImageUrl({ imageUrl, fallbackImageUrls }, failedUrls)
+      : null;
+    return displayUrl ? [{ ...image, displayUrl }] : [];
+  });
+  if (remoteImages.length > 0) {
+    return remoteImages;
+  }
+  for (const image of images) {
+    const displayUrl = [image.imageUrl, ...(image.fallbackImageUrls ?? [])].find(
+      (url) => url.startsWith("/media/heroes/") && isAllowedListingImageUrl(url) && !failedUrls.has(url),
+    );
+    if (displayUrl) return [{ ...image, displayUrl }];
+  }
+  return [];
+}

@@ -461,7 +461,7 @@ async function getListingMarketPriceContext(sql: Sql, listingId: string) {
     }>
   >(
     `
-      with latest_snapshots as (${latestSnapshotSql()}),
+      with latest_snapshots as not materialized (${latestSnapshotSql()}),
       target as (
         select
           snapshot.make_source_label,

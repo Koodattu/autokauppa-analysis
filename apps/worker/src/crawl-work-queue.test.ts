@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import { createGraphileCrawlWorkQueue } from "./crawl-work-queue";
 
 describe("Graphile crawl work queue", () => {
+  it("deduplicates queued hero preservation by listing", async () => {
+    const addJob = vi.fn(async () => ({})) as unknown as AddJobFunction;
+    const queue = createGraphileCrawlWorkQueue(addJob);
+    const payload = { listingId: "listing-1", sourceRawListingRecordId: "raw-1", assetPath: "/live/photo", variantMask: 5 };
+    await queue.enqueueHeroImage(payload);
+    expect(addJob).toHaveBeenCalledWith("archive_nettiauto_listing_hero", payload, expect.objectContaining({
+      queueName: "nettiauto-hero-images", jobKey: "nettiauto:hero:listing-1", jobKeyMode: "preserve_run_at", maxAttempts: 3,
+    }));
+  });
   it("owns task identifiers, retry policy, and idempotency keys", async () => {
     const addJob = vi.fn(async () => ({})) as unknown as AddJobFunction;
     const queue = createGraphileCrawlWorkQueue(addJob);

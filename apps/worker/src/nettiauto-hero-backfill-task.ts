@@ -35,7 +35,7 @@ export function createNettiautoHeroBackfillTask(taskName: HeroBackfillTaskName):
     try {
       if (taskName === "archive_nettiauto_listing_hero") {
         const command = archivePayloadSchema.parse(payload);
-        const sourceImageUrl = nettiautoImageUrls(command.assetPath, command.variantMask)[0];
+        const [sourceImageUrl, ...fallbackImageUrls] = nettiautoImageUrls(command.assetPath, command.variantMask);
         if (!sourceImageUrl) {
           return;
         }
@@ -48,6 +48,7 @@ export function createNettiautoHeroBackfillTask(taskName: HeroBackfillTaskName):
           listingId: command.listingId,
           sourceRawListingRecordId: command.sourceRawListingRecordId,
           sourceImageUrl,
+          fallbackImageUrls,
         });
         return;
       }

@@ -3,24 +3,22 @@
 import Image from "next/image";
 import { useRef, useState } from "react";
 import type { PublicListingDetailResponse } from "@/lib/api";
-import { firstAvailableListingImageUrl } from "@/lib/listing-images";
+import { availableListingGalleryImages } from "@/lib/listing-images";
 
 type GalleryImage = PublicListingDetailResponse["imageMetadata"][number];
 
 export function ListingGallery({ images, title }: { images: GalleryImage[]; title: string }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const failedUrlSet = new Set(failedUrls);
-  const availableImages = images.flatMap((image) => {
-    const displayUrl = firstAvailableListingImageUrl(image, failedUrlSet);
-    return displayUrl ? [{ ...image, displayUrl }] : [];
-  });
+  const availableImages = availableListingGalleryImages(images, failedUrlSet);
   const activeIndex = Math.min(selectedIndex, Math.max(availableImages.length - 1, 0));
   const selected = availableImages[activeIndex];
 
   if (!selected) {
-    return <div className="gallery-empty">No images observed</div>;
+    return <div className="gallery-empty">{images.length ? "Images unavailable" : "No images observed"}</div>;
   }
 
   function move(offset: number) {
@@ -39,7 +37,10 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
         <button
           className="gallery-main"
           type="button"
-          onClick={() => dialogRef.current?.showModal()}
+          onClick={() => {
+            dialogRef.current?.showModal();
+            setDialogOpen(true);
+          }}
           aria-label="Open larger image"
         >
           <Image
@@ -48,7 +49,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
             fill
             preload={activeIndex === 0}
             sizes="(max-width: 800px) 100vw, 65vw"
-            unoptimized={selected.displayUrl.startsWith("/media/heroes/")}
+            unoptimized
             referrerPolicy="no-referrer"
             onError={() => markFailed(selected.displayUrl)}
           />
@@ -84,7 +85,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
                 alt=""
                 fill
                 sizes="88px"
-                unoptimized={image.displayUrl.startsWith("/media/heroes/")}
+                unoptimized
                 loading="lazy"
                 referrerPolicy="no-referrer"
                 onError={() => markFailed(image.displayUrl)}
@@ -97,6 +98,7 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
       <dialog
         className="gallery-dialog"
         ref={dialogRef}
+        onClose={() => setDialogOpen(false)}
         aria-label={`${title} image viewer`}
         onClick={(event) => {
           if (event.target === event.currentTarget) {
@@ -121,15 +123,15 @@ export function ListingGallery({ images, title }: { images: GalleryImage[]; titl
           Close
         </button>
         <div className="gallery-dialog-image">
-          <Image
+          {dialogOpen ? <Image
             src={selected.displayUrl}
             alt={`${title} image ${selected.position ?? activeIndex + 1}`}
             fill
             sizes="95vw"
-            unoptimized={selected.displayUrl.startsWith("/media/heroes/")}
+            unoptimized
             referrerPolicy="no-referrer"
             onError={() => markFailed(selected.displayUrl)}
-          />
+          /> : null}
         </div>
         {availableImages.length > 1 ? (
           <div className="gallery-dialog-controls">

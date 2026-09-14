@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
   images: {
+    unoptimized: true,
+    maximumDiskCacheSize: 0,
     remotePatterns: LISTING_IMAGE_REMOTE_PATTERNS.map((pattern) => ({ ...pattern })),
   },
   async rewrites() {

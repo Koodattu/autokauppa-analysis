@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { WorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
 import type { AppLogger } from "@nettiauto/logging";
-import type { CrawlWorkQueue, DetailPageJob, SearchPageJob } from "./crawl-work-queue";
+import type { CrawlWorkQueue, DetailPageJob, HeroImageJob, SearchPageJob } from "./crawl-work-queue";
 import {
   createNettiautoCrawlExecution,
   type CrawlJobContext,
@@ -503,12 +503,18 @@ function successfulEmptyPage(): NettiautoSourceResponse {
 function createRecordingQueue(): CrawlWorkQueue & {
   searchResultPages: SearchPageJob[];
   detailPages: DetailPageJob[];
+  heroImages: HeroImageJob[];
 } {
   const searchResultPages: SearchPageJob[] = [];
   const detailPages: DetailPageJob[] = [];
+  const heroImages: HeroImageJob[] = [];
   return {
     searchResultPages,
     detailPages,
+    heroImages,
+    async enqueueHeroImage(job) {
+      heroImages.push(job);
+    },
     async enqueueSearchResultPage(job) {
       searchResultPages.push(job);
     },
