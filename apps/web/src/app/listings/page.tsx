@@ -255,8 +255,8 @@ async function loadListingsData(navigation: ListingNavigation): Promise<
       ? `?${navigation.filterMetadataQueryString}`
       : "";
     const [filters, listings] = await Promise.all([
-      getFilterMetadata(filterQuery, { next: { revalidate: 300 } }),
-      getListings(query, { next: { revalidate: 60 } }),
+      getFilterMetadata(filterQuery),
+      getListings(query),
     ]);
     return { ok: true, data: { filters, listings } };
   } catch (error) {

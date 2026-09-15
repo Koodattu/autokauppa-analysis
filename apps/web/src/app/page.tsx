@@ -14,7 +14,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<Pag
   }
   if (legacy.size) redirect(`/analyze?${legacy}`);
   let data;
-  try { data = await Promise.all([getDatasetOverview(), getPriceResearch("?availability=current"), getFilterMetadata("")]); }
+  try {
+    // These three fixed requests keep the overview cache independent of browsing history.
+    data = await Promise.all([
+      getDatasetOverview({ next: { revalidate: 300 } }),
+      getPriceResearch("?availability=current", { next: { revalidate: 300 } }),
+      getFilterMetadata("", { next: { revalidate: 300 } }),
+    ]);
+  }
   catch (error) {
     if (!(error instanceof ApiError)) throw error;
     return <main className="shell public-shell"><SiteHeader active="overview" /><section className="panel"><h1>Market data is temporarily unavailable</h1><p>Try again shortly.</p><Link href="/">Try again</Link></section></main>;

@@ -30,9 +30,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
   const [{ listingId }, query] = await Promise.all([params, searchParams]);
   let data: PublicListingDetailResponse;
   try {
-    data = await getPublicListingDetail(listingId, {
-      next: { revalidate: 60 },
-    });
+    data = await getPublicListingDetail(listingId);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       notFound();
