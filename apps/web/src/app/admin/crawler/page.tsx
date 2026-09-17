@@ -5,7 +5,7 @@ import {
   ApiError,
   getAdminDetailBackfillStatus,
   getAdminCrawlerStatus,
-} from "@/lib/api";
+} from "@/lib/server-api";
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

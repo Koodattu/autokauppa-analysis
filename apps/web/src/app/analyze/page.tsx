@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getFilterMetadata, getPriceResearch, getAnalyticsTimeSeries, ApiError } from "@/lib/api";
+import { getFilterMetadata, getPriceResearch, getAnalyticsTimeSeries, ApiError } from "@/lib/server-api";
 import { listingSearchUrlFilter } from "@nettiauto/schemas";
 import { cloneComparisonHref, comparisonParams, researchHref, researchQuery } from "@/lib/research-navigation";
 import { SiteHeader } from "../site-header";

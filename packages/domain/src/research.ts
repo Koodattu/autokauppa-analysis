@@ -1,6 +1,6 @@
 import type postgres from "postgres";
 import { researchResponseSchema, datasetOverviewResponseSchema, type ListingSearchQuery } from "@nettiauto/schemas";
-import { buildCompletedRunTimeWhere, buildFilterWhere } from "./product";
+import { buildCompletedRunTimeWhere, buildFilterWhere, hasSnapshotFilters } from "./product";
 import { categorySql } from "./vehicle-categories";
 
 type Sql = postgres.Sql<Record<string, unknown>>;
@@ -23,13 +23,18 @@ export async function getPriceResearch(sql: Sql, query: ListingSearchQuery) {
     availabilityExpression: "s.research_availability",
   });
   const params = [...(historical ? runs.params : []), ...scope.params];
+  const candidates = historical && hasSnapshotFilters(query)
+    ? buildFilterWhere(query, { startIndex: runs.params.length, availabilityExpression: "s.availability" })
+    : null;
   const order = query.sort === "priceAsc" ? "price asc nulls last, listing_id" :
     query.sort === "priceDesc" ? "price desc nulls last, listing_id" :
     query.sort === "mileageAsc" ? "mileage_km asc nulls last, listing_id" :
     query.sort === "mileageDesc" ? "mileage_km desc nulls last, listing_id" :
     query.sort === "yearDesc" ? "year_model desc nulls last, listing_id" : "research_seen_at desc, listing_id";
   const [result] = await sql.unsafe(`
-    with history_extent as (
+    with ${candidates ? `matching_listings as materialized (
+      select distinct s.listing_id from listing_snapshots s ${candidates.whereSql}
+    ),` : ""} history_extent as (
       select min(finished_at)::text as first, max(finished_at)::text as last
       from crawl_runs where status = 'completed' and is_complete and finished_at is not null
     ), selected_runs as (
@@ -39,26 +44,33 @@ export async function getPriceResearch(sql: Sql, query: ListingSearchQuery) {
     ), selected_sightings as (
       select distinct on (sighting.listing_id) sighting.*
       from selected_runs run join listing_sightings sighting on sighting.crawl_run_id = run.id
+      ${candidates ? "join matching_listings matching on matching.listing_id = sighting.listing_id" : ""}
       order by sighting.listing_id, sighting.seen_at desc, sighting.id desc
     ), snapshots as (
-      ${historical ? `select snapshot.*, snapshot.availability as research_availability,
+      ${historical ? `select snapshot.*, l.source_listing_id, snapshot.availability as research_availability,
         sighting.seen_at as research_seen_at
         from selected_sightings sighting
+        join listings l on l.id = sighting.listing_id
         join lateral (
           select s.* from listing_snapshots s where s.listing_id = sighting.listing_id
             and s.observed_at <= sighting.seen_at
           order by s.observed_at desc, (s.raw_listing_record_id = sighting.raw_listing_record_id) desc,
             s.created_at desc, s.id desc limit 1
-        ) snapshot on true` : `select snapshot.*, l.current_availability as research_availability,
+        ) snapshot on true` : `select snapshot.*, l.source_listing_id, l.current_availability as research_availability,
           l.last_seen_at as research_seen_at from listings l
           join listing_snapshots snapshot on snapshot.id = l.latest_snapshot_id`}
     ), cohort as materialized (
-      select s.*, l.source_listing_id, l.first_seen_at,
+      select s.listing_id, s.make_source_label, s.model_source_label, s.year_model,
+        s.research_availability, s.research_seen_at, s.mileage_km,
+        s.seller_source_label, s.seller_type_source_label, s.source_updated_date,
+        s.body_type_source_label, s.source_listing_id,
+        s.id as snapshot_id,
         case when s.research_availability = 'active' then nullif(s.asking_price_eur, 0)
           when s.research_availability = 'sold' then nullif(s.observed_sold_price_eur, 0) end as price,
         ${fuel} as fuel, ${transmission} as transmission
-      from snapshots s join listings l on l.id = s.listing_id ${scope.whereSql}
-    ), priced as (select * from cohort where price > 0),
+      from snapshots s ${scope.whereSql}
+    ), priced as (select listing_id, make_source_label, model_source_label, year_model,
+      mileage_km, body_type_source_label, price, fuel, transmission from cohort where price > 0),
     band_width as (select greatest(1000, ceil(coalesce(percentile_cont(0.95) within group (order by price), 10000) / 10000) * 1000)::int as width from priced),
     bands as (select least(10, floor(price / width))::int as band, width, count(*)::int as count from priced cross join band_width group by band, width),
     evidence as (select * from cohort order by ${order} limit 25 offset $${params.length + 1}),
@@ -71,7 +83,10 @@ export async function getPriceResearch(sql: Sql, query: ListingSearchQuery) {
         'sampleSize', (select count(*)::int from cohort),
         'includesCurrent', ${historical ? "exists(select 1 from selected_runs where crawl_kind = 'current')" : "exists(select 1 from cohort where research_availability = 'active')"},
         'includesSold', ${historical ? "exists(select 1 from selected_runs where crawl_kind = 'sold')" : "exists(select 1 from cohort where research_availability = 'sold')"},
-        'dataSource', case when exists(select 1 from cohort where normalized_data ? 'detailParserVersion') then 'search_and_detail_data' else 'search_result_data' end,
+        'dataSource', case when exists(select 1 from cohort
+          join lateral (select 1 from listing_snapshots detail where detail.id = cohort.snapshot_id
+            and detail.normalized_data ? 'detailParserVersion' limit 1) enriched on true
+        ) then 'search_and_detail_data' else 'search_result_data' end,
         'completeness', ${historical ? `case when not exists(select 1 from selected_runs) then 'unknown'
           when '${query.availability}' = 'all' and (select count(distinct crawl_kind) from selected_runs) < 2 then 'partial'
           else 'complete' end` : "'unknown'"}

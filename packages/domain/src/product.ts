@@ -987,6 +987,8 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
     },
   );
   const params = [...runTimeFilter.params, ...snapshotParams];
+  // Use indexed historical lookups for make/model searches; broad searches need a bulk join.
+  const restrictListings = Boolean(filters.make && filters.model);
   const rows = await sql.unsafe<
     {
       bucket: string;
@@ -1004,7 +1006,9 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
     }[]
   >(
     `
-      with selected_runs as (
+      with ${restrictListings ? `matching_listings as materialized (
+        select distinct s.listing_id from listing_snapshots s ${whereSql}
+      ),` : ""} selected_runs as (
         select distinct on (date_trunc('${interval}', cr.finished_at), cr.search_query_id)
           cr.id,
           cr.search_query_id,
@@ -1032,7 +1036,7 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         ) series(bucket_start)
         left join observed_run_buckets observed using (bucket_start)
       ),
-      sighting_buckets as materialized (
+      sighting_buckets as not materialized (
         select
           run.bucket_start,
           run.crawl_kind,
@@ -1040,9 +1044,10 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
           max(sighting.seen_at) as seen_at
         from selected_runs run
         join listing_sightings sighting on sighting.crawl_run_id = run.id
+        ${restrictListings ? "join matching_listings matching on matching.listing_id = sighting.listing_id" : ""}
         group by run.bucket_start, run.crawl_kind, sighting.listing_id
       ),
-      snapshot_periods as materialized (
+      snapshot_periods as not materialized (
         select
           snapshot.listing_id,
           snapshot.observed_at,
@@ -1075,13 +1080,20 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
           s.observed_sold_price_eur
         from sighting_buckets b
         join listings l on l.id = b.listing_id
-        join snapshot_periods s
+        ${restrictListings ? `join lateral (
+          select snapshot.*
+          from listing_snapshots snapshot
+          where snapshot.listing_id = b.listing_id
+            and snapshot.observed_at <= b.seen_at
+          order by snapshot.observed_at desc, snapshot.created_at desc, snapshot.id desc
+          limit 1
+        ) s on true` : `join snapshot_periods s
           on s.listing_id = b.listing_id
           and s.observed_at <= b.seen_at
           and (
             s.next_observed_at is null
             or s.next_observed_at > b.seen_at
-          )
+          )`}
         ${whereSql}
       )
       select
@@ -1685,7 +1697,7 @@ function appendWhereCondition(whereSql: string, condition: string) {
   return whereSql ? `${whereSql} and ${condition}` : `where ${condition}`;
 }
 
-function hasSnapshotFilters(filters: ListingSearchQuery) {
+export function hasSnapshotFilters(filters: Partial<ListingFiltersQuery>) {
   return (
     filters.make !== undefined ||
     filters.model !== undefined ||

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getDatasetOverview, getPriceResearch, getFilterMetadata, ApiError } from "@/lib/api";
+import { getDatasetOverview, getPriceResearch, getFilterMetadata, ApiError } from "@/lib/server-api";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { SiteHeader } from "./site-header";
 import { MarketFilterForm, type PageSearchParams } from "./market-filter-form";

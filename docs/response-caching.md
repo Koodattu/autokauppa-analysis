@@ -1,6 +1,6 @@
 # Response caching
 
-The web API client defaults to `cache: "no-store"`. Listing detail pages,
+The server-only web API client defaults to `cache: "no-store"`. Listing detail pages,
 listing searches, filtered metadata and analysis requests use this default.
 Browsing additional listings or filter combinations must not create Next.js
 fetch-cache entries on disk.
@@ -13,8 +13,13 @@ of listings or searches. Revalidation is a freshness policy, not a deletion TTL.
 The API's existing entry-limited, in-memory caches remain available for shared
 analytics and metadata queries. Listing details are queried directly; their
 comparable-price query avoids materializing the full latest-snapshot dataset.
-The remaining expensive research and time-series queries require separate query
-optimization, not larger disk caches.
+Research and time-series queries reduce intermediate rows and temporary writes
+as described in [the query rollout](query-and-rate-limit-rollout-20260917.md).
+Broad aggregations still require temporary I/O; disk caches are not enlarged.
+
+Uncached server requests forward Caddy's visitor address so the API rate limiter
+does not pool all SSR visitors into one bucket. Cached homepage requests exclude
+visitor headers, preserving the three shared keys.
 
 Deploy by replacing only the web container. Its old generated fetch cache is
 discarded with its writable layer. PostgreSQL, archived hero images and backups

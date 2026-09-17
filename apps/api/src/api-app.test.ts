@@ -29,6 +29,21 @@ const logger = {
 } as unknown as AppLogger;
 
 describe("ApiApp HTTP interface", () => {
+  it("rate limits one forwarded visitor without blocking another", async () => {
+    const app = createApiApp({ sql, config, logger, now: () => 0 });
+    const request = (address: string) => app.fetch(new Request(
+      "http://api.test/analytics/snapshot?make=Ford&make=Volvo",
+      { headers: { "x-forwarded-for": address } },
+    ));
+    for (let index = 0; index < 120; index++) {
+      expect((await request("192.0.2.1")).status).toBe(400);
+    }
+    const limited = await request("192.0.2.1");
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("60");
+    expect((await request("2001:db8::2")).status).toBe(400);
+  });
+
   it("serves process health without opening runtime resources", async () => {
     const app = createApiApp({ sql, config, logger });
 

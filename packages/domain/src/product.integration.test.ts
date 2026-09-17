@@ -139,6 +139,22 @@ describeDatabase("PostgreSQL product integration", () => {
     expect(trend.marketOverTime.find((point) => point.bucket === "2023-07-01")).toMatchObject({ includesCurrentRun: false, activeCount: null, medianAskingPriceEur: null });
   });
 
+  it("filters the snapshot valid at each sighting without falling back to an older matching snapshot", async () => {
+    const queryId = await insertSourceQuery("current", "historical-filter");
+    const earlyRun = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const laterRun = await insertRun(queryId, "current", "2026-08-10T10:00:00Z");
+    const listingId = await insertObservation(earlyRun, queryId, "current", "historical-filter-1", "active", "2026-08-03T09:00:00Z", 20000);
+    await insertObservation(laterRun, queryId, "current", "historical-filter-1", "active", "2026-08-10T09:00:00Z", 18000);
+    await sql`update listing_snapshots set mileage_km = 180000 where listing_id = ${listingId} and observed_at >= '2026-08-10'`;
+    const result = await getAnalyticsTimeSeries(sql, listingFiltersQuerySchema.parse({
+      availability: "current", make: "Toyota", model: "Corolla", mileageMax: 120000,
+      from: "2026-08-03", to: "2026-08-16", interval: "week",
+    }));
+    expect(result.marketOverTime).toHaveLength(2);
+    expect(result.marketOverTime[0]).toMatchObject({ activeCount: 1, medianAskingPriceEur: 20000 });
+    expect(result.marketOverTime[1]).toMatchObject({ activeCount: 0, medianAskingPriceEur: null, includesCurrentRun: true });
+  });
+
   it("preserves earlier snapshots when detail enrichment arrives out of order", async () => {
     const queryId = await insertSourceQuery("current", "delayed-detail");
     const earlyRun = await insertRun(queryId, "current", "2023-06-15T10:00:00Z");

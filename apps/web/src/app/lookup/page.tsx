@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ApiError, getListingLookup } from "@/lib/api";
+import { ApiError, getListingLookup } from "@/lib/server-api";
 import { sourceListingId } from "@/lib/listing-lookup";
 import { SiteHeader } from "../site-header";
 export default async function Lookup({ searchParams }: { searchParams: Promise<{ listing?: string }> }) {

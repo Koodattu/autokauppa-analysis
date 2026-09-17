@@ -9,7 +9,7 @@ import {
   type FilterMetadata,
   type ListingSearchResponse,
   type ListingTableItem,
-} from "@/lib/api";
+} from "@/lib/server-api";
 import {
   formatCurrency,
   formatDateTime,

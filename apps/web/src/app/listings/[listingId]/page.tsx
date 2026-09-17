@@ -5,7 +5,7 @@ import {
   ApiError,
   getPublicListingDetail,
   type PublicListingDetailResponse,
-} from "@/lib/api";
+} from "@/lib/server-api";
 import { safeListingsReturnHref } from "@/lib/url-filter-navigation";
 import {
   formatCurrency,

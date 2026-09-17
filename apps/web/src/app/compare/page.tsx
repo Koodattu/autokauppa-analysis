@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ApiError, getPublicListingDetail } from "@/lib/api";
+import { ApiError, getPublicListingDetail } from "@/lib/server-api";
 import { parseCompareIds } from "@/lib/saved-views";
 import { SiteHeader } from "../site-header";
 import { SavedWorkspace, ShareLink } from "../saved-workspace";
