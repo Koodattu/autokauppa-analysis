@@ -92,4 +92,3 @@ export function getAdminDetailBackfillStatus(init?: RequestInit) {
     init,
   );
 }
-
