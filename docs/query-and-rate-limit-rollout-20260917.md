@@ -10,6 +10,8 @@ Caddy is the public ingress and replaces untrusted incoming forwarded headers.
 The API has no published host port. Keep those boundaries when changing the
 deployment; forwarding browser-supplied identity directly would permit bypassing
 the rate limiter. The rate limit and authentication behavior are unchanged.
+Listing pages show a retry message when their visitor reaches the limit, instead
+of throwing the expected 429 response into the application error boundary.
 
 Research queries materialize only the fields used by their aggregates and
 evidence rows. They no longer copy normalized listing JSON into temporary results

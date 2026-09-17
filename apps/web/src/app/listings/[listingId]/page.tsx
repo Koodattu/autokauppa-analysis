@@ -35,6 +35,14 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
     if (error instanceof ApiError && error.status === 404) {
       notFound();
     }
+    if (error instanceof ApiError && error.status === 429) {
+      return <main className="shell public-shell"><SiteHeader active="listings" />
+        <section className="panel page-error"><h1>Listing is temporarily unavailable</h1>
+          <p>Please wait a moment and try again.</p>
+          <Link className="button-link" href={`/listings/${encodeURIComponent(listingId)}`}>Try again</Link>
+        </section>
+      </main>;
+    }
     throw error;
   }
 
