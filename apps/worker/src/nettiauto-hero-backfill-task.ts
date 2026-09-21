@@ -1,6 +1,6 @@
 import { parseWorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient } from "@nettiauto/db";
-import { nettiautoImageUrls } from "@nettiauto/domain";
+import { nettiautoImageUrls, readGalleryHeroCandidate } from "@nettiauto/domain";
 import { createLogger } from "@nettiauto/logging";
 import type { Task } from "graphile-worker";
 import { z } from "zod";
@@ -54,37 +54,20 @@ export function createNettiautoHeroBackfillTask(taskName: HeroBackfillTaskName):
       }
 
       const command = schedulePayloadSchema.parse(payload ?? {});
-      const candidates = await sql<{
-        listingId: string;
-        assetPath: string;
-        variantMask: number;
-        sourceRawListingRecordId: string;
-      }[]>`
-        select
-          listing.id as "listingId",
-          first_asset.asset_path as "assetPath",
-          first_asset.variant_mask as "variantMask",
-          first_asset.last_raw_listing_record_id as "sourceRawListingRecordId"
-        from listings listing
-        join lateral (
-          select asset.*
-          from listing_image_assets asset
-          join raw_listing_records raw_record on raw_record.id = asset.last_raw_listing_record_id
-          where asset.listing_id = listing.id
-          order by raw_record.captured_at desc, asset.position nulls last, asset.asset_path
-          limit 1
-        ) first_asset on true
+      const listingsWithoutHeroes = await sql<{ listingId: string }[]>`
+        select listing.id as "listingId" from listings listing
         where listing.source = 'nettiauto'
-          and listing.id > coalesce(
-            ${command.afterListingId ?? null}::uuid,
-            '00000000-0000-0000-0000-000000000000'::uuid
-          )
-          and not exists (
-            select 1 from listing_hero_images hero where hero.listing_id = listing.id
-          )
-        order by listing.id
-        limit ${config.DETAIL_BACKFILL_BATCH_SIZE}
+          and listing.id > coalesce(${command.afterListingId ?? null}::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+          and not exists (select 1 from listing_hero_images hero where hero.listing_id = listing.id)
+          and (exists (select 1 from listing_gallery_bundles gallery where gallery.listing_id = listing.id)
+            or exists (select 1 from listing_image_assets asset where asset.listing_id = listing.id))
+        order by listing.id limit ${config.DETAIL_BACKFILL_BATCH_SIZE}
       `;
+      const candidates = [];
+      for (const listing of listingsWithoutHeroes) {
+        const candidate = await readGalleryHeroCandidate(sql, listing.listingId);
+        if (candidate) candidates.push(candidate);
+      }
 
       for (const [index, candidate] of candidates.entries()) {
         await helpers.addJob(

@@ -7,3 +7,4 @@ export * from "./research";
 export * from "./storage";
 export * from "./storage-codec";
 export { compactNormalizedRows } from "./normalized-storage";
+export { readGalleryHeroCandidate, mergeGalleryAssets } from "./gallery-storage";

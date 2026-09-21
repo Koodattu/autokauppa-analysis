@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { parseWorkerConfig } from "@nettiauto/config";
+import currentFixture from "../../../packages/domain/fixtures/nettiauto/current-page-1.json";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { runMigrations } from "graphile-worker";
 import { createSqlClient } from "@nettiauto/db";
-import { storeRawEvidence } from "@nettiauto/domain";
+import { storeRawEvidence, mergeGalleryAssets } from "@nettiauto/domain";
+import { createNettiautoHeroBackfillTask } from "./nettiauto-hero-backfill-task";
+import { createNettiautoCrawlExecution } from "./nettiauto-crawl-execution";
 import { runV2DetailStorageBatch } from "./tasks/backfill_nettiauto_v2_details";
 import legacyImageAssetTask from "./tasks/backfill_nettiauto_image_assets";
 
@@ -59,6 +63,40 @@ describeDatabase("Offline v2 storage migration", () => {
     } finally {
       await sql`alter table listing_images_rehearsal_hidden rename to listing_images`;
     }
+  });
+
+  it("schedules archived heroes from compressed galleries", async () => {
+    const {listingId,rawId}=await seed({normalizedData:{}});
+    await sql.begin(async tx=>{await mergeGalleryAssets(tx,{listingId,rawListingRecordId:rawId,fetchedAt:new Date(),
+      assets:[{assetPath:'/live/2026/09/21/hero',variantMask:1,imageRole:'gallery',position:0}]});});
+    expect(await sql`select id from listing_image_assets`).toHaveLength(0);
+    vi.stubEnv('HERO_IMAGE_ARCHIVE_ENABLED','true');
+    const addJob=vi.fn(async()=>({}));
+    await createNettiautoHeroBackfillTask('schedule_nettiauto_hero_backfill')({}, {addJob} as never);
+    expect(addJob).toHaveBeenCalledWith('archive_nettiauto_listing_hero',
+      {listingId,sourceRawListingRecordId:rawId,assetPath:'/live/2026/09/21/hero',variantMask:1},expect.any(Object));
+  });
+
+  it("queues a hero after search ingestion has compressed its image assets", async () => {
+    const [run]=await sql`update crawl_runs set status='running',started_at=now() where id=${runId} returning search_query_id`;
+    await sql`update source_search_queries set enabled=true where id=${run!.search_query_id}`;
+    const fixture=structuredClone(currentFixture);
+    fixture.ad_listing_data=fixture.ad_listing_data.replace('https://images.example.test/1001.jpg','https://images.nettiauto.com/live/2026/09/21/photo-large.jpg');
+    const body=JSON.stringify(fixture);
+    const enqueueHeroImage=vi.fn(async()=>{});
+    const execution=createNettiautoCrawlExecution({sql,
+      config:{...parseWorkerConfig(),CRAWLER_ENABLED:true,CRAWLER_PAUSED:false,HERO_IMAGE_ARCHIVE_ENABLED:true,CRAWLER_DETAIL_ENABLED:false,CRAWLER_MAX_PAGES_PER_RUN:0},
+      logger:{info:vi.fn(),warn:vi.fn(),error:vi.fn()} as never,
+      source:{fetchSearchResultPage:async()=>({ok:true,redirected:false,status:200,contentType:'application/json',body,
+        bodyShape:'ajax_json',bodySha256:'a'.repeat(64),bodyBytes:body.length,durationMs:1,diagnostics:{}}),
+        fetchDetailPage:async()=>{throw new Error('Unexpected detail fetch');}},
+      workQueue:{enqueueHeroImage,enqueueSearchResultPage:async()=>{},enqueueDetailPage:async()=>{}},
+    });
+    await execution.collectSearchResultPage({crawlRunId:runId,sourceQueryId:run!.search_query_id,pageNumber:1},
+      {jobId:'compressed-gallery-test',attemptNumber:1,maxAttempts:3,abortSignal:new AbortController().signal});
+    expect(await sql`select id from listing_image_assets`).toHaveLength(0);
+    expect(enqueueHeroImage).toHaveBeenCalledTimes(1);
+    expect(enqueueHeroImage.mock.calls[0]![0]).toMatchObject({assetPath:'/live/2026/09/21/photo',variantMask:expect.any(Number)});
   });
 
   it("reads packed v2 evidence, retains provenance and never overwrites existing v4 details", async () => {

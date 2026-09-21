@@ -61,6 +61,19 @@ export async function readPublicGallery(sql: Query, listingId: string): Promise<
     order by r.captured_at desc,asset.position nulls last,asset.last_seen_at desc`, [JSON.stringify(rows)]);
 }
 
+export async function readGalleryHeroCandidate(sql: Query, listingId: string) {
+  const rows = await readGalleryAssets(sql, listingId);
+  if (!rows.length) return null;
+  const [candidate] = await sql.unsafe<Array<{
+    listingId: string; sourceRawListingRecordId: string; assetPath: string; variantMask: number;
+  }>>(`select asset.listing_id as "listingId",asset.last_raw_listing_record_id as "sourceRawListingRecordId",
+      asset.asset_path as "assetPath",asset.variant_mask as "variantMask"
+    from jsonb_to_recordset($1::text::jsonb) as asset(${columns})
+    join raw_listing_records r on r.id=asset.last_raw_listing_record_id
+    order by r.captured_at desc,asset.position nulls last,asset.asset_path limit 1`, [JSON.stringify(rows)]);
+  return candidate ?? null;
+}
+
 export async function mergeGalleryAssets(sql: Query, input: {
   listingId: string; rawListingRecordId: string; fetchedAt: Date;
   assets: Array<{ assetPath: string; variantMask: number; imageRole: string | null; position: number | null }>;

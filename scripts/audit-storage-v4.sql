@@ -18,7 +18,7 @@ from listing_details;
 
 select
   count(*) filter (where normalized_data ? 'additionalSourceFields')::int
-    as unbounded_additional_field_rows,
+    as inline_unbounded_additional_field_rows,
   count(*) filter (where normalization_schema_version <> 'nettiauto-detail-v4')::int
     as wrong_normalization_schema_rows,
   count(*) filter (where vin is not null and vin !~ '^[A-HJ-NPR-Z0-9]{17}$')::int
@@ -31,8 +31,19 @@ select
     as implausible_owner_count_rows
 from listing_details;
 
+-- Full JSON and gallery validation after 0016/0017 requires storage-v2-audit.ts.
+select to_regclass('normalized_payloads') is not null as packed_storage_present \gset
+\if :packed_storage_present
+select count(*)::bigint as compressed_detail_rows_requiring_codec_audit
+from listing_details where normalized_payload_id is not null;
+
+select coalesce(sum(row_count), 0)::bigint as compressed_asset_rows,
+  count(*)::bigint as listings_with_compressed_assets
+from listing_gallery_bundles;
+\endif
+
 select
-  count(*)::bigint as compact_asset_rows,
+  count(*)::bigint as inline_compact_asset_rows,
   count(distinct listing_id)::int as listings_with_compact_assets,
   round(avg(octet_length(asset_path)), 1) as average_asset_path_bytes,
   count(*) filter (where variant_mask <= 0 or variant_mask > 15)::bigint as invalid_variant_masks

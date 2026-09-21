@@ -17,6 +17,7 @@ import {
   pauseSourceSearchQuery,
   persistNettiautoDetailPage,
   persistSearchResultPage,
+  readGalleryHeroCandidate,
   recoverStaleCrawlRuns,
   reserveCrawlRunDetailJobs,
   seedDefaultSourceSearchQueries,
@@ -466,22 +467,16 @@ export function createNettiautoCrawlExecution(input: {
 
         if (input.config.HERO_IMAGE_ARCHIVE_ENABLED && parsedPage.listings.length > 0) {
           const sourceIds = parsedPage.listings.map((listing) => listing.sourceListingId);
-          const heroCandidates = await input.sql<{
-            listingId: string; sourceRawListingRecordId: string; assetPath: string; variantMask: number;
-          }[]>`
-            select listing.id as "listingId", asset.last_raw_listing_record_id as "sourceRawListingRecordId",
-              asset.asset_path as "assetPath", asset.variant_mask as "variantMask"
-            from listings listing
-            join lateral (
-              select image.* from listing_image_assets image
-              join raw_listing_records raw on raw.id = image.last_raw_listing_record_id
-              where image.listing_id = listing.id
-              order by raw.captured_at desc, image.position nulls last, image.asset_path
-              limit 1
-            ) asset on true
+          const listingsWithoutHeroes = await input.sql<{ listingId: string }[]>`
+            select listing.id as "listingId" from listings listing
             where listing.source = 'nettiauto' and listing.source_listing_id = any(${sourceIds}::text[])
               and not exists (select 1 from listing_hero_images hero where hero.listing_id = listing.id)
           `;
+          const heroCandidates = [];
+          for (const listing of listingsWithoutHeroes) {
+            const candidate = await readGalleryHeroCandidate(input.sql, listing.listingId);
+            if (candidate) heroCandidates.push(candidate);
+          }
           for (const [index, candidate] of heroCandidates.entries()) {
             await input.workQueue.enqueueHeroImage({
               ...candidate, runAt: new Date(now() + index * input.config.CRAWLER_DELAY_MS),
