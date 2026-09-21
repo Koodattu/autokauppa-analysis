@@ -108,6 +108,49 @@ temporary rewrite space. Logical compression alone does not return all disk
 space to the filesystem. The two previously zero-scan query indexes are retained;
 their usage counters do not prove they are dispensable for every historical query.
 
+## September 21 production result
+
+The production migration reduced database allocation from **9,025,115,839 to
+5,860,669,119 bytes**, saving **3,164,446,720 bytes (35.06%)**. Unlike the restored
+clone measurement above, this includes reclaiming existing production overhead.
+
+| Storage group | Before | After |
+| --- | ---: | ---: |
+| Snapshots, details and their full JSON | 3.37 GB | 1.17 GB |
+| Gallery metadata and source references | 0.94 GB | 0.13 GB |
+| Raw records and evidence bundles | 2.53 GB | 2.37 GB |
+
+Both full production audits, before and after physical reclamation, matched all
+16 preserved populations and all 217 sampled public responses. The rollback-only
+write canary passed. All 202 tests and CI checks passed, including hero scheduling
+from compressed galleries. The two query indexes were retained.
+
+The hash cutover took 123 seconds including API shutdown and restart. Individual
+gallery, detail and snapshot rewrites took 0.18, 2.66 and 9.36 seconds respectively,
+with separate API stop/start windows. Before reclamation, the new API logged
+4,296 requests with no HTTP 5xx responses, warnings or application errors.
+
+Post-migration direct search probes took 0.14–0.48 seconds; overview took 1.92
+seconds. Public listing/detail and current/sold research checks passed. Previously
+problematic uncached research filters also passed, including the broad price
+filter at 5.84 seconds. These are observed timings after the audit, not cold
+PostgreSQL buffer-cache benchmarks.
+
+The original two-minute audit timeout was insufficient for a full raw-record
+scan on the VM. Full read-only fingerprint scans now have a 15-minute statement
+limit; the audit restores its normal limit afterward. Application limits remain
+unchanged. The baseline was restarted and completed before any data conversion.
+
+After worker restart, API, worker, frontend, PostgreSQL and FlareSolverr were
+healthy, with no new API/worker warnings or errors. The queue had no active or
+pending work; its six pre-existing dead jobs remained. Five public WebP hero
+responses matched stored byte counts and SHA-256 hashes. VM free space was
+14.29 GB (13.31 GiB).
+
+Verified off-host recovery and preservation artifacts are retained privately in
+`backups/production-storage-v2-20260921/`. The database dump was fully decoded,
+and all 76,839 hero references matched archived file sizes and SHA-256 values.
+
 ## Recovery
 
 Before any new ingestion, the verified pre-migration dump plus retained old
