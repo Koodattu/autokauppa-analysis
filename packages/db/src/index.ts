@@ -8,10 +8,11 @@ export type SqlClient = postgres.Sql<Record<string, unknown>>;
 export type TransactionSqlClient = postgres.TransactionSql<Record<string, unknown>>;
 export type DbClient = ReturnType<typeof createDbClient>;
 
-export function createSqlClient(databaseUrl: string, max = 10): SqlClient {
+export function createSqlClient(databaseUrl: string, max = 10, statementTimeoutMs?: number): SqlClient {
   return postgres(databaseUrl, {
     max,
     prepare: false,
+    ...(statementTimeoutMs === undefined ? {} : { connection: { statement_timeout: statementTimeoutMs } }),
   }) as SqlClient;
 }
 

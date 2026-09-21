@@ -16,6 +16,9 @@ comparable-price query avoids materializing the full latest-snapshot dataset.
 Research and time-series queries reduce intermediate rows and temporary writes
 as described in [the query rollout](query-and-rate-limit-rollout-20260917.md).
 Broad aggregations still require temporary I/O; disk caches are not enlarged.
+Filtered time series now chooses indexed lookups based on candidate count;
+[query deadlines](broad-query-deadlines-20260921.md) bound API database statements
+and uncached frontend fetches without changing worker connection defaults.
 
 Uncached server requests forward Caddy's visitor address so the API rate limiter
 does not pool all SSR visitors into one bucket. Cached homepage requests exclude

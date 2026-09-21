@@ -34,15 +34,24 @@ async function apiGet<T>(path: string, schema: ResponseSchema<T>, init?: Request
     if (clientAddress) outboundHeaders.set("x-forwarded-for", clientAddress);
     else outboundHeaders.delete("x-forwarded-for");
     requestInit.headers = outboundHeaders;
+    const deadline = AbortSignal.timeout(45_000);
+    requestInit.signal = requestInit.signal ? AbortSignal.any([requestInit.signal, deadline]) : deadline;
   }
 
-  const response = await fetch(apiPath(path), requestInit);
-
-  if (!response.ok) {
-    throw new ApiError(`API request failed: ${path}`, response.status);
+  let payload: unknown;
+  try {
+    const response = await fetch(apiPath(path), requestInit);
+    if (!response.ok) {
+      throw new ApiError(`API request failed: ${path}`, response.status);
+    }
+    payload = await response.json();
+  } catch (error) {
+    if (error instanceof TypeError || (error instanceof DOMException && ["AbortError", "TimeoutError"].includes(error.name))) {
+      throw new ApiError(`API request failed: ${path}`, 503);
+    }
+    throw error;
   }
-
-  return schema.parse(await response.json());
+  return schema.parse(payload);
 }
 
 export function getFilterMetadata(query: string, init?: RequestInit) {

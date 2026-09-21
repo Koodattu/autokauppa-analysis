@@ -17,6 +17,16 @@ afterEach(() => {
 });
 
 describe("server API client identity", () => {
+  it.each([
+    new TypeError("fetch failed"),
+    new DOMException("deadline exceeded", "TimeoutError"),
+  ])("turns transport failure into a retryable API error (%s)", async (error) => {
+    vi.mocked(headers).mockResolvedValue(new Headers() as Awaited<ReturnType<typeof headers>>);
+    fetchMock.mockRejectedValue(error);
+    await expect(getListingLookup("12345678")).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock.mock.lastCall![1].signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("forwards each visitor's proxy address on uncached requests", async () => {
     for (const address of ["192.0.2.1", "2001:db8::2"]) {
       vi.mocked(headers).mockResolvedValue(new Headers({ "x-forwarded-for": address }) as Awaited<ReturnType<typeof headers>>);

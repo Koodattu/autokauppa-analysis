@@ -29,6 +29,15 @@ const logger = {
 } as unknown as AppLogger;
 
 describe("ApiApp HTTP interface", () => {
+  it("returns a retryable response for a cancelled database statement", async () => {
+    const timedOutSql = vi.fn().mockRejectedValue(Object.assign(new Error("cancelled"), { code: "57014" }));
+    const app = createApiApp({ sql: timedOutSql as unknown as SqlClient, config, logger });
+    const response = await app.fetch(new Request("http://api.test/ready"));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("5");
+    expect(await response.json()).toEqual({ error: "query_timeout" });
+  });
+
   it("rate limits one forwarded visitor without blocking another", async () => {
     const app = createApiApp({ sql, config, logger, now: () => 0 });
     const request = (address: string) => app.fetch(new Request(

@@ -987,8 +987,18 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
     },
   );
   const params = [...runTimeFilter.params, ...snapshotParams];
-  // Use indexed historical lookups for make/model searches; broad searches need a bulk join.
-  const restrictListings = Boolean(filters.make && filters.model);
+  // Bound the probe: selective filters benefit from indexed lookups, broad ones need a bulk join.
+  let restrictListings = Boolean(filters.make && filters.model);
+  if (!restrictListings && hasSnapshotFilters(filters)) {
+    const candidateFilter = buildFilterWhere(filters, { availabilityExpression: "s.availability" });
+    const [candidate] = await sql.unsafe<{ candidateCount: number }[]>(`
+      select count(*)::int as "candidateCount" from (
+        select distinct s.listing_id from listing_snapshots s ${candidateFilter.whereSql}
+        limit 10001
+      ) candidates
+    `, candidateFilter.params);
+    restrictListings = candidate!.candidateCount <= 10000;
+  }
   const rows = await sql.unsafe<
     {
       bucket: string;

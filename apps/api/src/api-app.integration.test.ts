@@ -76,6 +76,32 @@ describeDatabase("ApiApp PostgreSQL scenarios", () => {
     });
   });
 
+  it("cancels over-budget API SQL and leaves the connection reusable without changing other clients", async () => {
+    const boundedSql = createSqlClient(testDatabaseUrl, 1, 50);
+    try {
+      const [settings] = await boundedSql`select current_setting('statement_timeout') as timeout`;
+      expect(settings?.timeout).toBe("50ms");
+      await expect(boundedSql`select pg_sleep(1)`).rejects.toMatchObject({ code: "57014" });
+      const [result] = await boundedSql`select 1 as value`;
+      expect(result?.value).toBe(1);
+      const [unbounded] = await sql`select current_setting('statement_timeout') as timeout`;
+      expect(unbounded?.timeout).toBe("0");
+      const boundedApp = createApiApp({ sql: boundedSql, config, logger });
+      await sql.begin(async (transaction) => {
+        await transaction`lock table listings in access exclusive mode`;
+        const response = await boundedApp.fetch(new Request("http://api.test/filters"));
+        expect(response.status).toBe(503);
+        expect(response.headers.get("Retry-After")).toBe("5");
+        expect(await response.json()).toEqual({ error: "query_timeout" });
+      });
+      const recovered = await boundedApp.fetch(new Request("http://api.test/filters"));
+      expect(recovered.status).toBe(200);
+      expect(recovered.headers.get("X-Filter-Cache")).toBe("miss");
+    } finally {
+      await closeSqlClient(boundedSql);
+    }
+  });
+
   it("stores detail-backfill control payloads as JSON objects", async () => {
     await sql`
       delete from graphile_worker._private_jobs

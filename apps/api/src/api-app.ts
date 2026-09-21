@@ -197,6 +197,12 @@ app.onError((error, c) => {
     return error.getResponse();
   }
 
+  if ("code" in error && error.code === "57014") {
+    logger.warn({ requestId: c.res.headers.get("X-Request-Id") }, "API database query timed out");
+    c.header("Retry-After", "5");
+    return c.json({ error: "query_timeout" }, 503);
+  }
+
   logger.error({ error }, "Unhandled API error");
   return c.json({ error: "internal_error" }, 500);
 });

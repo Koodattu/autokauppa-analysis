@@ -7,7 +7,8 @@ const RESPONSE_CACHE_REFRESH_SWEEP_MS = 30 * 1_000;
 
 const config = parseApiConfig();
 const logger = createLogger({ service: "api", env: config.APP_ENV });
-const sql = createSqlClient(config.DATABASE_URL);
+// End database work before the HTTP connection's 60-second idle timeout.
+const sql = createSqlClient(config.DATABASE_URL, 10, 30_000);
 const app = createApiApp({ sql, config, logger });
 
 void app.refreshDefaultResponses();
