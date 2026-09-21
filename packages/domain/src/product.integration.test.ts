@@ -2,6 +2,8 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { listingFiltersQuerySchema, listingSearchQuerySchema, publicListingDetailResponseSchema } from "@nettiauto/schemas";
 import { packRawEvidenceBatch, readRawEvidence, packLegacyImagesBatch, verifyLegacyImages, verifyRawEvidence } from "./storage";
+import { compactNormalizedRows, readSnapshotNormalizedText } from "./normalized-storage";
+import { mergeGalleryAssets, readGalleryAssets, readPublicGallery, storeGalleryAssets } from "./gallery-storage";
 import {
   completeCrawlRun,
   getAdminCrawlerDiagnostics,
@@ -53,6 +55,7 @@ describeDatabase("PostgreSQL product integration", () => {
         crawl_runs,
         source_search_queries,
         reprocessing_runs,
+        normalized_payloads,
         raw_listing_payloads
       restart identity cascade
     `);
@@ -180,6 +183,49 @@ describeDatabase("PostgreSQL product integration", () => {
     await persistNettiautoDetailPage(sql, { ...input, fetchedAt: new Date("2025-06-15T09:01:00Z"), crawlRunId: laterRun });
     expect((await sql`select id from listing_snapshots where listing_id = ${listingId}`)).toHaveLength(4);
     expect((await getPublicListingDetail(sql, listingId))?.listing.askingPriceEur).toBe(15000);
+  });
+
+  it("preserves normalized JSON text, SQL projections and public details through compression", async () => {
+    const queryId = await insertSourceQuery("current", "normalized-storage");
+    const run = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const listingId = await insertObservation(run, queryId, "current", "compressed-1", "active", "2026-08-03T09:00:00Z", 20000);
+    const [snapshot] = await sql`update listing_snapshots set normalized_data=
+      '{"detailParserVersion":null,"sourceLocationLabel":"Helsinki","unknown":{"number":9007199254740993123456789,"decimal":1.2300},"vin":"EXACT","equipment":["A","B"]}'::jsonb
+      where listing_id=${listingId} returning id, normalized_data::text as original`;
+    const before = await getPublicListingDetail(sql, listingId);
+    await sql.begin(async tx => { await compactNormalizedRows(tx, "listing_snapshots", [snapshot!.id]); });
+    expect(await readSnapshotNormalizedText(sql, snapshot!.id)).toBe(snapshot!.original);
+    expect(await getPublicListingDetail(sql, listingId)).toEqual(before);
+    const [projection] = await sql`select normalized_data,normalized_payload_id from listing_snapshots where id=${snapshot!.id}`;
+    expect(projection!.normalized_data).toEqual({detailParserVersion:null,sourceLocationLabel:"Helsinki"});
+    await sql.begin(async tx => { await compactNormalizedRows(tx, "listing_snapshots", [snapshot!.id]); });
+    expect((await sql`select count(*)::int as count from normalized_payloads`)[0]!.count).toBe(1);
+    await sql`update normalized_payloads set content='broken'::bytea where id=${projection!.normalized_payload_id}`;
+    await expect(readSnapshotNormalizedText(sql,snapshot!.id)).rejects.toThrow();
+  });
+
+  it("preserves gallery identities, microseconds and provenance across compaction and older/newer observations", async () => {
+    const queryId=await insertSourceQuery("current","gallery-storage");
+    const run=await insertRun(queryId,"current","2026-08-03T10:00:00Z");
+    const listingId=await insertObservation(run,queryId,"current","gallery-1","active","2026-08-03T09:00:00Z",20000);
+    const [raw]=await sql`select id from raw_listing_records limit 1`;
+    await sql`insert into listing_image_assets(listing_id,asset_path,variant_mask,image_role,position,first_seen_at,last_seen_at,last_raw_listing_record_id)
+      values(${listingId},'123/456/789.jpg',1,'original-role',null,'2026-08-03 09:00:00.123456+00','2026-08-03 09:00:00.123456+00',${raw!.id})`;
+    const before=await readGalleryAssets(sql,listingId);
+    const publicBefore=await readPublicGallery(sql,listingId);
+    await sql.begin(async tx=>{await storeGalleryAssets(tx,listingId,await readGalleryAssets(tx,listingId));});
+    expect(await readGalleryAssets(sql,listingId)).toEqual(before);
+    expect(await readPublicGallery(sql,listingId)).toEqual(publicBefore);
+    expect(await sql`select id from listing_image_assets`).toHaveLength(0);
+    await sql.begin(async tx=>{await mergeGalleryAssets(tx,{listingId,rawListingRecordId:raw!.id,
+      fetchedAt:new Date('2026-08-02T09:00:00Z'),assets:[{assetPath:'123/456/789.jpg',variantMask:2,imageRole:'older',position:5}]});});
+    const [older]=await readGalleryAssets(sql,listingId);
+    expect(older).toMatchObject({id:before[0]!.id,variant_mask:3,image_role:'original-role',position:null,last_seen_at:before[0]!.last_seen_at});
+    await sql.begin(async tx=>{await mergeGalleryAssets(tx,{listingId,rawListingRecordId:raw!.id,
+      fetchedAt:new Date('2026-08-04T09:00:00Z'),assets:[{assetPath:'123/456/789.jpg',variantMask:4,imageRole:null,position:0}]});});
+    expect((await readGalleryAssets(sql,listingId))[0]).toMatchObject({id:before[0]!.id,variant_mask:7,image_role:null,position:0,first_seen_at:older!.first_seen_at});
+    expect((await sql`select raw_listing_record_id from listing_gallery_sources where listing_id=${listingId}`)[0]!.raw_listing_record_id).toBe(raw!.id);
+    await expect(sql`insert into listing_gallery_sources(listing_id,raw_listing_record_id) values(${listingId},gen_random_uuid())`).rejects.toThrow();
   });
 
   it("enforces detail budgets and excludes administratively paused queries", async () => {
@@ -450,7 +496,7 @@ describeDatabase("PostgreSQL product integration", () => {
     await sql`insert into raw_listing_records(id,source,source_listing_id,crawl_run_id,source_fetch_id,record_kind,
       source_payload,source_payload_sha256,parser_version,parser_status,captured_at)
       select '00000000-0000-0000-0000-000000000001',source,'late-1',crawl_run_id,source_fetch_id,record_kind,
-        '{}'::jsonb,'late-hash',parser_version,parser_status,captured_at from raw_listing_records limit 1`;
+        '{}'::jsonb,sha256('late-hash'::bytea),parser_version,parser_status,captured_at from raw_listing_records limit 1`;
     expect(await packRawEvidenceBatch(sql, 1)).toMatchObject({ status: "running", cursorId: null, migratedCount: 1 });
     expect(await packRawEvidenceBatch(sql, 10)).toMatchObject({ status: "completed", migratedCount: 2 });
     expect(await readRawEvidence(sql, "00000000-0000-0000-0000-000000000001")).toEqual(["{}", null]);
@@ -570,7 +616,7 @@ describeDatabase("PostgreSQL product integration", () => {
         source_payload, source_payload_sha256, parser_version, parser_status, captured_at
       ) values (
         'nettiauto', ${sourceListingId}, ${crawlRunId}, ${fetchRow.id}, 'search_result_card',
-        '{}'::jsonb, ${`${crawlRunId}-${sourceListingId}`}, 'integration-test', 'parsed', ${observedAt}
+        '{}'::jsonb, sha256(convert_to(${`${crawlRunId}-${sourceListingId}`},'UTF8')), 'integration-test', 'parsed', ${observedAt}
       ) returning id
     `;
     if (!rawRow) throw new Error("Failed to create test Raw Listing Record.");

@@ -45,7 +45,7 @@ describeDatabase("Offline v2 storage migration", () => {
     const sourceId = randomUUID();
     const [raw] = await sql`insert into raw_listing_records(source,source_listing_id,crawl_run_id,source_fetch_id,record_kind,
       source_payload,source_payload_sha256,parser_version,parser_status,captured_at)
-      values ('nettiauto',${sourceId},${runId},${fetchId},'detail_page',${sql.json(payload as never)},${sourceId},'nettiauto-detail-v2','parsed',now()) returning id`;
+      values ('nettiauto',${sourceId},${runId},${fetchId},'detail_page',${sql.json(payload as never)},sha256(convert_to(${sourceId},'UTF8')),'nettiauto-detail-v2','parsed',now()) returning id`;
     const [listing] = await sql`insert into listings(source,source_listing_id,vehicle_category,first_seen_at,last_seen_at)
       values ('nettiauto',${sourceId},'passenger_car',now(),now()) returning id`;
     return { listingId: listing!.id as string, rawId: raw!.id as string };
@@ -66,7 +66,7 @@ describeDatabase("Offline v2 storage migration", () => {
     const old = await seed(payload);
     const current = await seed(payload);
     const digest = await storeRawEvidence(sql, [[JSON.stringify(payload), "<p>original</p>"]]);
-    await sql`update raw_listing_records set source_payload=null, payload_digest=${digest}, payload_index=0 where id=${old.rawId}`;
+    await sql`update raw_listing_records set source_payload=null, payload_digest=decode(${digest},'hex'), payload_index=0 where id=${old.rawId}`;
     await sql`insert into listing_details(listing_id,source_parser_version,normalization_schema_version,source_raw_listing_record_id,source_fetch_id,fetched_at,torque_nm)
       values (${current.listingId},'nettiauto-detail-v4','nettiauto-detail-v4',${current.rawId},${fetchId},now(),555)`;
     expect((await runV2DetailStorageBatch(sql, 1)).status).toBe("running");

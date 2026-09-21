@@ -52,7 +52,7 @@ async function tableFingerprint(table: string, primaryKey = "id") {
     ? `jsonb_build_object('id',t.id,'source',t.source,'source_listing_id',t.source_listing_id,
         'crawl_run_id',t.crawl_run_id,'detail_backfill_run_id',t.detail_backfill_run_id,
         'source_fetch_id',t.source_fetch_id,'record_kind',t.record_kind,'source_url',t.source_url,
-        'source_payload_sha256',t.source_payload_sha256,'source_updated_date',t.source_updated_date,
+        'source_payload_sha256',encode(t.source_payload_sha256,'hex'),'source_updated_date',t.source_updated_date,
         'parser_version',t.parser_version,'parser_status',t.parser_status,'captured_at',t.captured_at,'parse_error',t.parse_error)`
     : "to_jsonb(t)";
   for await (const rows of sql.unsafe(`select md5((${projection})::text) as digest from ${table} t order by ${primaryKey}`).cursor(2000)) {
@@ -68,15 +68,15 @@ async function rawFingerprint(packed: boolean) {
   let count = 0;
   let inline = 0;
   for (;;) {
-    const columns = packed ? "payload_digest, payload_index" : "null::text as payload_digest, null::integer as payload_index";
+    const columns = packed ? "encode(payload_digest,'hex') as payload_digest, payload_index" : "null::text as payload_digest, null::integer as payload_index";
     const rows = await sql.unsafe(`select r.id::text, r.source_payload::text as payload, r.source_html_fragment as html, ${columns}
       from raw_listing_records r where r.id > $1::uuid order by r.id limit 1000`, [cursor]);
     if (!rows.length) break;
     const decoded = new Map<string, RawEvidenceEntry[]>();
     const digests = [...new Set(rows.map(r => r.payload_digest).filter(Boolean))];
     if (digests.length) {
-      const bundles = await sql`select digest, codec, decoded_bytes as "decodedBytes", record_count as "recordCount", content
-        from raw_listing_payloads where digest = any(${digests}::text[])`;
+      const bundles = await sql`select encode(digest,'hex') as digest, codec, decoded_bytes as "decodedBytes", record_count as "recordCount", content
+        from raw_listing_payloads where digest in (select decode(d,'hex') from unnest(${digests}::text[]) d)`;
       for (const bundle of bundles) {
         const entries = unpackRawEvidence(bundle as never);
         if (entries.length !== bundle.recordCount) throw new Error("Raw bundle record count mismatch");

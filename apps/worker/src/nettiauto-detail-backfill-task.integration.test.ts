@@ -71,7 +71,7 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
           source_payload, source_payload_sha256, parser_version, parser_status, captured_at
         ) values (
           'nettiauto', ${sourceListingPrefix}, ${crawlRun.id}, ${sourceFetch.id},
-          'search_result_card', '{}'::jsonb, ${fixtureId}, 'integration-test', 'parsed', now()
+          'search_result_card', '{}'::jsonb, sha256(convert_to(${fixtureId},'UTF8')), 'integration-test', 'parsed', now()
         ) returning id
       `;
       if (!rawRecord) throw new Error("Failed to create test Raw Listing Record.");
@@ -103,7 +103,7 @@ describeDatabase("Nettiauto detail backfill target cap", () => {
                 ) values (
                   'nettiauto', ${sourceListingId}, ${crawlRun.id}, ${sourceFetch.id},
                   'detail_page', ${`https://www.nettiauto.com/test/${sourceListingId}`},
-                  '{}'::jsonb, ${`${fixtureId}-${sourceListingId}`},
+                  '{}'::jsonb, sha256(convert_to(${`${fixtureId}-${sourceListingId}`},'UTF8')),
                   'nettiauto-detail-v1', 'parsed', ${lastSeenAt}
                 )
               `;

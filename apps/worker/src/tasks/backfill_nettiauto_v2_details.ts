@@ -1,3 +1,4 @@
+import { compactNormalizedRows } from "@nettiauto/domain";
 import { parseWorkerConfig } from "@nettiauto/config";
 import { closeSqlClient, createSqlClient, type SqlClient, type TransactionSqlClient } from "@nettiauto/db";
 import {
@@ -152,6 +153,8 @@ export async function runV2DetailStorageBatch(client: SqlClient, batchSize = 500
       `
       : [];
 
+
+    await compactNormalizedRows(sql, "listing_details", insertedRows.map(row => row.listingId));
 
     for (const id of failures) {
       await sql`insert into storage_migration_exceptions(stage, source_id, reason)

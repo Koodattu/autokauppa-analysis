@@ -1,3 +1,4 @@
+import { readGalleryAssets } from "../packages/domain/src/gallery-storage";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, lstat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -93,11 +94,8 @@ try {
     }
     if (!candidate) { stats.noCachedImage++; continue; }
     stats.cachedCandidates++;
-    const [compact] = await sql<{ rawId: string }[]>`
-      select last_raw_listing_record_id as "rawId" from listing_image_assets
-      where listing_id=${listingId} and asset_path=${candidate.assetPath}
-    `;
-    let rawId = compact?.rawId;
+    const compact = await readGalleryAssets(sql, listingId);
+    let rawId = compact.find(row => row.asset_path === candidate!.assetPath)?.last_raw_listing_record_id;
     if (!rawId) {
       const legacy = await readLegacyPublicImages(sql, listingId);
       rawId = legacy.find((row) => parseNettiautoImageAsset(row.imageUrl)?.assetPath === candidate!.assetPath)?.cohortId;

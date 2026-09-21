@@ -22,6 +22,11 @@ import {
 
 const jsonbEmptyObject = sql`'{}'::jsonb`;
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+const sha256Bytes = customType<{ data: string; driverData: Buffer }>({
+  dataType: () => "bytea",
+  toDriver: value => Buffer.from(value, "hex"),
+  fromDriver: value => value.toString("hex"),
+});
 const createdAtColumn = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAtColumn = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
@@ -218,7 +223,7 @@ export const sourceFetches = pgTable(
 );
 
 export const rawListingPayloads = pgTable("raw_listing_payloads", {
-  digest: text("digest").primaryKey(),
+  digest: sha256Bytes("digest").primaryKey(),
   codec: text("codec").notNull(),
   decodedBytes: integer("decoded_bytes").notNull(),
   recordCount: integer("record_count").notNull(),
@@ -227,6 +232,7 @@ export const rawListingPayloads = pgTable("raw_listing_payloads", {
   check("raw_listing_payloads_codec_check", sql`${table.codec} = 'brotli-json-v1'`),
   check("raw_listing_payloads_decoded_bytes_check", sql`${table.decodedBytes} between 0 and 67108864`),
   check("raw_listing_payloads_record_count_check", sql`${table.recordCount} > 0`),
+  check("raw_listing_payloads_digest_length_ck", sql`octet_length(${table.digest}) = 32`),
 ]);
 
 export const rawListingRecords = pgTable(
@@ -244,9 +250,9 @@ export const rawListingRecords = pgTable(
     sourceUrl: text("source_url"),
     sourcePayload: jsonb("source_payload"),
     sourceHtmlFragment: text("source_html_fragment"),
-    payloadDigest: text("payload_digest").references(() => rawListingPayloads.digest),
+    payloadDigest: sha256Bytes("payload_digest").references(() => rawListingPayloads.digest),
     payloadIndex: integer("payload_index"),
-    sourcePayloadSha256: text("source_payload_sha256").notNull(),
+    sourcePayloadSha256: sha256Bytes("source_payload_sha256").notNull(),
     sourceUpdatedDate: date("source_updated_date"),
     parserVersion: text("parser_version").notNull(),
     parserStatus: parserStatusEnum("parser_status").notNull(),
@@ -265,6 +271,8 @@ export const rawListingRecords = pgTable(
     `),
     index("raw_listing_records_payload_idx").on(table.payloadDigest)
       .where(sql`${table.payloadDigest} is not null`),
+    check("raw_listing_records_hash_length_ck", sql`octet_length(${table.sourcePayloadSha256}) = 32 and
+      (${table.payloadDigest} is null or octet_length(${table.payloadDigest}) = 32)`),
     uniqueIndex("raw_listing_records_fetch_listing_kind_uq").on(
       table.sourceFetchId,
       table.sourceListingId,
@@ -418,6 +426,18 @@ export const listingSightings = pgTable(
   ],
 );
 
+export const normalizedPayloads = pgTable("normalized_payloads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  digest: bytea("digest").notNull(),
+  decodedBytes: integer("decoded_bytes").notNull(),
+  recordCount: integer("record_count").notNull(),
+  content: bytea("content").notNull(),
+}, table => [
+  check("normalized_payloads_digest_check", sql`octet_length(${table.digest}) = 32`),
+  check("normalized_payloads_decoded_bytes_check", sql`${table.decodedBytes} between 0 and 67108864`),
+  check("normalized_payloads_record_count_check", sql`${table.recordCount} > 0`),
+]);
+
 export const listingSnapshots = pgTable(
   "listing_snapshots",
   {
@@ -448,11 +468,16 @@ export const listingSnapshots = pgTable(
     sellerSourceLabel: text("seller_source_label"),
     sellerTypeSourceLabel: text("seller_type_source_label"),
     normalizedData: jsonb("normalized_data").notNull().default(jsonbEmptyObject),
+    normalizedPayloadId: uuid("normalized_payload_id").references(() => normalizedPayloads.id),
+    normalizedPayloadIndex: integer("normalized_payload_index"),
     changeHash: text("change_hash").notNull(),
     createdAt: createdAtColumn(),
   },
   (table) => [
     index("listing_snapshots_listing_observed_idx").on(table.listingId, table.observedAt),
+    index("listing_snapshots_payload_idx").on(table.normalizedPayloadId).where(sql`${table.normalizedPayloadId} is not null`),
+    check("listing_snapshots_payload_ck", sql`(${table.normalizedPayloadId} is null and ${table.normalizedPayloadIndex} is null)
+      or (${table.normalizedPayloadId} is not null and ${table.normalizedPayloadIndex} is not null and ${table.normalizedPayloadIndex} >= 0)`),
     index("listing_snapshots_listing_latest_idx").on(
       table.listingId,
       table.observedAt.desc(),
@@ -527,6 +552,8 @@ export const listingDetails = pgTable(
     ),
     ownerCount: integer("owner_count"),
     normalizedData: jsonb("normalized_data").notNull().default(jsonbEmptyObject),
+    normalizedPayloadId: uuid("normalized_payload_id").references(() => normalizedPayloads.id),
+    normalizedPayloadIndex: integer("normalized_payload_index"),
     createdAt: createdAtColumn(),
     updatedAt: updatedAtColumn(),
   },
@@ -536,6 +563,9 @@ export const listingDetails = pgTable(
       table.normalizationSchemaVersion,
     ),
     index("listing_details_vin_idx").on(table.vin),
+    index("listing_details_payload_idx").on(table.normalizedPayloadId).where(sql`${table.normalizedPayloadId} is not null`),
+    check("listing_details_payload_ck", sql`(${table.normalizedPayloadId} is null and ${table.normalizedPayloadIndex} is null)
+      or (${table.normalizedPayloadId} is not null and ${table.normalizedPayloadIndex} is not null and ${table.normalizedPayloadIndex} >= 0)`),
   ],
 );
 
@@ -565,6 +595,24 @@ export const listingImageAssets = pgTable(
     ),
   ],
 );
+
+export const listingGalleryBundles = pgTable("listing_gallery_bundles", {
+  listingId: uuid("listing_id").primaryKey().references(() => listings.id),
+  digest: bytea("digest").notNull(),
+  decodedBytes: integer("decoded_bytes").notNull(),
+  rowCount: integer("row_count").notNull(),
+  content: bytea("content").notNull(),
+}, table => [
+  check("listing_gallery_bundles_digest_check", sql`octet_length(${table.digest}) = 32`),
+  check("listing_gallery_bundles_decoded_bytes_check", sql`${table.decodedBytes} between 0 and 67108864`),
+  check("listing_gallery_bundles_row_count_check", sql`${table.rowCount} > 0`),
+]);
+
+export const listingGallerySources = pgTable("listing_gallery_sources", {
+  listingId: uuid("listing_id").notNull().references(() => listingGalleryBundles.listingId),
+  rawListingRecordId: uuid("raw_listing_record_id").notNull().references(() => rawListingRecords.id),
+}, table => [primaryKey({ columns: [table.listingId, table.rawListingRecordId] }),
+  index("listing_gallery_sources_raw_idx").on(table.rawListingRecordId)]);
 
 export const listingHeroImages = pgTable(
   "listing_hero_images",

@@ -1,6 +1,8 @@
 import type postgres from "postgres";
 import { categorySql, normalizeVehicleCategory } from "./vehicle-categories";
+import { readPublicGallery } from "./gallery-storage";
 import { readLegacyPublicImages } from "./storage";
+import { decodeNormalizedData, type NormalizedReference } from "./normalized-storage";
 import {
   MAX_LISTING_PAGE,
   type AdminCrawlerDiagnosticsResponse,
@@ -27,7 +29,6 @@ import {
   selectCompactPublicListingImages,
   preferArchivedHero,
   selectPublicListingImages,
-  type StoredCompactListingImageRow,
   type StoredListingHeroImage,
 } from "./listing-images";
 
@@ -279,7 +280,7 @@ export async function getPublicListingDetail(
 ): Promise<PublicListingDetailResponse | null> {
   const [detailRow] = await sql.unsafe<
     Array<
-      ListingTableItem & {
+      ListingTableItem & NormalizedReference & {
         firstSeenAt: string;
         sourceUrl: string | null;
         fuelTypeSourceLabel: string | null;
@@ -309,12 +310,17 @@ export async function getPublicListingDetail(
         s.body_type_source_label as "bodyTypeSourceLabel",
         s.color_source_label as "colorSourceLabel",
         coalesce(detail.normalized_data, s.normalized_data) as "normalizedData",
+        case when detail.listing_id is not null then detail.normalized_payload_index else s.normalized_payload_index end as "normalizedIndex",
+        encode(payload.digest,'hex') as "normalizedDigest", payload.content as "normalizedContent",
+        payload.decoded_bytes as "normalizedDecodedBytes",
         l.first_seen_at::text as "firstSeenAt",
         l.last_seen_at::text as "lastSeenAt",
         l.canonical_source_url as "sourceUrl"
       from listings l
       join listing_snapshots s on s.id = l.latest_snapshot_id
       left join listing_details detail on detail.listing_id = l.id
+      left join normalized_payloads payload on payload.id =
+        case when detail.listing_id is not null then detail.normalized_payload_id else s.normalized_payload_id end
       where l.id = $1
     `,
     [listingId],
@@ -331,9 +337,12 @@ export async function getPublicListingDetail(
     transmissionSourceLabel,
     bodyTypeSourceLabel,
     colorSourceLabel,
-    normalizedData,
+    normalizedData: inlineData,
+    normalizedIndex, normalizedDigest, normalizedContent, normalizedDecodedBytes,
     ...listing
   } = detailRow;
+  const normalizedData = decodeNormalizedData({ normalizedData: inlineData, normalizedIndex,
+    normalizedDigest, normalizedContent, normalizedDecodedBytes });
   const vehicleDetails = buildPublicVehicleDetails({
     sourceUpdatedDate: listing.sourceUpdatedDate,
     fuelTypeSourceLabel,
@@ -422,20 +431,7 @@ export async function getPublicListingDetail(
 
 async function getPublicListingImages(sql: Sql, listingId: string) {
   const [compactRows, [hero], legacyRows] = await Promise.all([
-    sql<StoredCompactListingImageRow[]>`
-      select
-        asset.asset_path as "assetPath",
-        asset.variant_mask as "variantMask",
-        asset.image_role as "role",
-        asset.position,
-        asset.last_raw_listing_record_id::text as "cohortId",
-        raw_record.captured_at::text as "capturedAt",
-        asset.last_seen_at::text as "lastSeenAt"
-      from listing_image_assets asset
-      join raw_listing_records raw_record on raw_record.id = asset.last_raw_listing_record_id
-      where asset.listing_id = ${listingId}
-      order by raw_record.captured_at desc, asset.position nulls last, asset.last_seen_at desc
-    `,
+    readPublicGallery(sql, listingId),
     sql<StoredListingHeroImage[]>`
       select object_key as "objectKey", width, height
       from listing_hero_images

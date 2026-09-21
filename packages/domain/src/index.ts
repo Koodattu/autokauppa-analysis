@@ -6,3 +6,4 @@ export * from "./product";
 export * from "./research";
 export * from "./storage";
 export * from "./storage-codec";
+export { compactNormalizedRows } from "./normalized-storage";

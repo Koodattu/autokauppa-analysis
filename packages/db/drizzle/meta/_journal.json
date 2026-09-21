@@ -113,6 +113,27 @@
       "when": 1789137000000,
       "tag": "0015_lossless_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790006400000,
+      "tag": "0016_normalized_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790006400001,
+      "tag": "0017_gallery_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790006400002,
+      "tag": "0018_binary_evidence_hashes",
+      "breakpoints": true
     }
   ]
 }

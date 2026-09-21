@@ -60,6 +60,8 @@ def main():
         for key in ("DATABASE_URL", "APP_ENV", "CRAWLER_ENABLED", "CRAWLER_PAUSED",
                     "CRAWLER_DETAIL_ENABLED", "HERO_IMAGE_ARCHIVE_ENABLED", "SENTRY_DSN"):
             docker_command.extend(["--env", key])
+        if options.fixture:
+            docker_command.extend(["--env", "TEST_DATABASE_URL"])
         command = [*docker_command, options.worker_image, *command]
     executable = shutil.which(command[0])
     if not executable:

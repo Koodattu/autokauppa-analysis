@@ -72,13 +72,13 @@ export async function storeRawEvidence(sql: Query, entries: RawEvidenceEntry[]):
   const packed = packStorageValue(entries);
   const inserted = await sql`
     insert into raw_listing_payloads(digest, codec, decoded_bytes, record_count, content)
-    values (${packed.digest}, ${packed.codec}, ${packed.decodedBytes}, ${entries.length}, ${packed.content})
+    values (decode(${packed.digest},'hex'), ${packed.codec}, ${packed.decodedBytes}, ${entries.length}, ${packed.content})
     on conflict (digest) do nothing returning digest
   `;
   if (inserted.length === 0) {
     const [existing] = await sql<PackedRow[]>`
-      select digest, codec, decoded_bytes as "decodedBytes", content from raw_listing_payloads
-      where digest = ${packed.digest}
+      select encode(digest,'hex') as digest, codec, decoded_bytes as "decodedBytes", content from raw_listing_payloads
+      where digest = decode(${packed.digest},'hex')
     `;
     if (!existing || JSON.stringify(unpackRawEvidence(existing)) !== JSON.stringify(entries)) {
       throw new Error("Raw evidence digest collision or corruption");
@@ -97,7 +97,7 @@ interface PackedRow {
 export async function readRawEvidence(sql: Query, rawRecordId: string): Promise<RawEvidenceEntry> {
   const [row] = await sql<Array<PackedRow & { payloadJson: string | null; html: string | null; index: number | null }>>`
     select r.source_payload::text as "payloadJson", r.source_html_fragment as html, r.payload_index as index,
-      p.digest, p.codec, p.decoded_bytes as "decodedBytes", p.content
+      encode(p.digest,'hex') as digest, p.codec, p.decoded_bytes as "decodedBytes", p.content
     from raw_listing_records r left join raw_listing_payloads p on p.digest = r.payload_digest
     where r.id = ${rawRecordId}
   `;
@@ -125,8 +125,8 @@ export async function packRawEvidenceBatch(sql: Sql, batchSize = 250, scheduleNe
       const digest = await storeRawEvidence(tx, entries);
       // Decode the stored bytes before replacing any inline evidence.
       const [stored] = await tx<PackedRow[]>`
-        select digest, codec, decoded_bytes as "decodedBytes", content
-        from raw_listing_payloads where digest = ${digest}
+        select encode(digest,'hex') as digest, codec, decoded_bytes as "decodedBytes", content
+        from raw_listing_payloads where digest = decode(${digest},'hex')
       `;
       if (!stored || JSON.stringify(unpackRawEvidence(stored)) !== JSON.stringify(entries)) {
         throw new Error("Raw evidence round-trip mismatch");
@@ -134,7 +134,7 @@ export async function packRawEvidenceBatch(sql: Sql, batchSize = 250, scheduleNe
       const ids = rows.map((row, index) => ({ id: row.id, index }));
       await tx`
         update raw_listing_records r set source_payload = null, source_html_fragment = null,
-          payload_digest = ${digest}, payload_index = batch.index
+          payload_digest = decode(${digest},'hex'), payload_index = batch.index
         from jsonb_to_recordset(${tx.json(ids)}::jsonb) as batch(id uuid, index integer)
         where r.id = batch.id
       `;
@@ -330,7 +330,7 @@ export async function verifyRawEvidence(sql: Sql, onProgress?: (bundles: number)
     let decodedBytes = 0;
     for (;;) {
       const candidates = await tx<{ digest: string; decodedBytes: number }[]>`
-        select digest, decoded_bytes as "decodedBytes" from raw_listing_payloads where digest > ${cursor} order by digest limit 100
+        select encode(digest,'hex') as digest, decoded_bytes as "decodedBytes" from raw_listing_payloads where digest > decode(${cursor},'hex') order by digest limit 100
       `;
       if (candidates.length === 0) break;
       const digests: string[] = [];
@@ -341,8 +341,8 @@ export async function verifyRawEvidence(sql: Sql, onProgress?: (bundles: number)
         batchBytes += candidate.decodedBytes;
       }
       const bundles = await tx<Array<PackedRow & { recordCount: number }>>`
-        select digest, codec, decoded_bytes as "decodedBytes", record_count as "recordCount", content
-        from raw_listing_payloads where digest = any(${digests}::text[]) order by digest
+        select encode(digest,'hex') as digest, codec, decoded_bytes as "decodedBytes", record_count as "recordCount", content
+        from raw_listing_payloads where digest in (select decode(d,'hex') from unnest(${digests}::text[]) d) order by digest
       `;
       for (const bundle of bundles) {
         if (unpackRawEvidence(bundle).length !== bundle.recordCount) throw new Error("Raw evidence bundle census mismatch");

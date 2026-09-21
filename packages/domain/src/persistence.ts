@@ -1,6 +1,8 @@
 import type postgres from "postgres";
 import { parseNettiautoImageAsset } from "./listing-images";
+import { mergeGalleryAssets } from "./gallery-storage";
 import { storeRawEvidence } from "./storage";
+import { compactNormalizedRows, readSnapshotNormalizedText, removeUnusedNormalizedPayload } from "./normalized-storage";
 import {
   NETTIAUTO_DETAIL_NORMALIZATION_SCHEMA_VERSION,
   sha256,
@@ -912,16 +914,18 @@ export async function persistSearchResultPage(
           JSON.stringify(listing.sourcePayload), listing.sourceHtmlFragment,
         ]))
       : null;
+    const snapshotIds: string[] = [];
     for (const [payloadIndex, listing] of input.parsedPage.listings.entries()) {
-      await persistListingCard(tx, {
+      snapshotIds.push(await persistListingCard(tx, {
         ...input,
         sourceFetchId: fetchRow.id,
         fetchedAt,
         listing,
         payloadDigest: payloadDigest!,
         payloadIndex,
-      });
+      }));
     }
+    await compactNormalizedRows(tx, "listing_snapshots", snapshotIds);
 
     await tx`
       update crawl_runs
@@ -1061,9 +1065,9 @@ export async function persistNettiautoDetailPage(
         ${input.sourceUrl},
         null,
         null,
-        ${payloadDigest},
+        decode(${payloadDigest}, 'hex'),
         0,
-        ${sha256(stableStringify(sourcePayload))},
+        decode(${sha256(stableStringify(sourcePayload))}, 'hex'),
         ${input.parsedDetail.sourceUpdatedDate}::date,
         ${input.parsedDetail.parserVersion},
         'parsed',
@@ -1142,9 +1146,9 @@ async function persistListingCard(
       ${normalized.sourceUrl},
       null,
       null,
-      ${input.payloadDigest},
+      decode(${input.payloadDigest}, 'hex'),
       ${input.payloadIndex},
-      ${input.listing.sourcePayloadSha256},
+      decode(${input.listing.sourcePayloadSha256}, 'hex'),
       ${input.listing.parserVersion},
       'parsed',
       ${input.fetchedAt},
@@ -1363,6 +1367,7 @@ async function persistListingCard(
     fetchedAt: input.fetchedAt,
     images: input.listing.images,
   });
+  return snapshot.id;
 }
 
 async function updateListingFromDetailPage(
@@ -1411,7 +1416,12 @@ async function updateListingFromDetailPage(
 
   // Enrichment is evidence from its fetch time, not a correction to an earlier observation.
   await tx`select id from listings where id = ${listing.id} for update`;
-  await tx`
+  const [previousSnapshot] = await tx<{ id: string }[]>`
+    select id from listing_snapshots where listing_id=${listing.id} and observed_at<=${input.fetchedAt}
+    order by observed_at desc, created_at desc, id desc limit 1
+  `;
+  const previousNormalized = previousSnapshot ? await readSnapshotNormalizedText(tx, previousSnapshot.id) : "{}";
+  const newSnapshots = await tx<{ id: string }[]>`
     with enriched as (
       insert into listing_snapshots (
         listing_id, raw_listing_record_id, parser_version, observed_at, availability,
@@ -1427,22 +1437,27 @@ async function updateListingFromDetailPage(
         coalesce(${detailData.transmissionSourceLabel}, transmission_source_label), coalesce(${detailData.bodyTypeSourceLabel}, body_type_source_label),
         coalesce(${detailData.colorSourceLabel}, color_source_label), seller_source_label, seller_type_source_label,
         coalesce(${sourceUpdatedDate}::date, source_updated_date),
-        normalized_data || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb),
+        ${previousNormalized}::text::jsonb || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb),
         md5(change_hash || ${input.rawListingRecordId})
       from listing_snapshots
       where id = (
         select id from listing_snapshots where listing_id = ${listing.id} and observed_at <= ${input.fetchedAt}
         order by observed_at desc, created_at desc, id desc limit 1
       )
-        and normalized_data is distinct from normalized_data || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb)
+        and ${previousNormalized}::text::jsonb is distinct from ${previousNormalized}::text::jsonb || jsonb_strip_nulls(${tx.json(detailPayload)}::jsonb)
         and not exists (select 1 from listing_snapshots where raw_listing_record_id = ${input.rawListingRecordId})
       returning id, observed_at
-    )
+    ), updated_listing as (
     update listings set latest_snapshot_id = enriched.id from enriched
     where listings.id = ${listing.id}
       and enriched.observed_at >= (select observed_at from listing_snapshots where id = listings.latest_snapshot_id)
+    ) select id from enriched
   `;
 
+  await compactNormalizedRows(tx, "listing_snapshots", newSnapshots.map(row => row.id));
+  const [oldDetail] = await tx<{ payloadId: string | null }[]>`
+    select normalized_payload_id as "payloadId" from listing_details where listing_id=${listing.id} for update
+  `;
   await tx`
     insert into listing_details (
       listing_id,
@@ -1516,10 +1531,14 @@ async function updateListingFromDetailPage(
       electric_consumption_combined_kwh_100km = excluded.electric_consumption_combined_kwh_100km,
       owner_count = excluded.owner_count,
       normalized_data = excluded.normalized_data,
+      normalized_payload_id = null,
+      normalized_payload_index = null,
       updated_at = now()
     where excluded.fetched_at >= listing_details.fetched_at
   `;
 
+  await compactNormalizedRows(tx, "listing_details", [listing.id]);
+  await removeUnusedNormalizedPayload(tx, oldDetail?.payloadId ?? null);
   return listing.id;
 }
 
@@ -1831,48 +1850,10 @@ async function persistCompactImages(
     });
   }
 
-  for (const [assetPath, asset] of assets) {
-    await tx`
-      insert into listing_image_assets (
-        listing_id,
-        asset_path,
-        variant_mask,
-        image_role,
-        position,
-        first_seen_at,
-        last_seen_at,
-        last_raw_listing_record_id
-      )
-      values (
-        ${input.listingId},
-        ${assetPath},
-        ${asset.variantMask},
-        ${asset.imageRole},
-        ${asset.position},
-        ${input.fetchedAt},
-        ${input.fetchedAt},
-        ${input.rawListingRecordId}
-      )
-      on conflict (listing_id, asset_path)
-      do update set
-        variant_mask = listing_image_assets.variant_mask | excluded.variant_mask,
-        image_role = case
-          when excluded.last_seen_at >= listing_image_assets.last_seen_at then excluded.image_role
-          else listing_image_assets.image_role
-        end,
-        position = case
-          when excluded.last_seen_at >= listing_image_assets.last_seen_at then excluded.position
-          else listing_image_assets.position
-        end,
-        first_seen_at = least(listing_image_assets.first_seen_at, excluded.first_seen_at),
-        last_seen_at = greatest(listing_image_assets.last_seen_at, excluded.last_seen_at),
-        last_raw_listing_record_id = case
-          when excluded.last_seen_at >= listing_image_assets.last_seen_at
-            then excluded.last_raw_listing_record_id
-          else listing_image_assets.last_raw_listing_record_id
-        end
-    `;
-  }
+  await mergeGalleryAssets(tx, {
+    ...input,
+    assets: [...assets].map(([assetPath, asset]) => ({ assetPath, ...asset })),
+  });
 }
 
 export async function hasListingHeroImage(sql: SqlClient, listingId: string) {
