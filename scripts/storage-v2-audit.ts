@@ -98,6 +98,9 @@ async function galleryFingerprint(packed: boolean) {
   return {count,sha256:hash.digest("hex")};
 }
 async function fingerprints(packed: boolean) {
+  // A complete evidence-table cursor can exceed the normal query limit on the VM.
+  // This connection is read-only; keep the longer limit confined to full audits.
+  await sql`set statement_timeout='15min'`;
   const result: Record<string,unknown>={};
   const [hashType]=await sql`select data_type from information_schema.columns where table_schema='public'
     and table_name='raw_listing_records' and column_name='source_payload_sha256'`;
@@ -122,6 +125,7 @@ async function fingerprints(packed: boolean) {
     }
     result[table.name]={count,sha256:hash.digest("hex")};
   }
+  await sql`set statement_timeout='120s'`;
   return result;
 }
 async function apiSamples(previous?: Array<{id:string;digest:string}>) {
