@@ -28,11 +28,17 @@ async function apiGet<T>(path: string, schema: ResponseSchema<T>, init?: Request
   }
 
   if (requestInit.cache === "no-store") {
-    const clientAddress = (await headers()).get("x-forwarded-for");
+    const incomingHeaders = await headers();
+    const clientAddress = incomingHeaders.get("x-forwarded-for");
     const outboundHeaders = new Headers(requestInit.headers);
     // Caddy supplies this header; keep cached homepage requests independent of visitors.
     if (clientAddress) outboundHeaders.set("x-forwarded-for", clientAddress);
     else outboundHeaders.delete("x-forwarded-for");
+    for (const name of ["x-request-id", "user-agent"]) {
+      const value = incomingHeaders.get(name);
+      if (value) outboundHeaders.set(name, value);
+      else outboundHeaders.delete(name);
+    }
     requestInit.headers = outboundHeaders;
     const deadline = AbortSignal.timeout(45_000);
     requestInit.signal = requestInit.signal ? AbortSignal.any([requestInit.signal, deadline]) : deadline;
@@ -42,7 +48,12 @@ async function apiGet<T>(path: string, schema: ResponseSchema<T>, init?: Request
   try {
     const response = await fetch(apiPath(path), requestInit);
     if (!response.ok) {
-      throw new ApiError(`API request failed: ${path}`, response.status);
+      const retryAfter = response.headers.get("retry-after");
+      const requestId = response.headers.get("x-request-id");
+      // Page fallbacks can have status 200 after streaming starts. Record the
+      // upstream failure explicitly instead of relying on public access logs.
+      console.warn(JSON.stringify({ event: "ssr_api_failure", path: path.split("?", 1)[0], status: response.status, retryAfter, requestId }));
+      throw new ApiError(`API request failed: ${path}`, response.status, retryAfter, requestId);
     }
     payload = await response.json();
   } catch (error) {

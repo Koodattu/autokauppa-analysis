@@ -35,6 +35,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly retryAfter: string | null = null,
+    public readonly requestId: string | null = null,
   ) {
     super(message);
   }

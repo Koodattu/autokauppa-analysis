@@ -171,10 +171,21 @@ app.use("*", async (c, next) => {
       method: c.req.method,
       path: c.req.path,
       status: c.res.status,
+      userAgent: c.req.header("user-agent")?.slice(0, 256),
+      retryAfter: c.res.headers.get("Retry-After"),
       durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
     },
     "API request completed",
   );
+});
+
+// Protect direct API access as well as the web's pre-render crawler policy.
+app.use("*", async (c, next) => {
+  if (/\bGPTBot\b/i.test(c.req.header("user-agent") ?? "")) {
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ error: "crawl_disallowed" }, 403);
+  }
+  await next();
 });
 
 const publicQueryRateLimit = createRateLimitMiddleware(publicQueryLimiter, "public-query", now);
@@ -561,6 +572,7 @@ function createRateLimitMiddleware(
     c.header("X-RateLimit-Remaining", String(result.remaining));
     if (!result.allowed) {
       c.header("Retry-After", String(result.retryAfterSeconds));
+      c.header("Cache-Control", "private, no-store");
       return c.json({ error: "rate_limited" }, 429);
     }
     await next();

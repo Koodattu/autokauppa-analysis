@@ -4,6 +4,8 @@ import { LISTING_IMAGE_REMOTE_PATTERNS } from "./src/lib/listing-images";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Crawler policy needs the original query, including Next's _rsc variant key.
+  skipProxyUrlNormalize: true,
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
   images: {
     unoptimized: true,

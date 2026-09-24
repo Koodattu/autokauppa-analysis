@@ -42,5 +42,6 @@ jobs:
       - run: bun run typecheck:worker
       - run: bun --cwd apps/web lint
       - run: bun run build:web
+      - run: node scripts/verify-crawler-http.mjs
       - run: bun run build:api
       - run: bun run build:worker

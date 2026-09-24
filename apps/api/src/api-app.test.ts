@@ -29,6 +29,15 @@ const logger = {
 } as unknown as AppLogger;
 
 describe("ApiApp HTTP interface", () => {
+  it("blocks GPTBot direct API requests before validation or database access", async () => {
+    const app = createApiApp({ sql, config, logger });
+    const response = await app.fetch(new Request("http://api.test/listings", { headers: { "user-agent": "Mozilla/5.0 (compatible; GPTBot/1.4)", "x-request-id": "bot-request" } }));
+    expect(response.status).toBe(403);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("x-request-id")).toBe("bot-request");
+    expect(logger.info).toHaveBeenLastCalledWith(expect.objectContaining({ requestId: "bot-request", status: 403, userAgent: "Mozilla/5.0 (compatible; GPTBot/1.4)" }), "API request completed");
+  });
+
   it("returns a retryable response for a cancelled database statement", async () => {
     const timedOutSql = vi.fn().mockRejectedValue(Object.assign(new Error("cancelled"), { code: "57014" }));
     const app = createApiApp({ sql: timedOutSql as unknown as SqlClient, config, logger });
@@ -50,6 +59,7 @@ describe("ApiApp HTTP interface", () => {
     const limited = await request("192.0.2.1");
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("60");
+    expect(limited.headers.get("Cache-Control")).toContain("no-store");
     expect((await request("2001:db8::2")).status).toBe(400);
   });
 
