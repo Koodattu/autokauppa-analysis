@@ -39,7 +39,6 @@ import {
   analyticsTrendResponseSchema,
   filterMetadataResponseSchema,
   listingIdSchema,
-  listingFiltersQuerySchema,
   listingSearchResponseSchema,
   listingSearchUrlFilter,
   marketOverviewResponseSchema,
@@ -71,7 +70,6 @@ const RESPONSE_CACHE_MAX_ENTRIES = 32;
 
 export interface ApiApp {
   fetch(request: Request): Response | Promise<Response>;
-  refreshDefaultResponses(): Promise<void>;
 }
 
 export interface CreateApiAppInput {
@@ -114,7 +112,6 @@ const analyticsTimeSeriesCache = new ResponseCache({
   logger,
   now,
 });
-const defaultAnalyticsFilters = listingFiltersQuerySchema.parse({});
 const researchCache = new ResponseCache({
   name: "price-research", ttlMs: RESPONSE_CACHE_TTL_MS, maxEntries: RESPONSE_CACHE_MAX_ENTRIES,
   key: (query: ListingSearchQuery) => listingSearchUrlFilter.format(query).toString(),
@@ -579,12 +576,6 @@ function createRateLimitMiddleware(
   });
 }
 
-async function refreshDefaultResponses() {
-  await filterMetadataCache.prewarm(defaultAnalyticsFilters);
-  await analyticsSnapshotCache.prewarm(defaultAnalyticsFilters);
-  await analyticsTimeSeriesCache.prewarm(defaultAnalyticsFilters);
-}
-
 function filterMetadataCacheKey(query: ListingFiltersQuery) {
   return JSON.stringify({
     make: query.make ?? null,
@@ -623,6 +614,5 @@ function analyticsTimeSeriesCacheKey(query: ListingFiltersQuery) {
 
 return {
   fetch: app.fetch,
-  refreshDefaultResponses,
 };
 }

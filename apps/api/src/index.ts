@@ -3,18 +3,11 @@ import { createSqlClient } from "@nettiauto/db";
 import { createLogger } from "@nettiauto/logging";
 import { createApiApp } from "./api-app";
 
-const RESPONSE_CACHE_REFRESH_SWEEP_MS = 30 * 1_000;
-
 const config = parseApiConfig();
 const logger = createLogger({ service: "api", env: config.APP_ENV });
 // End database work before the HTTP connection's 60-second idle timeout.
 const sql = createSqlClient(config.DATABASE_URL, 10, 30_000);
 const app = createApiApp({ sql, config, logger });
-
-void app.refreshDefaultResponses();
-setInterval(() => {
-  void app.refreshDefaultResponses();
-}, RESPONSE_CACHE_REFRESH_SWEEP_MS);
 
 export default {
   port: Number(process.env.PORT ?? 3001),

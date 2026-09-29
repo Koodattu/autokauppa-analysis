@@ -49,10 +49,10 @@ describe("ResponseCache", () => {
     });
 
     now = 101;
-    await expect(cache.get(query)).resolves.toMatchObject({
-      status: "stale",
-      value: responseWithCount(10),
-    });
+    const concurrentRequests = await Promise.all([cache.get(query), cache.get(query), cache.get(query)]);
+    for (const response of concurrentRequests) {
+      expect(response).toMatchObject({ status: "stale", value: responseWithCount(10) });
+    }
     expect(loader).toHaveBeenCalledTimes(2);
 
     const refreshPromise = loader.mock.results[1]?.value;
@@ -79,6 +79,27 @@ describe("ResponseCache", () => {
     await cache.get({ ...query, modelYear: 2019, transmission: "Automatic" });
 
     expect(loader).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps the last good response on refresh failure and retries only on demand", async () => {
+    let now = 0;
+    const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>>()
+      .mockResolvedValueOnce(responseWithCount(10))
+      .mockRejectedValueOnce(new Error("temporary database failure"))
+      .mockResolvedValueOnce(responseWithCount(20));
+    const cache = createCache(loader, () => now);
+    await cache.get(query);
+    now = 101;
+    await expect(cache.get(query)).resolves.toMatchObject({ status: "stale", value: responseWithCount(10) });
+    // Let the failed refresh settle before the next request.
+    await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+    now = 1000;
+    expect(loader).toHaveBeenCalledTimes(2);
+    await expect(cache.get(query)).resolves.toMatchObject({ status: "stale", value: responseWithCount(10) });
+    await vi.waitFor(async () => {
+      expect(await cache.get(query)).toMatchObject({ status: "hit", value: responseWithCount(20) });
+    });
+    expect(loader).toHaveBeenCalledTimes(3);
   });
 });
 

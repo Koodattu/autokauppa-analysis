@@ -68,20 +68,6 @@ export class ResponseCache<Query, Value> {
     };
   }
 
-  async prewarm(query: Query): Promise<void> {
-    const key = this.options.key(query);
-    const entry = this.entries.get(key);
-    if (entry?.value !== undefined && entry.expiresAt > this.now()) {
-      return;
-    }
-
-    try {
-      await this.refresh(key, query);
-    } catch {
-      // The refresh path logs failures and keeps the previous value when one exists.
-    }
-  }
-
   private refreshInBackground(key: string, query: Query) {
     void this.refresh(key, query).catch(() => {
       // The refresh path logs failures and keeps the previous value when one exists.
