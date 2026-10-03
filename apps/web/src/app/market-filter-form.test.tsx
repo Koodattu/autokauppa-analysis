@@ -41,6 +41,17 @@ async function selectMake(value: string) {
 }
 
 describe("market model options", () => {
+  it("applies listing filters while keeping the sort and returning to the first results page", async () => {
+    await act(async () => root!.render(<MarketFilterForm key="listing-scope" action="/listings" variant="listings" filters={filters}
+      params={{ make: "Toyota", availability: "all", sort: "priceAsc", page: "3" }} resultAnchor="listing-results" />));
+    await act(async () => { container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    const url = new URL(push.mock.calls[0][0], "https://example.test");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ make: "Toyota", availability: "all", sort: "priceAsc" });
+    expect(url.hash).toBe("#listing-results");
+    expect(container.querySelector(".filter-reset")?.getAttribute("href")).toBe("/listings?sort=priceAsc#listing-results");
+    expect(container.querySelector(".filter-reset")?.textContent).toBe("Reset 2 filters");
+  });
+
   it("applies dates within the edited group and returns to that result while preserving the other group", async () => {
     await act(async () => { root!.render(<MarketFilterForm key="comparison" action="/analyze" variant="analytics" filters={filters}
       params={{ make: "Toyota", availability: "sold", from: "2026-09-01", to: "2026-09-30" }}

@@ -9,8 +9,13 @@ export function parseSavedState(value: string): SavedState {
     return { cars: [], shortlist: [], searches: [] };
   }
 }
-export function compareHref(ids: string[]) {
-  return `/compare?${new URLSearchParams({ ids: [...new Set(ids)].slice(0, 4).join(",") })}`;
+export function compareHref(ids: string[], view: { reference?: string; differences?: boolean } = {}) {
+  const selected = [...new Set(ids)].slice(0, 4);
+  if (!selected.length) return "/compare";
+  const params = new URLSearchParams({ ids: selected.join(",") });
+  if (view.reference && selected.includes(view.reference)) params.set("reference", view.reference);
+  if (view.differences && selected.length > 1) params.set("differences", "1");
+  return `/compare?${params}`;
 }
 export function parseCompareIds(value: string | string[] | undefined) {
   if (typeof value !== "string") return [];

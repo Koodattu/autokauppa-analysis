@@ -34,9 +34,9 @@
 .research-window legend { font-size: 0.875rem; font-weight: 650; }
 .research-window p { margin: 0 0 12px; color: var(--public-text-secondary); font-size: 0.8125rem; max-width: 70ch; }
 .research-editor .research-window { padding: 16px 0; }
-.research-filter-submit { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; }
-.research-filter-submit > span { font-size: 0.8125rem; max-width: 40ch; }
-.research-editor .research-filter-submit { padding: 16px 0 0; }
+.filter-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; }
+.filter-actions > span { font-size: 0.8125rem; max-width: 40ch; }
+.research-editor .filter-actions { padding: 16px 0 0; }
 .research-save { border-bottom: 1px solid var(--line); }
 .research-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 22px; margin: 26px 0; }
 .research-metrics dt { font-size: 13px; color: var(--muted); }
@@ -83,11 +83,25 @@
 .saved-car-list .save-car { justify-content: flex-end; flex-shrink: 0; max-width: 45%; }
 .saved-views button { flex-shrink: 0; }
 .comparison-tray { position: sticky; bottom: 16px; margin: 0 auto 16px; z-index: 25; width: max-content; max-width: calc(100% - 24px); display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 16px; padding: 14px 22px; background: var(--panel); box-shadow: var(--shadow-border); border-radius: 12px; }
-.comparison-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 22px; margin: 24px 0; }
+.comparison-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; margin: 0 0 16px; }
 .comparison-controls input { accent-color: var(--accent); width: 18px; height: 18px; }
 .comparison-controls select { min-height: 44px; max-width: 100%; }
-.vehicle-comparison { table-layout: fixed; min-width: 650px; width: 100%; }
-.vehicle-comparison td { vertical-align: top; overflow-wrap: anywhere; }
+#car-comparison { scroll-margin-top: 150px; }
+.comparison-controls > label { min-width: 0; }
+.comparison-controls > label:first-child { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.vehicle-comparison { table-layout: fixed; min-width: 0; width: 100%; }
+.vehicle-comparison td, .vehicle-comparison th { vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
+.comparison-label-column { width: 110px; }
+.vehicle-comparison tr > th:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel); }
+.vehicle-comparison thead > tr > th:first-child { background: var(--public-surface-subtle); }
+.comparison-reference { display: block; margin-top: 8px; color: var(--accent-strong); font-weight: 650; }
+.comparison-car-title, .comparison-remove { display: flex; align-items: center; min-height: 44px; }
+.comparison-remove { font-weight: 500; text-transform: none; }
+.comparison-scroll-hint { font-size: 0.8125rem; }
+@media (max-width: 500px) {
+  .comparison-label-column { width: 92px; }
+  .vehicle-comparison td, .vehicle-comparison th { padding: 10px 6px; font-size: 0.75rem; }
+}
 .listing-thumbnail { border-radius: 6px; object-fit: cover; margin-bottom: 6px; }
 .price-reduction { color: #11695d; }
 .comparable-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
@@ -317,18 +331,9 @@
 }
 
 .public-shell .primary-filters {
-  grid-template-columns: repeat(4, minmax(138px, 1fr)) minmax(156px, auto);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border-top: 1px solid var(--line);
   padding: 16px;
-}
-
-.public-shell .primary-filters.with-sort {
-  grid-template-columns: repeat(5, minmax(124px, 1fr)) minmax(150px, auto);
-}
-
-.filter-submit,
-.filter-submit button {
-  width: 100%;
 }
 
 .filter-error {
@@ -861,7 +866,24 @@
 
 .public-shell .listing-results {
   margin-top: 18px;
+  scroll-margin-top: 150px;
 }
+
+.listing-controls { display: flex; flex-wrap: wrap; gap: 0 24px; margin-bottom: 12px; }
+.listing-scope { flex-basis: 100%; margin: 0 0 4px; font-size: 0.875rem; color: var(--public-text-label); overflow-wrap: anywhere; }
+.listing-controls > details { min-width: 0; }
+.listing-controls > details[open] { flex-basis: 100%; }
+.listing-controls > details > summary { min-height: 44px; padding: 12px 0; cursor: pointer; font-weight: 650; color: var(--accent-strong); }
+.listing-filter-editor .applied-filter-row { display: none; }
+.listing-sort { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; min-width: 0; }
+.listing-sort label { display: grid; gap: 4px; min-width: 0; flex: 1; font-size: 0.8125rem; color: var(--public-text-label); }
+.listing-sort select { width: 100%; min-width: 0; min-height: 44px; padding: 8px; }
+.listing-sort button { flex-shrink: 0; }
+.listing-page-count { margin: 0; padding: 0 18px 12px; font-size: 0.8125rem; color: var(--public-text-secondary); }
+.market-coverage.compact-coverage { display: block; padding: 0 16px; margin-bottom: 12px; }
+.compact-coverage > summary { min-height: 44px; padding: 10px 0; cursor: pointer; font-size: 0.8125rem; }
+.compact-coverage[open] { padding-bottom: 16px; }
+.compact-coverage .coverage-summary { margin: 12px 0 16px; }
 
 .public-shell .section-heading {
   min-height: 70px;
@@ -1102,13 +1124,8 @@
 }
 
 @media (max-width: 1120px) {
-  .public-shell .primary-filters,
-  .public-shell .primary-filters.with-sort {
+  .public-shell .primary-filters {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .filter-submit {
-    align-self: end;
   }
 
   .market-snapshot {
@@ -1147,13 +1164,8 @@
     grid-template-columns: 1fr auto;
   }
 
-  .public-shell .primary-filters,
-  .public-shell .primary-filters.with-sort {
+  .public-shell .primary-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .filter-submit {
-    grid-column: 1 / -1;
   }
 
   .advanced-filter-groups {
@@ -1271,7 +1283,6 @@
   }
 
   .public-shell .primary-filters,
-  .public-shell .primary-filters.with-sort,
   .filter-group-grid {
     grid-template-columns: 1fr;
   }

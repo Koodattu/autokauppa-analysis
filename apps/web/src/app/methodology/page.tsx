@@ -38,7 +38,7 @@ export default function MethodologyPage() {
         </MethodSection>
         <MethodSection title="Overview and activity">
           <p>The overview separates latest active listings from the observed-sold archive. Activity covers the seven days ending at the latest active observation. First observed means first captured by this dataset; an initial import can include older ads. Price reductions require a lower recorded asking price than an earlier observation.</p>
-          <p>Feature summaries show the priced sample and its median mileage and model year. The scatter plot shows up to 300 consistently sampled listings; aggregate summaries use the full matching sample. Saved searches and the four-car shortlist stay in this browser. Shared links contain filters or listing IDs, and their latest results can change.</p>
+          <p>Feature summaries show the priced sample and its median mileage and model year. The scatter plot shows up to 300 consistently sampled listings; aggregate summaries use the full matching sample. Saved cars, comparison selections and saved searches stay in this browser. Shared links contain filters or listing IDs and comparison choices; their latest results can change.</p>
         </MethodSection>
         <MethodSection title="Source detail and data quality">
           <p>Core fields can come from search results. Detail-page enrichment is optional and separately identified. Source labels are retained where possible, and the admin data-quality view reports latest-field coverage, parser versions, and parse failures.</p>

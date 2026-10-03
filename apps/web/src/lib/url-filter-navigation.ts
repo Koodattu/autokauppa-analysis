@@ -93,7 +93,7 @@ export function resolveListingNavigation(params: WebSearchParams): ListingNaviga
       return routeWithQuery("/listings", formatPageFilters(next).toString());
     },
     detailHref(listingId) {
-      const returnTo = routeWithQuery("/listings", pageQueryString);
+      const returnTo = routeWithQuery("/listings", pageQueryString) + "#listing-results";
       return `/listings/${encodeURIComponent(listingId)}?returnTo=${encodeURIComponent(returnTo)}`;
     },
   };
@@ -101,7 +101,7 @@ export function resolveListingNavigation(params: WebSearchParams): ListingNaviga
 
 export function safeListingsReturnHref(value: string | string[] | undefined) {
   const rawPath = typeof value === "string" ? value.split(/[?#]/, 1)[0] : "";
-  if (!value || Array.isArray(value) || !["/listings", "/analyze"].includes(rawPath) || value.includes("\\")) {
+  if (!value || Array.isArray(value) || !["/listings", "/analyze", "/compare"].includes(rawPath) || value.includes("\\")) {
     return "/listings";
   }
 
@@ -110,7 +110,8 @@ export function safeListingsReturnHref(value: string | string[] | undefined) {
     const url = new URL(value, base);
     const allowedHash = url.pathname === "/analyze"
       ? ["", "#research-evidence", "#comparison-evidence"].includes(url.hash)
-      : !url.hash;
+      : url.pathname === "/compare" ? ["", "#car-comparison"].includes(url.hash)
+        : ["", "#listing-results"].includes(url.hash);
     if (url.origin !== base || url.pathname !== rawPath || !allowedHash) {
       return "/listings";
     }

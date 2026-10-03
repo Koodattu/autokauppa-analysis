@@ -201,6 +201,7 @@ The public shell owns semantic aliases for repeated interface and chart roles. C
 - **Headline** (weight 700, 18px, line-height 1.3): Section and panel headings.
 - **Data Title** (weight 700, 21px, line-height 1.15): Primary metric values with tabular numerals.
 - **Body** (weight 400, 15px, line-height 1.5): Explanations, controls, and general content; prose should remain within roughly 65–75 characters per line.
+- **Supporting Text** (weight 400–650, 13px / 0.8125rem; 14px / 0.875rem for applied scope): Status explanations, compact control labels and scope summaries beside the evidence.
 - **Field Label** (weight 750, 12px, letter-spacing 0.02em): Sentence-case field labels and compact metadata.
 - **Data Label** (weight 800, 11px, letter-spacing 0.05em): Existing metric and table labels; use sparingly rather than as a universal section-heading device.
 
@@ -257,7 +258,7 @@ Components are dense, familiar, and precise. Their visual personality comes from
 - **Style:** White field, 1px neutral stroke, 7px radius, 42px minimum height, and 8px by 10px padding.
 - **Focus:** Evidence Teal border plus a 3px translucent teal focus ring.
 - **Error / Disabled:** Semantic text must explain failures; disabled fields use a neutral surface and retain legible labels. Placeholder copy must meet body-text contrast expectations.
-- **Grouping:** Listing search keeps primary market choices visible. Research puts each group's result and applied scope first, with a native disclosure editor in that same panel. Observation dates stay visible inside the editor; secondary vehicle, price, mileage and seller controls use a further disclosure. Reset changes only the edited group. Applying returns to its result; evidence paging and listing returns stay at their source table.
+- **Grouping:** Listings show the applied scope above a native filter disclosure; sorting stays beside the results and survives filter resets. Research puts each group's result and applied scope first, with a native disclosure editor in that same panel. Observation dates stay visible inside the editor; secondary vehicle, price, mileage and seller controls use a further disclosure. Submit follows all editable fields. Reset changes only the edited group. Applying returns to its result; evidence paging and listing returns stay at their source table.
 
 ### Navigation
 
@@ -268,6 +269,7 @@ Components are dense, familiar, and precise. Their visual personality comes from
 
 - **Snapshot:** Use one integrated definition-list strip with structural dividers, not a grid of floating KPI cards. Every value carries a nearby sample or interpretation qualifier.
 - **Coverage:** Present completeness, freshness, Sample Size, included listing states, and observation basis as structured content with plain-language status. Never use a colored side stripe.
+- **Listing density:** Complete coverage may collapse to its visible status; partial or unknown coverage opens with its explanation. Save/share uses a separate named disclosure so cars remain near the top of the page.
 - **Interpretation:** A concise computed market signal may precede a trend chart, but it must state the observed window, latest sample, and a vehicle-mix caveat.
 
 ### Data Visualizations
@@ -276,6 +278,8 @@ Components are dense, familiar, and precise. Their visual personality comes from
 - **Context:** Every chart carries a plain-language title, unit, time scope, Sample Size or coverage context where relevant, and an accessible summary or exact-data table when practical.
 - **Interaction:** Tooltips reveal precise values without hiding the overall pattern. Legends sit near the data and wrap on narrow screens.
 - **Loading / Empty:** Use skeletons for loading and explanatory empty states that help users adjust scope or understand missing evidence.
+- **Comparison tables:** Keep two cars readable side by side on phones. Wider comparisons scroll inside a named, keyboard-focusable region with sticky detail labels. Reference and differences-only choices travel in the URL and through detail navigation. One-car and identical-field states explain what is shown.
+- **Refresh:** Keep previously loaded saved-car observations visible while refreshing or after a failure, with explicit state text and their observation dates. A successful response replaces them, including when a car is no longer available.
 
 ## Do's and Don'ts
 

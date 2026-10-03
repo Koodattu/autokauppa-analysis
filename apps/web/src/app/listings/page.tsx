@@ -23,8 +23,11 @@ import {
 import { MarketFilterForm, type PageSearchParams } from "../market-filter-form";
 import { MarketCoverage } from "../market-coverage";
 import { SiteHeader } from "../site-header";
+import { selectedFilterLabels } from "@/lib/market-scope";
+import { ListingSort } from "./listing-sort";
 import {
   resolveListingNavigation,
+  singleSearchParam,
   type ListingNavigation,
 } from "@/lib/url-filter-navigation";
 
@@ -54,7 +57,6 @@ export default async function ListingsPage({ searchParams }: PageProps) {
       <SiteHeader active="listings" />
       <section className="page-heading compact-heading">
         <div className="heading-copy">
-          <span className="heading-context">Listing evidence</span>
           <h1>Matching listings</h1>
           <p className="heading-meta">
             {formatNumber(listings.pagination.totalItems)} results in this market scope · observed through {formatDateTime(listings.coverage.lastRelevantCrawlAt)}
@@ -65,33 +67,35 @@ export default async function ListingsPage({ searchParams }: PageProps) {
         </Link>
       </section>
 
-      <MarketFilterForm
-        key={navigation.queryString}
-        action="/listings"
-        filters={filters}
-        params={params}
-        variant="listings"
-      />
+      <section className="listing-controls" aria-label="Search scope">
+        <p className="listing-scope">{selectedFilterLabels({ ...params, sort: undefined }, "listings").join(" · ")}</p>
+        <details className="listing-filter-editor" key={navigation.queryString}>
+          <summary>Change filters</summary>
+          <MarketFilterForm action="/listings" filters={filters} params={params} variant="listings" resultAnchor="listing-results" />
+        </details>
+        <details className="listing-save">
+          <summary>Save or share this search</summary>
+          <SaveSearch href={navigation.pageHref(listings.pagination.page)} title="Car search" />
+        </details>
+      </section>
 
-      <MarketCoverage coverage={listings.coverage} title="Result coverage" />
-      <SaveSearch href={navigation.pageHref(listings.pagination.page)} title="Car search" />
+      <MarketCoverage coverage={listings.coverage} title="Result coverage" compact />
 
-      <section className="table-wrap listing-results" aria-label="Listings">
+      <section id="listing-results" className="table-wrap listing-results" aria-label="Listings">
         <div className="section-heading">
           <div>
             <h2>Listings</h2>
             <p>Observed asking prices and availability—not completed transactions.</p>
           </div>
-          <span>
-            {formatNumber(listings.pagination.totalItems)} total · page {listings.pagination.page} of {listings.pagination.totalPages}
-          </span>
+          <ListingSort key={navigation.queryString} href={navigation.pageHref(listings.pagination.page)} />
         </div>
+        <p className="listing-page-count">{formatNumber(listings.pagination.totalItems)} total · page {listings.pagination.page} of {listings.pagination.totalPages}</p>
         {listings.items.length === 0 ? (
           <div className="empty-state">
             <h2>No matching listings</h2>
             <p>Widen the year, price, or mileage range to bring more evidence into view.</p>
             <div className="empty-actions">
-              <Link className="button-link" href="/listings">
+              <Link className="button-link" href={`/listings?sort=${encodeURIComponent(singleSearchParam(params.sort))}#listing-results`}>
                 Reset filters
               </Link>
               <Link className="button-link secondary-button" href={navigation.analyticsHref}>
@@ -231,7 +235,7 @@ function Pagination({
   return (
     <nav className="pagination" aria-label="Listings pagination">
       {page > 1 ? (
-        <Link className="button-link secondary-button" href={navigation.pageHref(page - 1)} rel="prev">
+        <Link className="button-link secondary-button" href={`${navigation.pageHref(page - 1)}#listing-results`} rel="prev">
           Previous
         </Link>
       ) : (
@@ -241,7 +245,7 @@ function Pagination({
         {page} / {totalPages}
       </span>
       {page < totalPages ? (
-        <Link className="button-link secondary-button" href={navigation.pageHref(page + 1)} rel="next">
+        <Link className="button-link secondary-button" href={`${navigation.pageHref(page + 1)}#listing-results`} rel="next">
           Next
         </Link>
       ) : (

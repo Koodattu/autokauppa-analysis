@@ -1,14 +1,22 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { PublicListingDetailResponse } from "@/lib/api";
+import { compareHref } from "@/lib/saved-views";
+import { ShareLink } from "../saved-workspace";
 import { formatCurrency, formatListingPrice, formatDate, formatKm, labelAvailability } from "@/lib/format";
 
 export function VehicleComparison({ cars }: { cars: PublicListingDetailResponse[] }) {
-  const [differences, setDifferences] = useState(false);
-  const [reference, setReference] = useState(cars[0]?.listing.listingId);
+  const params = useSearchParams();
   if (!cars.length) return null;
-  const baseline = cars.find((car) => car.listing.listingId === reference) ?? cars[0];
+  const differences = cars.length > 1 && params.get("differences") === "1";
+  const baseline = cars.find((car) => car.listing.listingId === params.get("reference")) ?? cars[0];
+  const reference = baseline.listing.listingId;
+  const ids = cars.map((car) => car.listing.listingId);
+  const href = compareHref(ids, { reference, differences });
+  function updateView(view: { reference?: string; differences?: boolean }) {
+    window.history.pushState(null, "", compareHref(ids, { reference, differences, ...view }));
+  }
   const rows: Array<[string, (car: PublicListingDetailResponse) => string]> = [
     ["Price", (car) => formatListingPrice(car.listing.askingPriceEur ?? car.listing.observedSoldPriceEur)],
     ["Difference from reference", (car) => {
@@ -37,10 +45,21 @@ export function VehicleComparison({ cars }: { cars: PublicListingDetailResponse[
     ["Comparable median", (car) => `${formatCurrency(car.marketContext.medianPriceEur)} (${car.marketContext.sampleSize} prices)`],
     ["Equipment", (car) => car.vehicleDetails?.equipmentGroups.flatMap((group) => group.items).sort().join(" · ") || "Not recorded"],
   ];
-  return <section className="panel"><div className="comparison-controls"><label><input type="checkbox" checked={differences} onChange={(e) => setDifferences(e.target.checked)} /> Show differences only</label>
-    <label>Reference car <select value={reference} onChange={(e) => setReference(e.target.value)}>{cars.map((car) => <option key={car.listing.listingId} value={car.listing.listingId}>{car.listing.make} {car.listing.model} {car.listing.yearModel} · {formatListingPrice(car.listing.askingPriceEur ?? car.listing.observedSoldPriceEur)}</option>)}</select></label></div>
-    <div className="chart-table-wrap"><table className="chart-table vehicle-comparison"><thead><tr><th scope="col">Detail</th>{cars.map((car) => <th scope="col" key={car.listing.listingId}><Link href={`/listings/${car.listing.listingId}`}>{car.listing.make} {car.listing.model} {car.listing.yearModel}</Link></th>)}</tr></thead>
-    <tbody>{rows.filter(([, value]) => !differences || new Set(cars.map(value)).size > 1).map(([label, value]) => <tr key={label}><th scope="row">{label}</th>{cars.map((car) => <td key={car.listing.listingId}>{value(car)}</td>)}</tr>)}</tbody></table></div>
-    <p className="muted">Unknown equipment does not mean absent. Each car’s market comparison uses its own peer group. Sold listing prices are not transaction prices.</p>
+  const visibleRows = rows.filter(([, value]) => !differences || new Set(cars.map(value)).size > 1);
+  return <section className="panel" id="car-comparison"><div className="comparison-controls"><label><input type="checkbox" checked={differences} disabled={cars.length < 2} onChange={(e) => updateView({ differences: e.target.checked })} /> Show differences only</label>
+    <label>Reference car <select value={reference} onChange={(e) => updateView({ reference: e.target.value })}>{cars.map((car) => <option key={car.listing.listingId} value={car.listing.listingId}>{car.listing.make} {car.listing.model} {car.listing.yearModel} · {formatListingPrice(car.listing.askingPriceEur ?? car.listing.observedSoldPriceEur)}</option>)}</select></label>
+    <ShareLink href={href} /></div>
+    {cars.length === 1 && <p><Link href="/listings">Choose another car to compare</Link>. All recorded details are shown for this car.</p>}
+    {cars.length > 2 && <p className="muted comparison-scroll-hint">Scroll the table sideways to compare all {cars.length} cars. Detail labels stay visible.</p>}
+    <div className="chart-table-wrap" role="region" aria-label="Car comparison table" tabIndex={0}><table className="chart-table vehicle-comparison" style={cars.length > 2 ? { minWidth: 110 + cars.length * 150 } : undefined}>
+      <colgroup><col className="comparison-label-column" />{cars.map((car) => <col key={car.listing.listingId} />)}</colgroup>
+      <thead><tr><th scope="col">Detail</th>{cars.map((car) => <th scope="col" key={car.listing.listingId}><Link className="comparison-car-title" href={`/listings/${car.listing.listingId}?returnTo=${encodeURIComponent(`${href}#car-comparison`)}`}>{car.listing.make} {car.listing.model} {car.listing.yearModel}</Link>{car.listing.listingId === reference && <small className="comparison-reference">Reference</small>}
+        <Link className="comparison-remove" aria-label={`Remove ${car.listing.make} ${car.listing.model} ${car.listing.yearModel} from this comparison`}
+          href={`${compareHref(ids.filter((id) => id !== car.listing.listingId), { reference, differences })}${cars.length > 1 ? "#car-comparison" : ""}`}>Remove</Link>
+      </th>)}</tr></thead>
+    <tbody>{visibleRows.map(([label, value]) => <tr key={label}><th scope="row">{label}</th>{cars.map((car) => <td key={car.listing.listingId}>{value(car)}</td>)}</tr>)}
+      {visibleRows.length === 0 && <tr><td colSpan={cars.length + 1}><p>No recorded differences in these fields. Missing details may still differ.</p><button className="secondary-button" onClick={() => updateView({ differences: false })}>Show all details</button></td></tr>}
+    </tbody></table></div>
+    <p className="muted">Unknown equipment does not mean absent. Each car’s market comparison uses its own peer group. Sold listing prices are not transaction prices. Removing a car from this view keeps your saved cars and selection.</p>
   </section>;
 }

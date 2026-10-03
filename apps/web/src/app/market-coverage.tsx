@@ -4,18 +4,15 @@ import { formatDateTime, formatNumber } from "@/lib/format";
 export function MarketCoverage({
   coverage,
   title = "Data coverage",
+  compact = false,
 }: {
   coverage: CoverageMetadata;
   title?: string;
+  compact?: boolean;
 }) {
   const status = coverageStatus(coverage.completeness);
 
-  return (
-    <section
-      className={`market-coverage coverage-${coverage.completeness}`}
-      aria-label={title}
-      role={coverage.completeness === "complete" ? undefined : "status"}
-    >
+  const content = <>
       <div className="coverage-summary">
         <span className="coverage-symbol" aria-hidden="true">
           {coverage.completeness === "complete" ? <CheckIcon /> : <InfoIcon />}
@@ -35,8 +32,15 @@ export function MarketCoverage({
         <CoverageFact label="Includes" value={includedListings(coverage)} />
         <CoverageFact label="Basis" value={dataBasis(coverage.dataSource)} />
       </dl>
-    </section>
-  );
+  </>;
+  if (compact) {
+    return <details className={`market-coverage compact-coverage coverage-${coverage.completeness}`} open={coverage.completeness !== "complete"}>
+      <summary><span className={`status-badge ${status.tone}`}>{status.label}</span> {title.toLowerCase()}</summary>
+      {content}
+    </details>;
+  }
+  return <section className={`market-coverage coverage-${coverage.completeness}`} aria-label={title}
+    role={coverage.completeness === "complete" ? undefined : "status"}>{content}</section>;
 }
 
 function CoverageFact({ label, value }: { label: string; value: string }) {

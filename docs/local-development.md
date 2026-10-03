@@ -78,6 +78,7 @@ Useful manual checks:
 
 - Listings → Current + sold → Recently observed: 60 results; page and saved-view
   links retain both choices.
+- Change filters, then sort beside the results: filters stay selected and the old page resets. Reset filters retains the chosen sort. Pagination and a listing's return link land at the results below the sticky navigation.
 - Analyze → add comparison → page comparison evidence: the primary page stays
   unchanged. Use September 2026 for historical fixture observations.
 - Open each group's cars/dates editor, compare September with October 2026,
@@ -87,7 +88,8 @@ Useful manual checks:
 - Lookup `not-a-listing`, then correct to `9000000`: input survives validation
   and the listing shows two observations and a €1,000 reduction.
 - Save five cars, choose two for comparison, then clear selection: all five saved cars remain. Reopen Saved & compare to inspect stored price, availability and observation dates; Refresh evidence retrieves the latest stored values.
-- Compare two cars, choose a reference and differences only. Save a named research view and reopen it.
+- Compare two cars, choose a reference and differences only, copy/reopen the link and follow a car's detail/return link: the choices persist. Remove the reference car from the comparison: the remaining car becomes the reference and shows all details. At 320px two cars fit; with four cars the table scrolls horizontally by keyboard while detail labels stay visible.
+- Save a named research view and reopen it. With saved evidence already loaded, stop only the local API and choose Refresh evidence: previous prices/dates remain with an explicit failure and Retry. Restart the API and retry to replace the observations.
 - Download a historical evidence page and an independent comparison page: each CSV contains exactly the displayed rows, its own filters/dates, and the correct price basis.
 - At a narrow viewport, scroll a selected listing to its final source details;
   the comparison tray leaves them reachable.

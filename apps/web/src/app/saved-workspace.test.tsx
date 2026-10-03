@@ -90,6 +90,35 @@ describe("saved research views", () => {
 });
 
 describe("saved cars and comparison", () => {
+  it("retains observed evidence while refreshing and after failure, then replaces it on a successful retry", async () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+    const listing = { listingId: id, make: "Toyota", model: "Corolla", yearModel: 2020, availability: "active", askingPriceEur: 17000,
+      observedSoldPriceEur: null, mileageKm: 80000, lastSeenAt: "2026-10-02T10:00:00Z" };
+    localStorage.setItem(key, JSON.stringify({ cars: [], shortlist: [{ id, title: "Toyota Corolla" }], searches: [] }));
+    let rejectRefresh!: (error: Error) => void;
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ items: [listing] }))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRefresh = reject; }))
+      .mockResolvedValueOnce(Response.json({ items: [{ ...listing, askingPriceEur: 16500 }] }));
+    root = createRoot(container);
+    await act(async () => root!.render(<SavedWorkspace />));
+    const button = (text: string) => [...container.querySelectorAll("button")].find((item) => item.textContent === text)!;
+    expect(container.textContent).toContain("17\u00a0000 €");
+    await act(async () => button("Refresh evidence").click());
+    expect(container.textContent).toContain("17\u00a0000 €");
+    expect(container.textContent).toContain("Refreshing latest evidence");
+    await act(async () => rejectRefresh(new TypeError("offline")));
+    expect(container.textContent).toContain("17\u00a0000 €");
+    expect(container.textContent).toContain("2 Oct 2026");
+    expect(container.textContent).toContain("Showing previously loaded observations");
+    await act(async () => button("Retry").click());
+    expect(container.textContent).toContain("16\u00a0500 €");
+    expect(container.textContent).not.toContain("17\u00a0000 €");
+    expect(container.textContent).not.toContain("previously loaded");
+    await act(async () => button("Refresh evidence").click());
+    expect(container.textContent).toContain("No longer available in this dataset");
+    expect(container.textContent).not.toContain("16\u00a0500 €");
+  });
+
   it("can remove an unsaved comparison candidate individually without clearing the shortlist", async () => {
     const candidate = { id: "00000000-0000-4000-8000-000000000001", title: "Comparison only" };
     const saved = { id: "00000000-0000-4000-8000-000000000002", title: "Keep saved" };

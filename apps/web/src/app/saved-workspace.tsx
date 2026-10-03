@@ -118,7 +118,7 @@ export function SavedWorkspace() {
 function SavedCars({ cars }: { cars: SavedState["shortlist"] }) {
   const ids = cars.map((car) => car.id).join(",");
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ ids: string; items: ListingSummary[]; error: boolean } | null>(null);
+  const [result, setResult] = useState<{ ids: string; attempt: number; items: ListingSummary[]; error: boolean } | null>(null);
   useEffect(() => {
     if (!ids) return;
     const request = new AbortController();
@@ -129,24 +129,26 @@ function SavedCars({ cars }: { cars: SavedState["shortlist"] }) {
         });
         if (!response.ok) throw new Error("Summary request failed");
         const data = listingSummariesResponseSchema.parse(await response.json());
-        if (!request.signal.aborted) setResult({ ids, items: data.items, error: false });
+        if (!request.signal.aborted) setResult({ ids, attempt, items: data.items, error: false });
       } catch {
-        if (!request.signal.aborted) setResult({ ids, items: [], error: true });
+        if (!request.signal.aborted) setResult((previous) => ({ ids, attempt, items: previous?.ids === ids ? previous.items : [], error: true }));
       }
     }
     void load();
     return () => request.abort();
   }, [ids, attempt]);
   const current = result?.ids === ids ? result : null;
-  function refresh() { setResult(null); setAttempt((value) => value + 1); }
+  const pending = !current || current.attempt !== attempt;
+  function refresh() { setAttempt((value) => value + 1); }
 
   return <div className="saved-cars">
     <div className="saved-section-heading"><h3>Saved cars · {cars.length} / {MAX_SAVED_CARS}</h3>
-      {cars.length > 0 && current && !current.error && <button className="secondary-button" onClick={refresh}>Refresh evidence</button>}
+      {cars.length > 0 && current && !current.error && <button className="secondary-button" disabled={pending} onClick={refresh}>Refresh evidence</button>}
     </div>
     {!cars.length ? <p>No saved cars yet. <Link href="/listings">Find cars</Link> and choose Save car to keep candidates here.</p> : <>
-      <p className="muted">Latest stored prices and availability, with the date each car was observed. Sold listing prices are not confirmed transactions.</p>
-      <div role="status">{!current ? <p>Loading latest evidence…</p> : current.error ? <p>Latest evidence could not be loaded. Your saved cars are still here. <button className="secondary-button" onClick={refresh}>Retry</button></p> : null}</div>
+      <p className="muted">Stored prices and availability, with the date each car was observed. Sold listing prices are not confirmed transactions.</p>
+      <div role="status">{pending ? <p>{current?.items.length ? "Refreshing latest evidence… Previously loaded observations remain visible." : "Loading latest evidence…"}</p>
+        : current.error ? <p>{current.items.length ? "Refresh failed. Showing previously loaded observations." : "Latest evidence could not be loaded. Your saved cars are still here."} <button className="secondary-button" onClick={refresh}>Retry</button></p> : null}</div>
       <ul className="saved-car-list">{cars.map((car) => {
         const listing = current?.items.find((item) => item.listingId === car.id);
         const price = listing?.availability === "sold" ? listing.observedSoldPriceEur : listing?.askingPriceEur;

@@ -16,7 +16,7 @@ type MarketFilterFormProps = {
   params: PageSearchParams;
   variant: "analytics" | "listings";
   comparisonBase?: string;
-  resultAnchor?: "primary-research" | "comparison-research";
+  resultAnchor?: "primary-research" | "comparison-research" | "listing-results";
 };
 
 export function MarketFilterForm({ action, filters, params, variant, comparisonBase, resultAnchor }: MarketFilterFormProps) {
@@ -38,6 +38,7 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
   const advancedCount = countAdvancedFilters(params);
   const selectedCount = countSelectedFilters(params, variant);
   const resetParams = new URLSearchParams(comparisonBase ?? "");
+  if (action === "/listings" && single(params.sort)) resetParams.set("sort", single(params.sort));
   for (const key of [...resetParams.keys()]) if (key.startsWith("compare")) resetParams.delete(key);
   if (comparisonBase !== undefined) resetParams.set("comparing", "1");
   if (comparisonBase === undefined && action === "/analyze") {
@@ -180,7 +181,7 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
         </div>
       ) : null}
 
-      <div className={`primary-filters ${variant === "listings" ? "with-sort" : ""}`}>
+      <div className="primary-filters">
         <FilterField label="Make">
           <select name="make" value={selectedMake} onChange={(event) => void selectMake(event.target.value)}>
             <option value="">All makes</option>
@@ -229,28 +230,8 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
           </select>
         </FilterField>
         {variant === "listings" ? (
-          <FilterField label="Sort">
-            <select name="sort" defaultValue={single(params.sort) || "firstSeenDesc"}>
-              <option value="firstSeenDesc">First observed: newest</option>
-              <option value="priceReductionDesc">Largest recorded reduction</option>
-              <option value="lastSeenDesc">Recently observed</option>
-              <option value="sourceUpdatedDesc">Recently updated</option>
-              <option value="priceAsc">Lowest price</option>
-              <option value="priceDesc">Highest price</option>
-              <option value="mileageAsc">Lowest mileage</option>
-              <option value="mileageDesc">Highest mileage</option>
-              <option value="yearDesc">Newest model year</option>
-            </select>
-          </FilterField>
+          <input type="hidden" name="sort" value={single(params.sort) || "firstSeenDesc"} />
         ) : null}
-        {variant === "listings" && <div className="filter-submit">
-          <button type="submit" disabled={isPending}>
-            {isPending ? "Updating…" : "Show listings"}
-          </button>
-          <span className="sr-only" role="status" aria-live="polite">
-            {isPending ? "Updating the selected market" : ""}
-          </span>
-        </div>}
       </div>
 
       <div
@@ -415,10 +396,10 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
           </fieldset>
         </div>
       </details>
-      {variant === "analytics" && <div className="research-filter-submit">
-        <button type="submit" disabled={isPending}>{isPending ? "Updating…" : "Apply cars and dates"}</button>
-        <span role="status" className="muted">{isPending ? "Updating the selected research group…" : "Model year describes the car; dates describe when it was observed."}</span>
-      </div>}
+      <div className="filter-actions">
+        <button type="submit" disabled={isPending}>{isPending ? "Updating…" : variant === "analytics" ? "Apply cars and dates" : "Show listings"}</button>
+        <span role="status" className="muted">{isPending ? "Updating the selected cars…" : variant === "analytics" ? "Model year describes the car; dates describe when it was observed." : ""}</span>
+      </div>
     </form>
   );
 }
@@ -469,7 +450,7 @@ function countSelectedFilters(params: PageSearchParams, variant: MarketFilterFor
     "bodyType",
     "activity",
     "sellerType",
-    ...(variant === "analytics" ? ["from", "to", "interval"] : ["sort"]),
+    ...(variant === "analytics" ? ["from", "to", "interval"] : []),
   ];
   return keys.filter((key) => {
     const value = single(params[key]);

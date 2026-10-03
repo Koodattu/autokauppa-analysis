@@ -16,6 +16,7 @@ describe("URL Filter navigation", () => {
     const back = new URL(detail.searchParams.get("returnTo")!, "https://example.test");
     expect(back.searchParams.get("availability")).toBe("all");
     expect(back.searchParams.get("sort")).toBe("lastSeenDesc");
+    expect(back.hash).toBe("#listing-results");
   });
 
   it("projects an Analysis Query into request, metadata, and Listing View navigation", () => {
@@ -72,7 +73,7 @@ describe("URL Filter navigation", () => {
       "/listings?make=Honda&model=Civic&page=3&sort=priceAsc&availability=all",
     );
     expect(navigation?.detailHref("abc 1")).toBe(
-      "/listings/abc%201?returnTo=%2Flistings%3Fmake%3DHonda%26model%3DCivic%26page%3D2%26sort%3DpriceAsc%26availability%3Dall",
+      "/listings/abc%201?returnTo=%2Flistings%3Fmake%3DHonda%26model%3DCivic%26page%3D2%26sort%3DpriceAsc%26availability%3Dall%23listing-results",
     );
   });
 
@@ -86,6 +87,7 @@ describe("URL Filter navigation", () => {
       "/listings?make=Honda&model=Civic&page=2",
     );
     expect(safeListingsReturnHref("/listings")).toBe("/listings");
+    expect(safeListingsReturnHref("/listings?make=Toyota&page=2#listing-results")).toBe("/listings?make=Toyota&page=2#listing-results");
   });
 
   it.each([
@@ -103,5 +105,13 @@ describe("URL Filter navigation", () => {
   it("rejects repeated and missing return destinations", () => {
     expect(safeListingsReturnHref(["/listings", "/listings?make=Honda"])).toBe("/listings");
     expect(safeListingsReturnHref(undefined)).toBe("/listings");
+  });
+
+  it("returns only to the local comparison view and its known evidence anchor", () => {
+    const href = "/compare?ids=a,b&reference=b&differences=1#car-comparison";
+    expect(safeListingsReturnHref(href)).toBe(href);
+    for (const rejected of ["https://example.test/compare", "//example.test/compare", "/compare/../admin", "/compare#unknown", "/compare/elsewhere"]) {
+      expect(safeListingsReturnHref(rejected)).toBe("/listings");
+    }
   });
 });
