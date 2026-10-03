@@ -56,7 +56,7 @@ export function HistoricalPriceVisual({ data }: { data: Charts["marketOverTime"]
             minTickGap={32}
             {...axisProps}
           />
-          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrencyCompact} width={72} {...axisProps} />
+          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrency} allowDecimals={false} width={88} {...axisProps} />
           <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={formatObservedDate} />} />
           <Line
             type="monotone"
@@ -105,7 +105,7 @@ export function PriceByYearVisual({ data }: { data: Charts["priceByYear"] }) {
             minTickGap={18}
             {...axisProps}
           />
-          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrencyCompact} width={72} {...axisProps} />
+          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrency} allowDecimals={false} width={88} {...axisProps} />
           <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={String} />} />
           <Area
             type="monotone"
@@ -165,7 +165,7 @@ export function PriceByMileageVisual({ data }: { data: Charts["priceByMileageBuc
             minTickGap={34}
             {...axisProps}
           />
-          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrencyCompact} width={72} {...axisProps} />
+          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrency} allowDecimals={false} width={88} {...axisProps} />
           <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={formatKmBucket} />} />
           <Area
             type="monotone"
@@ -358,10 +358,6 @@ function withBucketTime<T extends { bucket: string }>(data: T[]) {
 
 function formatTimeAxis(value: number) {
   return formatDate(value);
-}
-
-function formatCurrencyCompact(value: number) {
-  return `${formatNumberCompact(value)} €`;
 }
 
 function formatKmCompact(value: number) {

@@ -1136,12 +1136,12 @@ async function getMarketOverTime(sql: Sql, filters: ListingFiltersQuery): Promis
         run_bucket.includes_current_run as "includesCurrentRun",
         run_bucket.includes_sold_run as "includesSoldRun",
         (percentile_cont(0.5) within group (order by snapshot.asking_price_eur)
-          filter (where snapshot.asking_price_eur is not null))::int as "medianAskingPriceEur",
+          filter (where snapshot.asking_price_eur > 0))::int as "medianAskingPriceEur",
         (percentile_cont(0.5) within group (order by snapshot.observed_sold_price_eur)
-          filter (where snapshot.observed_sold_price_eur is not null))::int as "medianObservedSoldPriceEur",
+          filter (where snapshot.observed_sold_price_eur > 0))::int as "medianObservedSoldPriceEur",
         count(distinct snapshot.listing_id)::int as "sampleSize",
-        count(snapshot.asking_price_eur)::int as "askingPriceSampleSize",
-        count(snapshot.observed_sold_price_eur)::int as "observedSoldPriceSampleSize"
+        count(*) filter (where snapshot.asking_price_eur > 0)::int as "askingPriceSampleSize",
+        count(*) filter (where snapshot.observed_sold_price_eur > 0)::int as "observedSoldPriceSampleSize"
       from run_buckets run_bucket
       left join bucketed_snapshots snapshot on snapshot.bucket_start = run_bucket.bucket_start
       group by run_bucket.bucket_start, run_bucket.includes_current_run, run_bucket.includes_sold_run

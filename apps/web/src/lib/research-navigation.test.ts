@@ -1,9 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { cloneComparisonHref, comparisonParams, researchHref, researchQuery } from "./research-navigation";
+import { cloneComparisonHref, comparisonParams, researchHref, researchQuery, swapResearchHref, researchListingHref } from "./research-navigation";
+import { safeListingsReturnHref } from "./url-filter-navigation";
 import { parseCompareIds, parseSavedState } from "./saved-views";
 import { sourceListingId } from "./listing-lookup";
 
 describe("price research navigation", () => {
+  it("swaps complete research groups including their independent evidence pages", () => {
+    const params = { make: "Honda", availability: "sold", from: "2026-09-01", page: "2", comparing: "1", compareMake: "Toyota", compareAvailability: "current", compareTo: "2026-10-02", comparePage: "3" };
+    const swapped = Object.fromEntries(new URL(swapResearchHref(params), "https://example.test").searchParams);
+    expect(swapped).toMatchObject({ make: "Toyota", availability: "current", to: "2026-10-02", page: "3", comparing: "1", compareMake: "Honda", compareAvailability: "sold", compareFrom: "2026-09-01", comparePage: "2" });
+    expect(swapped.from).toBeUndefined();
+    expect(swapped.compareTo).toBeUndefined();
+  });
+
+  it("returns from a listing to the exact comparison evidence and rejects unrelated destinations", () => {
+    const params = { make: "Honda", page: "2", comparing: "1", compareMake: "Toyota", compareFrom: "2026-09-01", comparePage: "3" };
+    const link = new URL(researchListingHref("car-id", params, true), "https://example.test");
+    expect(link.pathname).toBe("/listings/car-id");
+    const returnTo = link.searchParams.get("returnTo")!;
+    expect(safeListingsReturnHref(returnTo)).toBe("/analyze?make=Honda&page=2&comparing=1&compareMake=Toyota&compareFrom=2026-09-01&comparePage=3#comparison-evidence");
+    for (const value of ["//evil.test/analyze", "/analyze/../admin", "/analyze#unrelated", "/analyze\\evil", "https://evil.test/analyze"]) {
+      expect(safeListingsReturnHref(value)).toBe("/listings");
+    }
+  });
+
   it("pages comparison evidence without replacing the primary group or its evidence page", () => {
     const href = researchHref({ make: "Toyota", page: "2", comparing: "1", compareAvailability: "all", comparePage: "1" }, { page: 2 }, true);
     const params = Object.fromEntries(new URL(href, "https://example.test").searchParams);

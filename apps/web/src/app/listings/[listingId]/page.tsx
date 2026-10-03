@@ -64,7 +64,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
       <SiteHeader active="listings" />
 
       <nav className="breadcrumb" aria-label="Breadcrumb">
-        <Link href={listingsHref}>{listingsHref === "/listings" ? "Listings" : "Matching listings"}</Link>
+        <Link href={listingsHref}>{listingsHref.startsWith("/analyze") ? "Back to price research" : listingsHref === "/listings" ? "Listings" : "Matching listings"}</Link>
         <span aria-hidden="true">/</span>
         <span>{data.listing.sourceListingId}</span>
       </nav>

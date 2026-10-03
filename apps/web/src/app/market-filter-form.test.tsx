@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilterMetadata } from "@nettiauto/schemas";
 import { MarketFilterForm } from "./market-filter-form";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 const filters: FilterMetadata = {
   makes: ["Honda", "Toyota"], models: [], yearRange: { min: 2000, max: 2026 },
@@ -15,6 +16,7 @@ let container: HTMLDivElement;
 let root: Root | undefined;
 
 beforeEach(async () => {
+  push.mockClear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
@@ -39,6 +41,35 @@ async function selectMake(value: string) {
 }
 
 describe("market model options", () => {
+  it("applies dates within the edited group and returns to that result while preserving the other group", async () => {
+    await act(async () => { root!.render(<MarketFilterForm key="comparison" action="/analyze" variant="analytics" filters={filters}
+      params={{ make: "Toyota", availability: "sold", from: "2026-09-01", to: "2026-09-30" }}
+      comparisonBase="make=Honda&availability=current&page=2&comparing=1&compareMake=Toyota&comparePage=3" resultAnchor="comparison-research" />); });
+    const from = container.querySelector<HTMLInputElement>('[name="from"]')!;
+    const to = container.querySelector<HTMLInputElement>('[name="to"]')!;
+    from.value = "2026-10-01"; to.value = "2026-10-02";
+    await act(async () => { container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    const url = new URL(push.mock.calls[0][0], "https://example.test");
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ make: "Honda", availability: "current", page: "2", comparing: "1", compareMake: "Toyota", compareAvailability: "sold", compareFrom: "2026-10-01", compareTo: "2026-10-02" });
+    expect(url.searchParams.has("comparePage")).toBe(false);
+    expect(url.hash).toBe("#comparison-research");
+    // Invalid dates retain the user's values and focus the correction rather than navigating.
+    push.mockClear(); from.value = "2026-11-01";
+    await act(async () => { container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(push).not.toHaveBeenCalled();
+    expect(from.value).toBe("2026-11-01");
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(document.activeElement?.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("resets only the primary research group and retains the comparison", async () => {
+    await act(async () => { root!.render(<MarketFilterForm action="/analyze" variant="analytics" filters={filters}
+      params={{ make: "Honda", from: "2026-09-01", comparing: "1", compareMake: "Toyota", compareFrom: "2026-10-01", comparePage: "2" }} />); });
+    const reset = container.querySelector<HTMLAnchorElement>(".filter-reset")!;
+    const url = new URL(reset.href);
+    expect(Object.fromEntries(url.searchParams)).toEqual({ comparing: "1", compareMake: "Toyota", compareFrom: "2026-10-01", comparePage: "2" });
+  });
+
   it("recovers from a stalled request and retries without losing the selected make", async () => {
     const deadline = new AbortController();
     vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);

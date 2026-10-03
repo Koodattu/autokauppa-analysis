@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ResearchResponse } from "@nettiauto/schemas";
-import { ResearchEvidence } from "./research-results";
+import { ResearchEvidence, ResearchSummary } from "./research-results";
 
 function evidence(): ResearchResponse {
   return {
@@ -24,7 +24,34 @@ function download(data: ResearchResponse, comparison = false) {
   return { link: link!, csv: decodeURIComponent(link!.getAttribute("href")!.split(",").slice(1).join(",")), text: container.textContent };
 }
 
-describe("research evidence download", () => {
+describe("research results and evidence download", () => {
+  it("explains a current scope with no priced matches without inventing observation dates or ranges", () => {
+    const data = evidence();
+    data.mode = "current";
+    data.observedFrom = null; data.observedTo = null;
+    data.summary = { count: 0, median: null, p25: null, p75: null, medianMileage: null, medianYear: null };
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<ResearchSummary data={data} title="Selected prices" params={{ priceMax: "1" }} id="primary-research" />);
+    expect(container.textContent).toContain("No priced listings match these filters");
+    expect(container.textContent).not.toContain("last observed –");
+    expect(container.textContent).not.toContain("–––");
+  });
+
+  it.each([false, true])("keeps listing returns and page changes at their research evidence (comparison: %s)", (comparison) => {
+    const params = { make: "Honda", page: "2", comparing: "1", compareMake: "Toyota", compareFrom: "2026-09-01", comparePage: "2" };
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<ResearchEvidence data={evidence()} params={params} comparison={comparison} />);
+    const anchor = comparison ? "#comparison-evidence" : "#research-evidence";
+    const listing = container.querySelector<HTMLAnchorElement>('a[href^="/listings/"]')!;
+    const returnTo = new URL(listing.href).searchParams.get("returnTo")!;
+    expect(returnTo).toBe(`/analyze?${new URLSearchParams(params)}${anchor}`);
+    expect(listing.target).toBe("_blank");
+    const previous = container.querySelector<HTMLAnchorElement>(".pagination a")!;
+    expect(previous.hash).toBe(anchor);
+    expect(new URL(previous.href).searchParams.get(comparison ? "comparePage" : "page")).toBe("1");
+    expect(new URL(previous.href).searchParams.get(comparison ? "page" : "comparePage")).toBe("2");
+  });
+
   it("downloads only displayed comparison rows with their historical values, scope and coverage", () => {
     const { link, csv, text } = download(evidence(), true);
     expect(link.download).toBe("nettiauto-comparison-historical-page-2.csv");

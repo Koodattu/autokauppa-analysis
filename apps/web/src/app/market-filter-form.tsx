@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useId, useRef, useState, useTransition } fro
 import { analysisQueryUrlFilter, listingSearchUrlFilter } from "@nettiauto/schemas";
 import type { FilterMetadata } from "@/lib/api";
 import { formatPageFilters, singleSearchParam as single, type WebSearchParams } from "@/lib/url-filter-navigation";
+import { selectedFilterLabels } from "@/lib/market-scope";
 
 export type PageSearchParams = WebSearchParams;
 
@@ -15,9 +16,10 @@ type MarketFilterFormProps = {
   params: PageSearchParams;
   variant: "analytics" | "listings";
   comparisonBase?: string;
+  resultAnchor?: "primary-research" | "comparison-research";
 };
 
-export function MarketFilterForm({ action, filters, params, variant, comparisonBase }: MarketFilterFormProps) {
+export function MarketFilterForm({ action, filters, params, variant, comparisonBase, resultAnchor }: MarketFilterFormProps) {
   const router = useRouter();
   const formId = useId();
   const initialMake = single(params.make);
@@ -33,12 +35,17 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
   const [isPending, startTransition] = useTransition();
   const modelRequest = useRef<AbortController | null>(null);
   useEffect(() => () => modelRequest.current?.abort(), []);
-  const advancedCount = countAdvancedFilters(params, variant);
+  const advancedCount = countAdvancedFilters(params);
   const selectedCount = countSelectedFilters(params, variant);
   const resetParams = new URLSearchParams(comparisonBase ?? "");
   for (const key of [...resetParams.keys()]) if (key.startsWith("compare")) resetParams.delete(key);
   if (comparisonBase !== undefined) resetParams.set("comparing", "1");
-  const resetHref = comparisonBase !== undefined ? `/analyze?${resetParams}` : action;
+  if (comparisonBase === undefined && action === "/analyze") {
+    for (const [key, value] of Object.entries(params)) {
+      if (key.startsWith("compar") && typeof value === "string") resetParams.set(key, value);
+    }
+  }
+  const resetHref = (resetParams.size ? `${action}?${resetParams}` : action) + (resultAnchor ? `#${resultAnchor}` : "");
   const selectedFilters = selectedFilterLabels(params, variant);
   const validationProps = (name: string) =>
     invalidFields.includes(name)
@@ -101,6 +108,7 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
       className="filter-surface"
       action={action}
       method="get"
+      aria-label={comparisonBase !== undefined ? "Comparison research filters" : action === "/analyze" ? "Primary research filters" : "Listing filters"}
       aria-busy={isPending}
       onChange={() => {
         if (formError) {
@@ -140,7 +148,7 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
           }
           href = `${action}?${next}`;
         }
-        startTransition(() => router.push(href));
+        startTransition(() => router.push(href + (resultAnchor ? `#${resultAnchor}` : "")));
       }}
     >
       <div className="filter-surface-header">
@@ -235,14 +243,14 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
             </select>
           </FilterField>
         ) : null}
-        <div className="filter-submit">
+        {variant === "listings" && <div className="filter-submit">
           <button type="submit" disabled={isPending}>
-            {isPending ? "Updating…" : variant === "analytics" ? "Analyze market" : "Show listings"}
+            {isPending ? "Updating…" : "Show listings"}
           </button>
           <span className="sr-only" role="status" aria-live="polite">
             {isPending ? "Updating the selected market" : ""}
           </span>
-        </div>
+        </div>}
       </div>
 
       <div
@@ -266,7 +274,19 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
         </p>
       ) : null}
 
-      <details className="advanced-filters" open={variant === "analytics" || advancedCount > 0}>
+      {variant === "analytics" && <fieldset className="research-window">
+        <legend>Observation dates</legend>
+        <p>Leave dates empty for the latest stored listings. A historical window uses its last complete collections, not an average over the whole window.</p>
+        <div className="filter-group-grid">
+          <FilterField label="Observed from"><input name="from" type="date" defaultValue={single(params.from)} {...validationProps("from")} /></FilterField>
+          <FilterField label="Observed to"><input name="to" type="date" defaultValue={single(params.to)} {...validationProps("to")} /></FilterField>
+          <FilterField label="Time interval"><select name="interval" defaultValue={single(params.interval) || "week"}>
+            <option value="day">Day</option><option value="week">Week</option><option value="month">Month</option>
+          </select></FilterField>
+        </div>
+      </fieldset>}
+
+      <details className="advanced-filters" open={advancedCount > 0}>
         <summary>
           <span>More ways to narrow</span>
           {advancedCount > 0 ? <span className="filter-count">{advancedCount}</span> : null}
@@ -375,12 +395,8 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
           </fieldset>
 
           <fieldset className="filter-group">
-            <legend>{variant === "analytics" ? "Observation window" : "Listing source"}</legend>
-            <p>
-              {variant === "analytics"
-                ? "Dates select historical observations for the summary, charts and listing evidence."
-                : "Narrow by seller type when that distinction matters."}
-            </p>
+            <legend>Seller and activity</legend>
+            <p>Narrow by seller type or recent observations.</p>
             <div className="filter-group-grid">
               <FilterField label="Seller">
                 <select name="sellerType" defaultValue={single(params.sellerType)}>
@@ -395,37 +411,14 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
               <FilterField label="Recent activity">
                 <select name="activity" defaultValue={single(params.activity)}><option value="">Any activity</option><option value="firstObserved">First observed in the latest 7 days</option><option value="priceReduced">Price reduced in the latest 7 days</option></select>
               </FilterField>
-              {variant === "analytics" ? (
-                <>
-                  <FilterField label="Observed from">
-                    <input
-                      name="from"
-                      type="date"
-                      defaultValue={single(params.from)}
-                      {...validationProps("from")}
-                    />
-                  </FilterField>
-                  <FilterField label="Observed to">
-                    <input
-                      name="to"
-                      type="date"
-                      defaultValue={single(params.to)}
-                      {...validationProps("to")}
-                    />
-                  </FilterField>
-                  <FilterField label="Time interval">
-                    <select name="interval" defaultValue={single(params.interval) || "week"}>
-                      <option value="day">Day</option>
-                      <option value="week">Week</option>
-                      <option value="month">Month</option>
-                    </select>
-                  </FilterField>
-                </>
-              ) : null}
             </div>
           </fieldset>
         </div>
       </details>
+      {variant === "analytics" && <div className="research-filter-submit">
+        <button type="submit" disabled={isPending}>{isPending ? "Updating…" : "Apply cars and dates"}</button>
+        <span role="status" className="muted">{isPending ? "Updating the selected research group…" : "Model year describes the car; dates describe when it was observed."}</span>
+      </div>}
     </form>
   );
 }
@@ -439,7 +432,7 @@ function FilterField({ label, children }: { label: string; children: React.React
   );
 }
 
-function countAdvancedFilters(params: PageSearchParams, variant: MarketFilterFormProps["variant"]) {
+function countAdvancedFilters(params: PageSearchParams) {
   const keys = [
     "modelYearFrom",
     "modelYearTo",
@@ -452,7 +445,6 @@ function countAdvancedFilters(params: PageSearchParams, variant: MarketFilterFor
     "bodyType",
     "activity",
     "sellerType",
-    ...(variant === "analytics" ? ["from", "to", "interval"] : []),
   ];
   return keys.filter((key) => {
     const value = single(params[key]);
@@ -483,77 +475,6 @@ function countSelectedFilters(params: PageSearchParams, variant: MarketFilterFor
     const value = single(params[key]);
     return value && !(key === "availability" && value === "current") && value !== "week" && value !== "firstSeenDesc";
   }).length;
-}
-
-function selectedFilterLabels(params: PageSearchParams, variant: MarketFilterFormProps["variant"]) {
-  const entries: Array<[string, string]> = [
-    ["Make", single(params.make)],
-    ["Model", single(params.model)],
-    ["Exact year", single(params.modelYear)],
-    ["Availability", availabilityLabel(single(params.availability))],
-    ["Year from", single(params.modelYearFrom)],
-    ["Year to", single(params.modelYearTo)],
-    ["Price from", currencyFilterLabel(single(params.priceMin))],
-    ["Price to", currencyFilterLabel(single(params.priceMax))],
-    ["Mileage from", distanceFilterLabel(single(params.mileageMin))],
-    ["Mileage to", distanceFilterLabel(single(params.mileageMax))],
-    ["Fuel type", single(params.fuelType)],
-    ["Transmission", single(params.transmission)],
-    ["Body style", single(params.bodyType)],
-    ["Activity", single(params.activity) === "firstObserved" ? "First observed in latest 7 days" : single(params.activity) === "priceReduced" ? "Price reduced in latest 7 days" : ""],
-    ["Seller", single(params.sellerType)],
-    ...(variant === "analytics"
-      ? ([
-          ["Observed from", single(params.from)],
-          ["Observed to", single(params.to)],
-          ["Interval", intervalLabel(single(params.interval))],
-        ] as Array<[string, string]>)
-      : ([
-          ["Sort", sortLabel(single(params.sort))],
-        ] as Array<[string, string]>)),
-  ];
-  return entries.filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`);
-}
-
-function availabilityLabel(value: string) {
-  if (value === "all") return "Current + sold";
-  if (value === "current") {
-    return "Current";
-  }
-  if (value === "sold") {
-    return "Sold listings";
-  }
-  return "";
-}
-
-function intervalLabel(value: string) {
-  if (!value || value === "week") {
-    return "";
-  }
-  return value === "day" ? "Daily" : "Monthly";
-}
-
-function sortLabel(value: string) {
-  const labels: Record<string, string> = {
-    firstSeenDesc: "First observed recently",
-    lastSeenDesc: "Last observed recently",
-    priceReductionDesc: "Largest recorded price reduction",
-    sourceUpdatedDesc: "Recently updated",
-    priceAsc: "Lowest price",
-    priceDesc: "Highest price",
-    mileageAsc: "Lowest mileage",
-    mileageDesc: "Highest mileage",
-    yearDesc: "Newest model year",
-  };
-  return labels[value] ?? "";
-}
-
-function currencyFilterLabel(value: string) {
-  return value ? `${value} €` : "";
-}
-
-function distanceFilterLabel(value: string) {
-  return value ? `${value} km` : "";
 }
 
 function validateFilterForm(form: HTMLFormElement, variant: MarketFilterFormProps["variant"]) {

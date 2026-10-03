@@ -80,6 +80,10 @@ Useful manual checks:
   links retain both choices.
 - Analyze → add comparison → page comparison evidence: the primary page stays
   unchanged. Use September 2026 for historical fixture observations.
+- Open each group's cars/dates editor, compare September with October 2026,
+  swap the groups and reset one side. The other scope remains intact. Follow
+  a listing from evidence page 2 and use Back to price research: both scopes,
+  page and table position are restored. July 2026 explains the missing history.
 - Lookup `not-a-listing`, then correct to `9000000`: input survives validation
   and the listing shows two observations and a €1,000 reduction.
 - Save five cars, choose two for comparison, then clear selection: all five saved cars remain. Reopen Saved & compare to inspect stored price, availability and observation dates; Refresh evidence retrieves the latest stored values.

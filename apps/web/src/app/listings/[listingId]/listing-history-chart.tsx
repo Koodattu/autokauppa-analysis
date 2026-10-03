@@ -56,10 +56,11 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
           <YAxis
             yAxisId="price"
             domain={["auto", "auto"]}
-            tickFormatter={formatCompactCurrency}
+            tickFormatter={formatCurrency}
+            allowDecimals={false}
             axisLine={false}
             tickLine={false}
-            width={68}
+            width={88}
             tick={{ fill: "var(--public-chart-axis)", fontSize: 11 }}
           />
           <YAxis
@@ -143,10 +144,6 @@ function HistoryTooltip({ active, payload, label }: TooltipContentProps) {
 
 function formatShortDate(value: string) {
   return formatMonthDay(value);
-}
-
-function formatCompactCurrency(value: number) {
-  return `${compact(value)} €`;
 }
 
 function formatCompactKm(value: number) {

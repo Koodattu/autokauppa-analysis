@@ -5,9 +5,10 @@ Status: the overview, price research workspace and listing comparison are implem
 ## Implemented Research Flow
 
 - `/` separates active inventory, its median and middle 50% asking-price range, recent first observations and recorded reductions from the sold archive. Cards and budget/model links open matching evidence.
-- `/analyze` studies a group defined by make, model, model year, mileage, fuel, transmission, body style and seller. Price distribution, feature summaries, sampled price-versus-mileage points and model-year/mileage groups link to the underlying observations.
+- `/analyze` puts observed prices and their scope first, with an inline editor for each group's cars and observation dates. Section links lead to history, price factors and listing evidence. Price distribution, feature summaries, sampled price-versus-mileage points and model-year/mileage groups link to the underlying observations.
 - Optional observation dates select the latest complete collection per source search within the window. Historical filters use snapshots at or before each sighting; they do not substitute current mileage or price. Missing periods remain unobserved, and gaps break trend lines.
-- A second independent group supports the same car specification in two different years, or two groups of cars. Each side shows its sample, median, quartiles and observed dates. Headline differences require at least five prices on each side and describe changing cohorts, not same-car depreciation or causal feature premiums.
+- A second independent group supports the same car specification in two different years, or two groups of cars. Each side shows its filters, sample, median, quartiles and observed dates. Editing or resetting one side preserves the other; Swap groups exchanges both complete scopes and evidence pages. Headline differences require at least five prices on each side and describe changing cohorts, not same-car depreciation or causal feature premiums.
+- Evidence pagination stays at its table. Listing and sampled-point links carry the complete research context; the detail breadcrumb returns to the originating evidence page, including the comparison and dates. Save or share this research keeps the existing browser-local named views and shareable URL.
 - `/listings` defaults to current cars, ordered by first observation. `/listings/[id]` shows recorded history and actual peer listings with explicit matching rules; the target car is excluded from its own benchmark.
 - `/compare` keeps a browser-local shortlist of up to 20 cars, independently from the four-car comparison. Saved rows show latest stored price, availability, mileage and observation date, with refresh/retry; clearing comparison leaves saved cars intact. Existing selections become saved cars on upgrade. The previous browser storage key is retained; new writes use `nettiauto-saved-v2`.
 - Up to four cars can be compared with a reference car and a differences-only view. Up to twelve named searches/research views are stored locally; a full list requires explicit removal before saving a different view. Existing views remain editable. Comparison and research URLs can be shared without accounts; saved collections stay on the same browser.
@@ -20,7 +21,7 @@ Only positive listing prices are usable price evidence. Zero or missing prices
 remain in stored snapshots and API observations, but are shown as “Not recorded”
 in the interface, excluded from budget filters, and placed after priced listings
 in both price sort directions. Price changes and comparison differences use
-usable prices; history charts leave gaps for missing prices. A zero office fee
+usable prices; historical medians and price sample counts also exclude nonpositive prices, while total inventory counts retain them. History charts leave gaps for missing prices and use distinguishable full-currency price ticks. A zero office fee
 or a zero difference between two real prices remains meaningful.
 
 There is no historical backfill, matched-listing depreciation estimate, automated valuation, account synchronization or alert delivery in this flow. These require separate data or product work.

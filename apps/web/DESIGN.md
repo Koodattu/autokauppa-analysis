@@ -257,7 +257,7 @@ Components are dense, familiar, and precise. Their visual personality comes from
 - **Style:** White field, 1px neutral stroke, 7px radius, 42px minimum height, and 8px by 10px padding.
 - **Focus:** Evidence Teal border plus a 3px translucent teal focus ring.
 - **Error / Disabled:** Semantic text must explain failures; disabled fields use a neutral surface and retain legible labels. Placeholder copy must meet body-text contrast expectations.
-- **Grouping:** Primary market choices stay visible. Secondary controls are grouped by vehicle range, price and mileage, and observation context; applied scope and Reset stay visible whenever filters are active.
+- **Grouping:** Listing search keeps primary market choices visible. Research puts each group's result and applied scope first, with a native disclosure editor in that same panel. Observation dates stay visible inside the editor; secondary vehicle, price, mileage and seller controls use a further disclosure. Reset changes only the edited group. Applying returns to its result; evidence paging and listing returns stay at their source table.
 
 ### Navigation
 

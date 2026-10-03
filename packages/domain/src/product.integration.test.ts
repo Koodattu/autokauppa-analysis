@@ -200,6 +200,27 @@ describeDatabase("PostgreSQL product integration", () => {
     expect((await getPublicListingDetail(sql, listingId))?.listing.askingPriceEur).toBe(15000);
   });
 
+  it.each(["current", "sold"] as const)("uses only positive %s prices in historical medians and sample sizes", async (kind) => {
+    const queryId = await insertSourceQuery(kind, `usable-history-${kind}`);
+    const availability = kind === "current" ? "active" : "sold";
+    const run = await insertRun(queryId, kind, "2026-08-03T10:00:00Z");
+    for (const price of [-100, 0, 10000, 20000]) {
+      await insertObservation(run, queryId, kind, `price-${price}`, availability, "2026-08-03T09:00:00Z", price);
+    }
+    const emptyRun = await insertRun(queryId, kind, "2026-08-10T10:00:00Z");
+    await insertObservation(emptyRun, queryId, kind, "price-0", availability, "2026-08-10T09:00:00Z", 0);
+    // Exercise both query plans: a broad scope and a narrowed vehicle group.
+    for (const vehicle of [{}, { make: "Toyota", model: "Corolla" }]) {
+      const result = await getAnalyticsTimeSeries(sql, listingFiltersQuerySchema.parse({
+        availability: kind, ...vehicle, interval: "week", from: "2026-08-03", to: "2026-08-16",
+      }));
+      const median = kind === "current" ? "medianAskingPriceEur" : "medianObservedSoldPriceEur";
+      const sample = kind === "current" ? "askingPriceSampleSize" : "observedSoldPriceSampleSize";
+      expect(result.marketOverTime[0]).toMatchObject({ listingCount: 4, [median]: 15000, [sample]: 2 });
+      expect(result.marketOverTime[1]).toMatchObject({ listingCount: 1, [median]: null, [sample]: 0 });
+    }
+  });
+
   it("does not rank a zero-price listing below real comparable prices", async () => {
     const queryId = await insertSourceQuery("current", "unpriced-comparison");
     const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");

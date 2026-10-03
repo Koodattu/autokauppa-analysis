@@ -40,3 +40,22 @@ export function comparisonParams(params: WebSearchParams): WebSearchParams {
   const parsed = researchQuery(params, true);
   return parsed.ok ? Object.fromEntries(formatPageFilters(parsed.query)) : {};
 }
+
+export function swapResearchHref(params: WebSearchParams) {
+  const primary = researchQuery(params);
+  const comparison = researchQuery(params, true);
+  if (!primary.ok || !comparison.ok) return "/analyze";
+  const next = formatPageFilters(comparison.query);
+  next.set("comparing", "1");
+  for (const [key, value] of formatPageFilters(primary.query)) {
+    next.set(`compare${key[0].toUpperCase()}${key.slice(1)}`, value);
+  }
+  return `/analyze?${next}#primary-research`;
+}
+
+export function researchListingHref(id: string, params: WebSearchParams, comparison = false) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (typeof value === "string") query.set(key, value);
+  const returnTo = `/analyze?${query}#${comparison ? "comparison" : "research"}-evidence`;
+  return `/listings/${encodeURIComponent(id)}?returnTo=${encodeURIComponent(returnTo)}`;
+}

@@ -101,17 +101,20 @@ export function resolveListingNavigation(params: WebSearchParams): ListingNaviga
 
 export function safeListingsReturnHref(value: string | string[] | undefined) {
   const rawPath = typeof value === "string" ? value.split(/[?#]/, 1)[0] : "";
-  if (!value || Array.isArray(value) || rawPath !== "/listings" || value.includes("\\")) {
+  if (!value || Array.isArray(value) || !["/listings", "/analyze"].includes(rawPath) || value.includes("\\")) {
     return "/listings";
   }
 
   try {
     const base = "https://scope.invalid";
     const url = new URL(value, base);
-    if (url.origin !== base || url.pathname !== "/listings" || url.hash) {
+    const allowedHash = url.pathname === "/analyze"
+      ? ["", "#research-evidence", "#comparison-evidence"].includes(url.hash)
+      : !url.hash;
+    if (url.origin !== base || url.pathname !== rawPath || !allowedHash) {
       return "/listings";
     }
-    return `${url.pathname}${url.search}`;
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/listings";
   }
