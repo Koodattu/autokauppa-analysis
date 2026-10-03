@@ -1,5 +1,67 @@
 # Goal improvement state
 
+## Pass 2 — verified and prepared for release, 2026-10-03
+
+- New goal attachment `071e3ef2-877d-4bb2-b816-fb9c3cc53ea6/pasted-text-1.txt` read in full. Initially local implementation only. The later user instructions “commit push proceed” and “is it merged with main and deployed? if not it should be” authorize this release. One agent; no policy/config changes or live collection for testing.
+- Start: `main`, `010e332e75fd3aa8a166f7909c7cc811ad168f2a`; staged, unstaged and untracked work all empty. Earlier pass below is historical.
+- Re-read product/design, local setup, architecture/domain vocabulary, schemas, public routes, data queries and nearby tests. English desktop/mobile web; preserve existing teal/neutral visual direction. No pre-existing repository/ancestor AGENTS; Next dev subsequently generated its own two instruction stubs, to remove at cleanup.
+- Skills: end-user-ui-ux; impeccable context + audit/product/harden references; diagnosing-bugs; tdd + tests/mocking; improve-codebase-architecture + codebase-design. Sequential self-assessment, with ordinary workflow choices delegated by the goal. Observable seams: React forms and browser storage, Product API/domain queries over real PostgreSQL, real browser journeys.
+- Baseline: `bun run --no-env-file test` without DB: **191 passed, 6 DB suites skipped, 19.99 s**. `bun run --no-env-file test:integration` with fixture URL: **36 passed / 6 files, 9.05 s**. Both disposable databases migrated successfully; preview seed: 60 listings / 108 snapshots / 3 complete runs.
+- Resources used and cleaned up: container `nettiauto-goal2-test-20261003`, postgres:18, localhost **50251**, tmpfs, 768 MB / 2 CPU. DBs `nettiauto_storage_fixture_test` and `nettiauto_preview_test`, synthetic `goal_test` credentials from local-development guide. Existing PostgreSQL and twitch-tracker containers untouched. API sessions 25610/80195, web dev 81512 and compiled preview 17282 stopped; task container stopped and automatically removed. No worker.
+- Test tooling: existing suite has no DOM environment; add only pinned `jsdom` dev dependency for meaningful form/hydration regression tests, using existing React `act` and Vitest. Next's installed Vitest/client guides and [React act documentation](https://react.dev/reference/react/act) consulted. No production dependency or stack upgrade.
+
+### Ranked backlog and acceptance
+
+| Priority | Evidence / problem | Acceptance / decision |
+| --- | --- | --- |
+| 1 | Named view saved as “Family hybrids under €20k” reopens with “Car search”; Update silently overwrites the name (real browser) | Restore stored name after hydration/navigation; preserve typed draft on failure; announce successful save; regression test actual form/storage |
+| 2 | Zero prices are excluded from research statistics but listing queries still expose/sort raw zero values | Resolved batch 2; raw observations and contracts preserved |
+| 3 | Saved/comparison UI under long text and partial failures; model metadata cancellation/deadlines | Resolved batches 1/3; desktop/mobile recovery verified |
+| 2 | Selected research point retains values from the previous period or filtered sample | Resolved batch 4; current response is authoritative |
+| 4 | SQL/cache/worker/architecture/performance follow-up | Assessed; no additional optimization or general refactor justified |
+
+- Next action: authorized commit/push to main, scoped web/API deployment, CI and production readiness verification. Local implementation and verification complete.
+
+### Pass 2 completed batch 1 — saved-view naming and feedback
+
+- Hypotheses: form state ignores saved name (confirmed); browser storage lost the record (disproved: saved-workspace link retained it); URL mismatch (disproved: Update button recognized the view).
+- Form now derives the initial name from hydrated saved state, keeps an edited draft scoped to its URL, and announces a successful write. Failed writes preserve both the draft and previous saved record. No storage format/limits changed.
+- Red: real component hydration test expected “Family hybrids under €20k”, received “Car search”. Green: 3 React/DOM tests cover hydration/update, quota failure/retry, and filter navigation. `bun run --no-env-file test apps/web/src/app/saved-workspace.test.tsx`; web typecheck passed.
+- Browser: reopen, keyboard focus/submit, save confirmation, and saved-workspace link retain name. Desktop and 390×844 inspected. Screenshot: `evidence/pass2-saved-view-mobile.jpg`.
+- Domain-modeling guidance applied to next batch: existing analytics require positive prices. Extend that established invariant to user-facing sorting/filtering/display; preserve raw source values and response field shapes. No new domain model or ADR needed.
+
+### Pass 2 completed batch 2 — consistent usable price evidence
+
+- Reproduced: ascending listing sort placed zero first; budget queries included it in rows/counts; history `20000 → 0 → 19000` reported 2 changes; comparison rendered `0 €` and subtracted it from a real reference. Raw SQL used prices without the positive-price rule already present in research statistics. Alternative hypotheses (missing rows/availability selection/rounding) disproved by explicit fixture IDs and values.
+- Sorting places nonpositive/missing prices last; shared filter SQL excludes them from budget-filtered listings, counts and research. History change count ignores missing prices. Display uses “Not recorded”; reference differences need two positive prices; history charts leave gaps and history summaries ignore placeholders. Raw stored/API observations and legitimate zero fees/differences are preserved. No migration/index/cache-policy change.
+- Regression loops each failed first, then passed: price sorting, current/sold budget evidence/counts, real history changes, rendered comparison. `bun run --no-env-file test packages/domain/src/product.test.ts packages/domain/src/product.integration.test.ts`: **23 passed** with dedicated fixture DB. Comparison + formatting: **5 passed**. Web typecheck, lint and diff whitespace check passed.
+- Preview fixtures now include current zero/missing and sold zero; synthetic DB updated only 3 known fixture snapshots. Browser checked both pages of Lowest price, exact unpriced detail, zero change count, one valid history observation, selecting cars, reference switching and differences-only. Desktop + 390×844 inspected, no viewport overflow or console warnings/errors. Screenshot: `evidence/pass2-unpriced-comparison-mobile.jpg`.
+- Architecture self-review: reuse one SQL expression at the sort/filter interface and existing formatting module; no generic data adapter/refactor needed. Standards and acceptance self-review found no unresolved correctness issue in this batch. Low-priority pre-existing chart axis formatting can repeat compact ticks on a constant-price history; record for a targeted chart pass, not a blocker for missing-price semantics.
+
+### Pass 2 completed batch 3 — model request recovery and cleanup
+
+- Red loops: a stalled HTTP transport left the model field disabled with no Retry; switching makes left the old request signal active. Existing sequence counter prevented stale results but did not release requests. Fetch uses a 15-second deadline, aborts replaced/unmounted requests, and keeps stale/cancelled responses out of state. Timeout/network failures retain the selected make and expose existing Retry. No API/deployment change.
+- Two real React form tests cover timeout → Retry → Corolla, out-of-order Honda/Toyota responses, and unmount cancellation. Web typecheck/lint pass. Browser paused only the local `/api/filters` resource through supported CDP, observed Retry with Honda still selected, resumed it and loaded Civic, then applied a Toyota/Corolla search with 12 results. Interception cleared. 390×844 error/retry layout inspected: `evidence/pass2-model-timeout-mobile.jpg`. Browser tooling capped each individual wait around 3 s; timeout state was inspected after 52 s, so this is recovery proof, not a measured 15-second latency claim.
+- Tooling review pinned **jsdom 27.4.0** (official npm metadata: Node ^20.19 / ^22.12 / >=24) instead of latest 30 (requires newer Node). All six new DOM tests pass on installed Node 24.4.1. Lockfile comparison confirms **no original package versions removed**; production dependency declarations unchanged. Bun add unexpectedly reports automatic `.env` loading despite its flag; it performed dependency installation only. All app/test/database commands use explicit isolated configuration; no values were read or printed.
+
+### Pass 2 completed batch 4 — chart selection stays within the displayed evidence
+
+- Browser reproduction: select the Toyota point (€10,000 / 40,000 km / 2015), filter to Honda; “Recorded in this view” still shows the Toyota point. Component regression also keeps €10,000 when that listing's historical point is €11,000. This is duplicate selected-object state, not stale API data or URL filters.
+- Store identity only and derive selected evidence from the current response. Regression failed at €10,000 versus expected €11,000, then passed. Browser current → September shows €11,000 and preserves selection; filtering to Honda removes the Toyota summary. Keyboard point selection and complete SSR labels continue working. Screenshot: `evidence/pass2-historical-selection.jpg`.
+
+### Pass 2 final coverage and verification
+
+- **239 tests / 39 files passed**, 26.51 s, including every PostgreSQL integration suite. All package/web/API/worker typechecks, web lint, and all three production builds passed. `node scripts/verify-crawler-http.mjs` passed robots, crawler rejection/budget, browser HTML and RSC checks against the compiled app.
+- Commands: explicit localhost fixture `TEST_DATABASE_URL` with `bun run --no-env-file test`; `bun run --no-env-file typecheck:packages`, `typecheck:web`, `typecheck:api`, `typecheck:worker`; `bun --no-env-file --cwd apps/web lint`; `bun --no-env-file --cwd apps/{web,api,worker} build` (each separately); `git diff --check`. API build needed standard escalation for Windows workspace-link permissions.
+- Compiled `next start` smoke: real analysis data and exact-table keyboard Space selection at 320×780; no horizontal page overflow or console errors/warnings. Screenshot: `evidence/pass2-compiled-chart-mobile.jpg`. Development browser checks above cover 1280×900 and 390×844, saved view hydration/recovery, unpriced listing/detail/comparison, dependent models and changing historical filters. No formal accessibility or real-device conformance claim; no motion changed.
+- Recreated only the verified task-owned preview DB after stopping its API; all existing migrations and the modified seed ran successfully from empty, yielding 60 listings / 108 snapshots, including the three missing-price cases. No new migration required.
+- Backend/data review followed query parameters through shared SQL, pagination counts, history and public display. Existing integration suites cover worker persistence/retry/recovery/compression. Cache isolation, bounded retention and invalidation, authentication/rate limits, and external integration boundaries were assessed; no further change warranted. No measured production performance/storage improvement claimed.
+- Sequential standards/acceptance self-review included all tracked and new source/tests/docs/fixtures. No unresolved high-priority finding or unrelated code/config change. Remaining low-priority issue: compact chart axis labels can repeat for very small ranges. Production-scale load and Windows standalone packaging remain unverified locally; Linux deployment verification follows the authorized release.
+- Cleanup: removed only the Next-generated instruction stubs absent at baseline, cleared synthetic selections and removed the test saved view through the UI. Compiled tab closed and viewport reset ran; an earlier connection-error tab could not be closed by the browser tool because its internal data URL was denied, and remains subject to normal temporary-tab cleanup.
+- Local reproduction uses `docs/local-development.md`; review this pass against `010e332e75fd3aa8a166f7909c7cc811ad168f2a`. Screenshots use synthetic data only. Release will use the existing deployment lock and compose override, retaining previous web/API images; database and worker need no update.
+
+## Pass 1 archive
+
 ## Scope and starting state
 
 - Goal: complete evidence-backed local improvements to existing journeys, reliability, data handling, and performance. One agent; no commits, publication, deployment, production access, or policy changes.

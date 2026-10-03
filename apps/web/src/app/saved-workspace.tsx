@@ -21,7 +21,11 @@ function useSaved() {
       localStorage.setItem(KEY, JSON.stringify(next));
       window.dispatchEvent(new Event("saved-cars"));
       setError("");
-    } catch { setError("Your browser could not save this. You can still share the page link."); }
+      return true;
+    } catch {
+      setError("Your browser could not save this. You can still share the page link.");
+      return false;
+    }
   }
   return { saved: parseSavedState(value), save, error };
 }
@@ -49,12 +53,25 @@ export function ComparisonTray() {
 
 export function SaveSearch({ href, title }: { href: string; title: string }) {
   const { saved, save, error } = useSaved();
-  const [name, setName] = useState(title.slice(0, 120));
-  const exists = saved.searches.some((search) => search.href === href);
-  return <form className="save-search" onSubmit={(event) => { event.preventDefault(); save({ ...saved, searches: [...saved.searches.filter((search) => search.href !== href), { title: name.trim() || title.slice(0, 120), href }].slice(-12) }); }}>
-    <label><span>Name this view</span><input aria-label="Saved view name" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>
-    <button className="secondary-button">{exists ? "Update saved view" : "Save view"}</button>
-    <ShareLink href={href} />{error && <span role="status">{error}</span>}
+  const savedView = saved.searches.find((search) => search.href === href);
+  const [draft, setDraft] = useState<{ href: string; name: string } | null>(null);
+  const [savedHref, setSavedHref] = useState<string | null>(null);
+  const name = draft?.href === href ? draft.name : savedView?.title ?? title.slice(0, 120);
+
+  return <form className="save-search" onSubmit={(event) => {
+    event.preventDefault();
+    setSavedHref(null);
+    const nextTitle = name.trim() || savedView?.title || title.slice(0, 120);
+    if (save({ ...saved, searches: [...saved.searches.filter((search) => search.href !== href), { title: nextTitle, href }].slice(-12) })) {
+      setSavedHref(href);
+    }
+  }}>
+    <label><span>Name this view</span><input aria-label="Saved view name" value={name} maxLength={120} onChange={(event) => {
+      setDraft({ href, name: event.target.value });
+      setSavedHref(null);
+    }} /></label>
+    <button className="secondary-button">{savedView ? "Update saved view" : "Save view"}</button>
+    <ShareLink href={href} /><span role="status">{error || (savedHref === href ? "Saved in this browser." : "")}</span>
   </form>;
 }
 

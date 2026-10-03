@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useId, useRef, useState, useTransition } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState, useTransition } from "react";
 import { analysisQueryUrlFilter, listingSearchUrlFilter } from "@nettiauto/schemas";
 import type { FilterMetadata } from "@/lib/api";
 import { formatPageFilters, singleSearchParam as single, type WebSearchParams } from "@/lib/url-filter-navigation";
@@ -31,7 +31,8 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
   const [formError, setFormError] = useState("");
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
-  const modelRequest = useRef(0);
+  const modelRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => modelRequest.current?.abort(), []);
   const advancedCount = countAdvancedFilters(params, variant);
   const selectedCount = countSelectedFilters(params, variant);
   const resetParams = new URLSearchParams(comparisonBase ?? "");
@@ -45,7 +46,8 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
       : {};
 
   async function selectMake(make: string) {
-    const request = modelRequest.current + 1;
+    modelRequest.current?.abort();
+    const request = new AbortController();
     modelRequest.current = request;
     setSelectedMake(make);
     setSelectedModel("");
@@ -70,24 +72,25 @@ export function MarketFilterForm({ action, filters, params, variant, comparisonB
       const query = new URLSearchParams({ make });
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_PATH ?? "/api"}/filters?${query.toString()}`,
+        { signal: AbortSignal.any([request.signal, AbortSignal.timeout(15_000)]) },
       );
       if (!response.ok) {
         throw new Error("Model options request failed.");
       }
       const metadata = (await response.json()) as FilterMetadata;
-      if (modelRequest.current === request) {
+      if (modelRequest.current === request && !request.signal.aborted) {
         setModels(metadata.models);
         setModelStatus(`${metadata.models.length} models available for ${make}.`);
       }
     } catch {
-      if (modelRequest.current === request) {
+      if (modelRequest.current === request && !request.signal.aborted) {
         setModels([]);
-        const message = "Models couldn’t be loaded. Analyze the make as a whole or retry.";
+        const message = "Models couldn’t be loaded. Use the make as a whole or retry.";
         setModelsError(message);
         setModelStatus(message);
       }
     } finally {
-      if (modelRequest.current === request) {
+      if (modelRequest.current === request && !request.signal.aborted) {
         setModelsLoading(false);
       }
     }

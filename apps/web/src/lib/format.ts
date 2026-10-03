@@ -38,6 +38,10 @@ export function formatCurrency(value: number | null) {
   return value === null ? "–" : `${formatNumber(value)} €`;
 }
 
+export function formatListingPrice(value: number | null) {
+  return value !== null && value > 0 ? formatCurrency(value) : "Not recorded";
+}
+
 export function formatKm(value: number | null) {
   return value === null ? "–" : `${formatNumber(value)} km`;
 }

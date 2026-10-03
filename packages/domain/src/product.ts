@@ -559,7 +559,7 @@ export function getListingObservationContext(
   const prices = [...history]
     .sort((left, right) => left.observedAt.localeCompare(right.observedAt))
     .map((row) => row.askingPriceEur ?? row.observedSoldPriceEur)
-    .filter((price): price is number => price !== null);
+    .filter((price): price is number => price !== null && price > 0);
   let recordedPriceChangeCount = 0;
   for (let index = 1; index < prices.length; index += 1) {
     if (prices[index] !== prices[index - 1]) {
@@ -1605,13 +1605,13 @@ export function buildFilterWhere(
   }
   if (filters.priceMin !== undefined) {
     add(
-      `coalesce(${column("asking_price_eur")}, ${column("observed_sold_price_eur")}) >= ?`,
+      `${validListingPriceSql(snapshotAlias)} >= ?`,
       filters.priceMin,
     );
   }
   if (filters.priceMax !== undefined) {
     add(
-      `coalesce(${column("asking_price_eur")}, ${column("observed_sold_price_eur")}) <= ?`,
+      `${validListingPriceSql(snapshotAlias)} <= ?`,
       filters.priceMax,
     );
   }
@@ -1741,9 +1741,9 @@ function sortToOrderBy(sort: string) {
     case "priceReductionDesc":
       return "reductions.amount desc nulls last, l.id asc";
     case "priceAsc":
-      return "coalesce(s.asking_price_eur, s.observed_sold_price_eur) asc nulls last, l.id asc";
+      return `${validListingPriceSql("s")} asc nulls last, l.id asc`;
     case "priceDesc":
-      return "coalesce(s.asking_price_eur, s.observed_sold_price_eur) desc nulls last, l.id asc";
+      return `${validListingPriceSql("s")} desc nulls last, l.id asc`;
     case "mileageAsc":
       return "s.mileage_km asc nulls last, l.id asc";
     case "mileageDesc":
@@ -1760,6 +1760,11 @@ function sortToOrderBy(sort: string) {
 
 function validAnalyticsMileageSql(alias: string) {
   return `case when ${alias}.mileage_km between 0 and ${ANALYTICS_MAX_MILEAGE_KM} then ${alias}.mileage_km end`;
+}
+
+function validListingPriceSql(alias: string) {
+  const price = `coalesce(${alias}.asking_price_eur, ${alias}.observed_sold_price_eur)`;
+  return `case when ${price} > 0 then ${price} end`;
 }
 
 function nullableNumber(value: string | number | null) {

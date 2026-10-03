@@ -14,6 +14,13 @@ Status: the overview, price research workspace and listing comparison are implem
 
 Research uses all matching priced listings for aggregates, up to 300 consistently sampled scatter points and 25 evidence rows per page. Paging is bounded at 1,000 pages; users can narrow the filters to inspect more specific subsets. Fuel and transmission aliases are normalized for comparison without altering source labels. New detail enrichment creates a dated snapshot; older snapshots may retain enrichment written by the previous persistence behavior.
 
+Only positive listing prices are usable price evidence. Zero or missing prices
+remain in stored snapshots and API observations, but are shown as “Not recorded”
+in the interface, excluded from budget filters, and placed after priced listings
+in both price sort directions. Price changes and comparison differences use
+usable prices; history charts leave gaps for missing prices. A zero office fee
+or a zero difference between two real prices remains meaningful.
+
 There is no historical backfill, matched-listing depreciation estimate, automated valuation, account synchronization or alert delivery in this flow. These require separate data or product work.
 
 ## First Useful Analytics

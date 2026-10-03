@@ -9,6 +9,7 @@ import {
 import { safeListingsReturnHref } from "@/lib/url-filter-navigation";
 import {
   formatCurrency,
+  formatListingPrice,
   formatDate,
   formatDateOnly,
   formatDateTime,
@@ -55,7 +56,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
   const sourceUpdatedDate = details?.sourceUpdatedDate ?? data.listing.sourceUpdatedDate;
   const listingsHref = safeListingsReturnHref(query.returnTo);
   const hasHistoryChart = data.history.length >= 2 && data.history.some(
-    (row) => row.askingPriceEur !== null || row.observedSoldPriceEur !== null || row.mileageKm !== null,
+    (row) => (row.askingPriceEur ?? 0) > 0 || (row.observedSoldPriceEur ?? 0) > 0 || row.mileageKm !== null,
   );
 
   return (
@@ -98,8 +99,8 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
         <ListingGallery images={data.imageMetadata} title={title} />
         <aside className="listing-summary panel">
           <div className="listing-price">
-            <span>{data.listing.askingPriceEur !== null ? "Asking price" : "Price shown on observed-sold listing"}</span>
-            <strong>{formatCurrency(data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur)}</strong>
+            <span>{data.listing.availability === "sold" ? "Price shown on observed-sold listing" : "Asking price"}</span>
+            <strong>{formatListingPrice(data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur)}</strong>
             <PricePosition context={data.marketContext} price={data.listing.askingPriceEur ?? data.listing.observedSoldPriceEur} />
             <p>
               Observed listing evidence—not a confirmed completed transaction price.
@@ -149,7 +150,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
                     <tr key={`${row.observedAt}-${index}`}>
                       <td>{formatDateTime(row.observedAt)}</td>
                       <td>{labelAvailability(row.availability)}</td>
-                      <td>{formatCurrency(row.askingPriceEur ?? row.observedSoldPriceEur)}</td>
+                      <td>{formatListingPrice(row.askingPriceEur ?? row.observedSoldPriceEur)}</td>
                       <td>{formatKm(row.mileageKm)}</td>
                       <td>{formatDateOnly(row.sourceUpdatedDate)}</td>
                     </tr>
@@ -289,7 +290,7 @@ function HistoryInsight({ history }: { history: PublicListingDetailResponse["his
       value: row.askingPriceEur ?? row.observedSoldPriceEur,
       observedAt: row.observedAt,
     }))
-    .filter((row): row is { value: number; observedAt: string } => row.value !== null)
+    .filter((row): row is { value: number; observedAt: string } => row.value !== null && row.value > 0)
     .sort((left, right) => left.observedAt.localeCompare(right.observedAt));
 
   if (prices.length === 0) {

@@ -38,6 +38,10 @@ sold listings, two observation dates, and completed crawl coverage. It refuses
 non-local targets, any database other than `nettiauto_preview_test`, and a
 nonempty listing table. Source links use `example.invalid`; it fetches no data
 or images. Dates are fixed in September/October 2026 for repeatable history.
+Three listings have no usable latest price: `9000001` (zero), `9000002`
+(missing), and sold listing `9000048` (zero). Their historical/source evidence
+remains available; they should sort after real prices and stay outside budget
+filters. Lookup `9000001` to check that a missing latest price is not a reduction.
 
 ```powershell
 $integrationDatabase = $env:TEST_DATABASE_URL

@@ -37,7 +37,9 @@ try {
           const [make, model, fuel, transmission, body] = vehicles[index % vehicles.length]!;
           const sourceId = String(9000000 + index);
           const listingId = `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
-          const price = 11000 + (index % 16) * 1600 - period * 1000;
+          const price = index === 48 || (period === 1 && index === 1) ? 0
+            : period === 1 && index === 2 ? null
+              : 11000 + (index % 16) * 1600 - period * 1000;
           const [raw] = await tx`insert into raw_listing_records
             (source,source_listing_id,crawl_run_id,source_fetch_id,record_kind,source_payload,source_payload_sha256,parser_version,parser_status,captured_at)
             values ('nettiauto',${sourceId},${run!.id},${fetch!.id},'search_result_card','{}',sha256(convert_to(${`${sourceId}-${date}`},'UTF8')),'synthetic-preview','parsed',${date}) returning id`;
@@ -58,7 +60,7 @@ try {
       }
     }
   });
-  console.log("Seeded 60 synthetic listings (48 current, 12 sold), 108 snapshots, 3 complete crawl runs; no images or live collection.");
+  console.log("Seeded 60 synthetic listings (48 current, 12 sold; 3 without a usable latest price), 108 snapshots, 3 complete crawl runs; no images or live collection.");
 } finally {
   await sql.end({ timeout: 5 });
 }

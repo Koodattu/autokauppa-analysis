@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   APP_LOCALE,
   formatCompactNumber,
+  formatCurrency,
+  formatListingPrice,
   formatDate,
   formatDateTime,
   formatMonthDay,
@@ -10,6 +12,13 @@ import {
 } from "./format";
 
 describe("public English formatting", () => {
+  it("distinguishes unpriced listings from real zero fees and price differences", () => {
+    expect(formatListingPrice(0)).toBe("Not recorded");
+    expect(formatListingPrice(null)).toBe("Not recorded");
+    expect(formatListingPrice(-100)).toBe("Not recorded");
+    expect(formatListingPrice(20000)).toBe("20\u00a0000 €");
+    expect(formatCurrency(0)).toBe("0 €");
+  });
   it("uses English content with Finnish regional punctuation", () => {
     expect(APP_LOCALE).toBe("en-FI");
     expect(formatNumber(1_234_567)).toBe("1 234 567");

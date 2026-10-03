@@ -16,7 +16,12 @@ import { formatCompactNumber, formatCurrency, formatDate, formatKm, formatMonthD
 type HistoryRow = PublicListingDetailResponse["history"][number];
 
 export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
-  const hasValues = history.some(
+  const chartHistory = history.map((row) => ({
+    ...row,
+    askingPriceEur: (row.askingPriceEur ?? 0) > 0 ? row.askingPriceEur : null,
+    observedSoldPriceEur: (row.observedSoldPriceEur ?? 0) > 0 ? row.observedSoldPriceEur : null,
+  }));
+  const hasValues = chartHistory.some(
     (row) => row.askingPriceEur !== null || row.observedSoldPriceEur !== null || row.mileageKm !== null,
   );
   if (history.length < 2 || !hasValues) {
@@ -34,7 +39,7 @@ export function ListingHistoryChart({ history }: { history: HistoryRow[] }) {
       <div className="history-chart" aria-label="Listing price on the left axis and mileage on the right axis by observation date">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
-            data={history}
+            data={chartHistory}
             margin={{ top: 8, right: 8, bottom: 4, left: 8 }}
             title="Listing history"
             desc="Asking price, price shown on an observed-sold listing, and mileage by observation date"

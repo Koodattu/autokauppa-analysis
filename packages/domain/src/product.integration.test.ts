@@ -197,6 +197,48 @@ describeDatabase("PostgreSQL product integration", () => {
     expect(detail?.marketContext.comparableListings).toHaveLength(6);
   });
 
+  it("places listings without a usable price after priced listings in either price sort", async () => {
+    const queryId = await insertSourceQuery("current", "price-sort");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const unpriced = await insertObservation(runId, queryId, "current", "no-price", "active", "2026-08-03T09:00:00Z", 0);
+    const cheaper = await insertObservation(runId, queryId, "current", "lower-price", "active", "2026-08-03T09:00:00Z", 10000);
+    const dearer = await insertObservation(runId, queryId, "current", "higher-price", "active", "2026-08-03T09:00:00Z", 20000);
+
+    const ascending = await searchListings(sql, listingSearchQuerySchema.parse({ availability: "current", sort: "priceAsc" }));
+    expect(ascending.items.map((item) => item.listingId)).toEqual([cheaper, dearer, unpriced]);
+    const descending = await searchListings(sql, listingSearchQuerySchema.parse({ availability: "current", sort: "priceDesc" }));
+    expect(descending.items.map((item) => item.listingId)).toEqual([dearer, cheaper, unpriced]);
+  });
+
+  it.each(["current", "sold"] as const)("keeps unpriced %s listings out of budget-filtered evidence and counts", async (kind) => {
+    const queryId = await insertSourceQuery(kind, "budget-filter");
+    const runId = await insertRun(queryId, kind, "2026-08-03T10:00:00Z");
+    const availability = kind === "current" ? "active" : "sold";
+    await insertObservation(runId, queryId, kind, "unpriced", availability, "2026-08-03T09:00:00Z", 0);
+    const priced = await insertObservation(runId, queryId, kind, "within-budget", availability, "2026-08-03T09:00:00Z", 10000);
+    await insertObservation(runId, queryId, kind, "over-budget", availability, "2026-08-03T09:00:00Z", 20000);
+    const query = listingSearchQuerySchema.parse({ availability: kind, priceMin: 0, priceMax: 15000 });
+
+    const listings = await searchListings(sql, query);
+    expect(listings.items.map((item) => item.listingId)).toEqual([priced]);
+    expect(listings.pagination.totalItems).toBe(1);
+    const research = await getPriceResearch(sql, query);
+    expect(research.evidence.map((item) => item.listingId)).toEqual([priced]);
+    expect(research.coverage.sampleSize).toBe(1);
+  });
+
+  it("counts real price changes across missing prices without treating zero as a reduction", async () => {
+    const queryId = await insertSourceQuery("current", "price-history");
+    let listingId = "";
+    for (const [day, price] of [["01", 20000], ["02", 0], ["03", 19000]] as const) {
+      const runId = await insertRun(queryId, "current", `2026-08-${day}T10:00:00Z`);
+      listingId = await insertObservation(runId, queryId, "current", "price-history", "active", `2026-08-${day}T09:00:00Z`, price);
+    }
+    const detail = await getPublicListingDetail(sql, listingId);
+    expect(detail?.marketContext.recordedPriceChangeCount).toBe(1);
+    expect(detail?.history.map((row) => row.askingPriceEur)).toEqual([20000, 0, 19000]);
+  });
+
   it("preserves normalized JSON text, SQL projections and public details through compression", async () => {
     const queryId = await insertSourceQuery("current", "normalized-storage");
     const run = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");

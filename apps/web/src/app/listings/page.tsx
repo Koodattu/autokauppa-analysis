@@ -14,6 +14,7 @@ import {
 } from "@/lib/server-api";
 import {
   formatCurrency,
+  formatListingPrice,
   formatDateTime,
   formatKm,
   formatNumber,
@@ -193,14 +194,14 @@ function ListingLink({
 }
 
 function ListingPrice({ listing }: { listing: ListingTableItem }) {
-  const qualifier = listing.askingPriceEur !== null
+  const qualifier = (listing.askingPriceEur ?? 0) > 0
     ? "Asking"
-    : listing.observedSoldPriceEur !== null
+    : (listing.observedSoldPriceEur ?? 0) > 0
       ? "Price shown on observed-sold listing"
       : null;
   return (
     <span className="qualified-value">
-      {formatCurrency(listing.askingPriceEur ?? listing.observedSoldPriceEur)}
+      {formatListingPrice(listing.askingPriceEur ?? listing.observedSoldPriceEur)}
       {qualifier ? <small>{qualifier}</small> : null}
       {listing.priceReductionEur ? <small className="price-reduction">Recorded reduction: {formatCurrency(listing.priceReductionEur)}</small> : null}
     </span>
