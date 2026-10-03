@@ -31,16 +31,35 @@
 .research-scatter circle { cursor: pointer; }
 .research-evidence { scroll-margin-top: 90px; margin-top: 28px; }
 .research-evidence td small { display: block; color: var(--muted); }
+.evidence-download { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin: 20px 0; }
+.evidence-download > span { max-width: 65ch; font-size: 0.8125rem; }
 .save-search { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 22px 0; }
 .save-search label, .lookup-form label { display: grid; gap: 7px; font-size: 13px; }
 .save-search input, .lookup-form input { min-height: 44px; border: 1px solid var(--line); border-radius: 6px; padding: 10px; width: 100%; }
 .lookup-form input[aria-invalid="true"] { border-color: var(--danger); }
 .lookup-form { display: grid; gap: 12px; margin-bottom: 28px; }
-.save-car { display: inline-grid; gap: 6px; }
-.save-car button { padding: 9px 12px; font-size: 12px; }
+.save-car { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.save-car button { min-height: 44px; padding: 8px 12px; font-size: 0.8125rem; }
+.save-car button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
 .saved-workspace { margin: 28px 0; }
 .saved-workspace ul { list-style: none; padding: 0; }
-.saved-workspace li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.saved-workspace li { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.saved-workspace li > a, .saved-car-info { min-width: 0; overflow-wrap: anywhere; }
+.saved-section-heading, .saved-selection { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.saved-selection { background: var(--soft); border-radius: 8px; padding: 16px; margin: 24px 0; }
+.saved-selection > div { flex: 1; min-width: min(100%, 240px); overflow-wrap: anywhere; }
+.saved-selection p, .saved-car-info p { margin: 8px 0 0; }
+.saved-workspace .saved-comparison-list { margin: 12px 0 0; }
+.saved-workspace .saved-comparison-list li { padding: 4px 0; border: 0; flex-direction: row; align-items: center; gap: 12px; }
+.saved-comparison-list button { flex-shrink: 0; }
+.saved-cars, .saved-views { margin-top: 32px; }
+.saved-cars h3, .saved-views h3, .saved-selection h3 { margin: 0; font-size: 1.125rem; }
+.saved-section-heading + p, .saved-views > p { margin-top: 12px; }
+.saved-car-title { display: inline-block; font-weight: 650; padding: 8px 0; }
+.saved-car-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; font-variant-numeric: tabular-nums; }
+.saved-car-facts strong { font-size: 1.125rem; }
+.saved-car-list .save-car { justify-content: flex-end; flex-shrink: 0; max-width: 45%; }
+.saved-views button { flex-shrink: 0; }
 .comparison-tray { position: sticky; bottom: 16px; margin: 0 auto 16px; z-index: 25; width: max-content; max-width: calc(100% - 24px); display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 16px; padding: 14px 22px; background: var(--panel); box-shadow: var(--shadow-border); border-radius: 12px; }
 .comparison-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 22px; margin: 24px 0; }
 .comparison-controls input { accent-color: var(--accent); width: 18px; height: 18px; }
@@ -61,6 +80,8 @@
   .comparable-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 650px) {
+  .saved-workspace li { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .saved-car-list .save-car { justify-content: flex-start; max-width: 100%; }
   .research-feature-grid, .comparable-grid { grid-template-columns: 1fr; }
   .overview-metrics > a { padding: 16px; }
   .overview-metrics strong { font-size: 24px; }

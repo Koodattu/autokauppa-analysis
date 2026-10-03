@@ -110,7 +110,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
                   <th scope="col">Features</th>
                   <th scope="col">Availability</th>
                   <th scope="col">Seller</th>
-                  <th scope="col">Compare</th>
+                  <th scope="col">Save / compare</th>
                 </tr>
               </thead>
               <tbody>

@@ -5,6 +5,8 @@ import { readLegacyPublicImages } from "./storage";
 import { decodeNormalizedData, type NormalizedReference } from "./normalized-storage";
 import {
   MAX_LISTING_PAGE,
+  savedListingIdsSchema,
+  type ListingSummary,
   type AdminCrawlerDiagnosticsResponse,
   type AdminCrawlerStatusResponse,
   type AnalyticsSnapshotResponse,
@@ -147,6 +149,18 @@ export async function getMarketOverview(
     analytics: emptyAnalyticsTrend(query, summaryAndCoverage),
     listings,
   };
+}
+
+export async function getListingSummaries(sql: Sql, ids: string[]): Promise<ListingSummary[]> {
+  const validated = savedListingIdsSchema.parse(ids);
+  return sql<ListingSummary[]>`
+    select l.id as "listingId", s.make_source_label as make, s.model_source_label as model,
+      s.year_model as "yearModel", l.current_availability as availability,
+      s.asking_price_eur as "askingPriceEur", s.observed_sold_price_eur as "observedSoldPriceEur",
+      s.mileage_km as "mileageKm", l.last_seen_at::text as "lastSeenAt"
+    from listings l join listing_snapshots s on s.id = l.latest_snapshot_id
+    where l.id in ${sql(validated)}
+  `;
 }
 
 export async function searchListings(

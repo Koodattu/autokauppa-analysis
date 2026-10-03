@@ -14,6 +14,7 @@ import {
   parseNettiautoDetailPage,
   persistNettiautoDetailPage,
   getPublicListingDetail,
+  getListingSummaries,
   getSchedulableSourceSearchQueries,
   reserveCrawlRunDetailJobs,
   setSourceSearchQueriesPaused,
@@ -64,6 +65,20 @@ describeDatabase("PostgreSQL product integration", () => {
   afterAll(async () => {
     await sql`truncate storage_migration_progress cascade`;
     await sql.end({ timeout: 5 });
+  });
+
+  it("returns latest public summaries for only the saved IDs, including sold and missing-price cars", async () => {
+    const queryId = await insertSourceQuery("current", "saved-summary");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const first = await insertObservation(runId, queryId, "current", "saved-a", "active", "2026-08-03T09:00:00Z", 12000);
+    const second = await insertObservation(runId, queryId, "current", "saved-b", "sold", "2026-08-03T09:00:00Z", 0);
+    await insertObservation(runId, queryId, "current", "not-saved", "active", "2026-08-03T09:00:00Z", 22000);
+    await insertObservation(runId, queryId, "current", "saved-a", "active", "2026-08-04T09:00:00Z", 11000);
+    const rows = await getListingSummaries(sql, [second, "00000000-0000-4000-8000-000000000099", first, first]);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.listingId === first)).toMatchObject({ askingPriceEur: 11000, availability: "active" });
+    expect(rows.find((row) => row.listingId === second)).toMatchObject({ observedSoldPriceEur: 0, availability: "sold" });
+    expect(Object.keys(rows[0]!).sort()).toEqual(["askingPriceEur", "availability", "lastSeenAt", "listingId", "make", "mileageKm", "model", "observedSoldPriceEur", "yearModel"]);
   });
 
   it("distinguishes an unobserved sold period from an observed zero", async () => {

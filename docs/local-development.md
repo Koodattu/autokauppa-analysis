@@ -82,7 +82,9 @@ Useful manual checks:
   unchanged. Use September 2026 for historical fixture observations.
 - Lookup `not-a-listing`, then correct to `9000000`: input survives validation
   and the listing shows two observations and a €1,000 reduction.
-- Select two cars, open Saved & compare, choose a reference and differences only.
+- Save five cars, choose two for comparison, then clear selection: all five saved cars remain. Reopen Saved & compare to inspect stored price, availability and observation dates; Refresh evidence retrieves the latest stored values.
+- Compare two cars, choose a reference and differences only. Save a named research view and reopen it.
+- Download a historical evidence page and an independent comparison page: each CSV contains exactly the displayed rows, its own filters/dates, and the correct price basis.
 - At a narrow viewport, scroll a selected listing to its final source details;
   the comparison tray leaves them reachable.
 - Stop only the local API, retry an open filtered route, restart the API, and

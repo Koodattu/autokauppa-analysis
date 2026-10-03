@@ -15,6 +15,7 @@ import {
   getFilterMetadata,
   getMarketOverview,
   getPublicListingDetail,
+  getListingSummaries,
   searchListings,
   getPriceResearch,
   getDatasetOverview,
@@ -39,6 +40,8 @@ import {
   analyticsTrendResponseSchema,
   filterMetadataResponseSchema,
   listingIdSchema,
+  savedListingIdsSchema,
+  listingSummariesResponseSchema,
   listingSearchResponseSchema,
   listingSearchUrlFilter,
   marketOverviewResponseSchema,
@@ -316,6 +319,12 @@ app.get("/listings", async (c) => {
   }
 
   return c.json(listingSearchResponseSchema.parse(await searchListings(sql, result.query)));
+});
+
+app.get("/listings/summaries", async (c) => {
+  const ids = savedListingIdsSchema.safeParse(c.req.query("ids")?.split(","));
+  if (!ids.success) return c.json({ error: "invalid_query" }, 400);
+  return c.json(listingSummariesResponseSchema.parse({ items: await getListingSummaries(sql, ids.data) }));
 });
 
 app.get("/listings/lookup/:sourceId", async (c) => {

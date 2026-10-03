@@ -61,6 +61,16 @@ describeDatabase("ApiApp PostgreSQL scenarios", () => {
     await closeSqlClient(sql);
   });
 
+  it("bounds saved listing summary requests and returns only public items", async () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+    for (const query of ["", "?ids=invalid", `?ids=${Array(21).fill(id).join(",")}`]) {
+      expect((await app.fetch(new Request(`http://api.test/listings/summaries${query}`))).status).toBe(400);
+    }
+    const response = await app.fetch(new Request(`http://api.test/listings/summaries?ids=${id}`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ items: [] });
+  });
+
   it("serves readiness and a schema-validated empty filter response", async () => {
     const ready = await app.fetch(new Request("http://api.test/ready"));
     const filters = await app.fetch(new Request("http://api.test/filters"));

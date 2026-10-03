@@ -1,12 +1,12 @@
-import { comparisonIdsSchema, savedStateSchema, type SavedState } from "@nettiauto/schemas";
-export type { SavedState } from "@nettiauto/schemas";
-export const EMPTY_SAVED = '{"cars":[],"searches":[]}';
+import { comparisonIdsSchema, savedStateSchema, type SavedState as StoredState } from "@nettiauto/schemas";
+export type SavedState = StoredState & { shortlist: StoredState["cars"] };
+export const EMPTY_SAVED = '{"cars":[],"shortlist":[],"searches":[]}';
 export function parseSavedState(value: string): SavedState {
   try {
     const parsed = savedStateSchema.safeParse(JSON.parse(value));
-    return parsed.success ? parsed.data : { cars: [], searches: [] };
+    return parsed.success ? { ...parsed.data, shortlist: parsed.data.shortlist ?? parsed.data.cars } : { cars: [], shortlist: [], searches: [] };
   } catch {
-    return { cars: [], searches: [] };
+    return { cars: [], shortlist: [], searches: [] };
   }
 }
 export function compareHref(ids: string[]) {

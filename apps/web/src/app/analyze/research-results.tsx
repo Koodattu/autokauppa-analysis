@@ -5,6 +5,7 @@ import { comparisonParams, researchHref } from "@/lib/research-navigation";
 import type { WebSearchParams } from "@/lib/url-filter-navigation";
 import { PriceMileagePlot } from "./research-scatter";
 import { SaveCar } from "../saved-workspace";
+import { researchEvidenceCsv } from "@/lib/research-export";
 
 export function ResearchSummary({ data, title }: { data: ResearchResponse; title: string }) {
   return <section className="panel research-summary"><h2>{title}</h2>
@@ -40,7 +41,11 @@ export function ResearchExploration({ data, params }: { data: ResearchResponse; 
 
 export function ResearchEvidence({ data, params, comparison = false }: { data: ResearchResponse; params: WebSearchParams; comparison?: boolean }) {
   return <section className="panel research-evidence" id={comparison ? "comparison-evidence" : "research-evidence"}><h2>{comparison ? "Comparison" : "Primary"} listing evidence</h2><p>{data.mode === "historical" ? "These prices and attributes are from the selected historical observations. Listing links open the latest details separately." : "The latest observed listings behind this view."}</p>
-    <div className="chart-table-wrap"><table className="chart-table"><thead><tr><th scope="col">Car</th><th scope="col">Price</th><th scope="col">Mileage</th><th scope="col">Features</th><th scope="col">Observed</th><th scope="col">Compare</th></tr></thead><tbody>{data.evidence.map((car) => <tr key={car.listingId}><td><Link href={`/listings/${car.listingId}`} target={data.mode === "historical" ? "_blank" : undefined}>{car.make} {car.model} {car.yearModel}{data.mode === "historical" ? " · latest details ↗" : ""}</Link></td><td>{formatListingPrice(car.askingPriceEur ?? car.observedSoldPriceEur)}<small>{car.availability === "sold" ? "Shown on sold listing" : "Asking"}</small></td><td>{formatKm(car.mileageKm)}</td><td>{[car.fuelType, car.transmission, car.bodyType].filter(Boolean).join(" · ") || "Not recorded"}</td><td>{formatDate(car.lastSeenAt)}</td><td>{data.mode === "current" ? <SaveCar id={car.listingId} title={`${car.make} ${car.model} ${car.yearModel}`} /> : "Historical observation"}</td></tr>)}</tbody></table></div>
+    {data.evidence.length > 0 && <div className="evidence-download">
+      <a className="button-link secondary-button" download={`nettiauto-${comparison ? "comparison" : "primary"}-${data.mode}-page-${data.evidencePage}.csv`} href={`data:text/csv;charset=utf-8,${encodeURIComponent(researchEvidenceCsv(data, params, comparison))}`}>Download this page (CSV)</a>
+      <span className="muted">This page only: {formatNumber(data.evidence.length)} of {formatNumber(data.coverage.sampleSize)} matching listings. Includes filters, observation dates and price basis.</span>
+    </div>}
+    <div className="chart-table-wrap"><table className="chart-table"><thead><tr><th scope="col">Car</th><th scope="col">Price</th><th scope="col">Mileage</th><th scope="col">Features</th><th scope="col">Observed</th><th scope="col">Save / compare</th></tr></thead><tbody>{data.evidence.map((car) => <tr key={car.listingId}><td><Link href={`/listings/${car.listingId}`} target={data.mode === "historical" ? "_blank" : undefined}>{car.make} {car.model} {car.yearModel}{data.mode === "historical" ? " · latest details ↗" : ""}</Link></td><td>{formatListingPrice(car.askingPriceEur ?? car.observedSoldPriceEur)}<small>{car.availability === "sold" ? "Shown on sold listing" : "Asking"}</small></td><td>{formatKm(car.mileageKm)}</td><td>{[car.fuelType, car.transmission, car.bodyType].filter(Boolean).join(" · ") || "Not recorded"}</td><td>{formatDate(car.lastSeenAt)}</td><td>{data.mode === "current" ? <SaveCar id={car.listingId} title={`${car.make} ${car.model} ${car.yearModel}`} /> : "Historical observation"}</td></tr>)}</tbody></table></div>
     {!data.evidence.length && (data.evidencePage > data.evidencePages
       ? <p>This evidence page is no longer available. <Link href={researchHref(params, { page: 1 }, comparison)}>Return to the first evidence page</Link>.</p>
       : <p>No listings recorded for these filters and dates.</p>)}

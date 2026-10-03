@@ -128,6 +128,13 @@ export const listingTableItemResponseSchema = z
   })
   .strict();
 
+export const listingSummaryResponseSchema = listingTableItemResponseSchema.pick({
+  listingId: true, make: true, model: true, yearModel: true, availability: true,
+  askingPriceEur: true, observedSoldPriceEur: true, mileageKm: true, lastSeenAt: true,
+});
+export const listingSummariesResponseSchema = z.object({ items: z.array(listingSummaryResponseSchema).max(20) }).strict();
+export type ListingSummary = z.infer<typeof listingSummaryResponseSchema>;
+
 export const publicVehicleDetailsResponseSchema = z
   .object({
     sourceUpdatedDate: nullableString,
