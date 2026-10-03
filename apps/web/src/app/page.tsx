@@ -5,6 +5,8 @@ import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { SiteHeader } from "./site-header";
 import { MarketFilterForm, type PageSearchParams } from "./market-filter-form";
 import { SavedWorkspace } from "./saved-workspace";
+import { ListingLookupForm } from "./listing-lookup-form";
+import { RetryButton } from "./retry-button";
 
 export default async function Home({ searchParams }: { searchParams: Promise<PageSearchParams> }) {
   const params = await searchParams;
@@ -24,7 +26,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Pag
   }
   catch (error) {
     if (!(error instanceof ApiError)) throw error;
-    return <main className="shell public-shell"><SiteHeader active="overview" /><section className="panel"><h1>Market data is temporarily unavailable</h1><p>Try again shortly.</p><Link href="/">Try again</Link></section></main>;
+    return <main className="shell public-shell"><SiteHeader active="overview" /><section className="panel"><h1>Market data is temporarily unavailable</h1><p>Try again shortly.</p><RetryButton /></section></main>;
   }
   const [overview, research, filters] = data;
   return <main className="shell public-shell"><SiteHeader active="overview" />
@@ -40,7 +42,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Pag
     <details className="panel overview-research-form"><summary>Choose a make, model, mileage or observation period</summary><MarketFilterForm action="/analyze" filters={filters} params={{ availability: "current" }} variant="analytics" /></details>
     <div className="research-feature-grid"><section className="panel"><h2>Browse by budget</h2><p>Current priced listings. Select a range to see the cars.</p><ul className="feature-groups">{research.priceBands.map((band) => <li key={band.from}><Link href={`/listings?availability=current&priceMin=${band.from}${band.to === null ? "" : `&priceMax=${band.to - 1}`}`}>{formatCurrency(band.from)}{band.to === null ? "+" : `–${formatCurrency(band.to)}`}</Link><strong>{formatNumber(band.count)} cars</strong></li>)}</ul></section>
     <section className="panel"><h2>Most listed models</h2><p>Current priced inventory, not a measure of demand or sales.</p><ul className="feature-groups">{research.models.map((model) => <li key={`${model.make}-${model.model}`}><Link href={`/analyze?${new URLSearchParams({ make: model.make, model: model.model, availability: "current" })}`}>{model.make} {model.model}</Link><strong>{formatCurrency(model.median)}</strong><small>{formatNumber(model.count)} prices · median asking</small></li>)}</ul></section>
-    <section className="panel"><h2>Check a listing</h2><p>Open an advertisement already collected here to inspect its price history and comparable cars.</p><form className="lookup-form" action="/lookup"><label><span>Nettiauto URL or listing ID</span><input name="listing" required maxLength={300} placeholder="https://www.nettiauto.com/…" /></label><button>Find listing</button></form><h3>Explore earlier prices</h3><p>Collection history: {formatDate(overview.historyFrom)}–{formatDate(overview.historyTo)}.</p><p>{formatNumber(overview.archived)} observed-sold listings in the archive. These are not confirmed transactions.</p><Link href="/analyze">Choose cars and compare two periods</Link></section></div>
+    <section className="panel"><h2>Check a listing</h2><p>Open an advertisement already collected here to inspect its price history and comparable cars.</p><ListingLookupForm /><h3>Explore earlier prices</h3><p>Collection history: {formatDate(overview.historyFrom)}–{formatDate(overview.historyTo)}.</p><p>{formatNumber(overview.archived)} observed-sold listings in the archive. These are not confirmed transactions.</p><Link href="/analyze">Choose cars and compare two periods</Link></section></div>
     <SavedWorkspace />
   </main>;
 }

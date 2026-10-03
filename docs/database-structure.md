@@ -1,7 +1,10 @@
 # Database Structure
 
-Status: planned database structure only. No migrations or Drizzle schema have
-been implemented yet.
+Status: historical first-schema design. The implemented schema and migrations
+are in [packages/db/src/schema.ts](../packages/db/src/schema.ts) and
+[packages/db/drizzle](../packages/db/drizzle). Later storage changes are covered
+by [the compact storage rollout](storage-v4-rollout.md); use those sources for
+current table/column details.
 
 This document turns the architecture decisions into the first relational model
 for Nettiauto Search Result Data ingestion. The table names, column names,

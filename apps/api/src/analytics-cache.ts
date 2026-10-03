@@ -92,7 +92,6 @@ export class ResponseCache<Query, Value> {
         entry.expiresAt = completedAt + this.options.ttlMs;
         entry.lastAccessedAt = completedAt;
         entry.lastError = undefined;
-        this.prune(key);
         this.options.logger.info(
           {
             cacheName: this.options.name,
@@ -125,6 +124,9 @@ export class ResponseCache<Query, Value> {
         if (latestEntry) {
           latestEntry.refreshPromise = undefined;
         }
+        // Concurrent loads may all complete before any finally handler runs.
+        // Enforce capacity after the settled entry becomes eligible for eviction.
+        this.prune(key);
       });
 
     return entry.refreshPromise;

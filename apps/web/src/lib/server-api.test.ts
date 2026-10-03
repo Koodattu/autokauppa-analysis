@@ -19,6 +19,18 @@ afterEach(() => {
 });
 
 describe("server API client identity", () => {
+  it("ends a stalled shared homepage request at its deadline without reading visitor headers", async () => {
+    const deadline = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+    }));
+    const request = getDatasetOverview({ next: { revalidate: 300 } });
+    deadline.abort(new DOMException("deadline exceeded", "TimeoutError"));
+    await expect(request).rejects.toMatchObject({ status: 503 });
+    expect(headers).not.toHaveBeenCalled();
+  });
+
   it("correlates an upstream 429 and retains its retry hint without logging filters", async () => {
     vi.mocked(headers).mockResolvedValue(new Headers({ "x-request-id": "page-request", "user-agent": "OAI-SearchBot/1.0" }) as Awaited<ReturnType<typeof headers>>);
     fetchMock.mockResolvedValue(new Response(null, { status: 429, headers: { "retry-after": "42", "x-request-id": "page-request" } }));
@@ -54,6 +66,6 @@ describe("server API client identity", () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
     await expect(getDatasetOverview({ next: { revalidate: 300 } })).rejects.toMatchObject({ status: 503 });
     expect(headers).not.toHaveBeenCalled();
-    expect(fetchMock.mock.lastCall![1]).toEqual({ next: { revalidate: 300 } });
+    expect(fetchMock.mock.lastCall![1]).toEqual({ next: { revalidate: 300 }, signal: expect.any(AbortSignal) });
   });
 });

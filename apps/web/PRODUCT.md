@@ -14,7 +14,7 @@ The primary audience is buyers, enthusiasts, and analysts exploring public vehic
 
 The product context covers these public end users only. Private crawler administration is an operational concern, not a product audience.
 
-Fuel-type segmentation is a planned public capability, but it remains deferred until the public filter metadata and analytics API expose a stable fuel dimension. The current UI must not imply that this comparison is already available.
+Fuel-type segmentation is available through public filter metadata, research, listings, and comparison groups. Values reflect recorded source attributes; missing fuel information limits coverage.
 
 ## Product Purpose
 

@@ -10,6 +10,18 @@ const query: ListingFiltersQuery = {
 };
 
 describe("ResponseCache", () => {
+  it("evicts the oldest completed entries after simultaneous cold loads exceed capacity", async () => {
+    const loader = vi.fn(async (input: ListingFiltersQuery) => responseWithCount(input.modelYear!));
+    let time = 0;
+    const cache = createCache(loader, () => time++);
+    await Promise.all([2015, 2016, 2017, 2018, 2019, 2020].map((modelYear) => cache.get({ ...query, modelYear })));
+
+    // Capacity is four: the newest result survives, the first two must reload.
+    expect(await cache.get({ ...query, modelYear: 2020 })).toMatchObject({ status: "hit", value: responseWithCount(2020) });
+    expect(await cache.get({ ...query, modelYear: 2015 })).toMatchObject({ status: "miss" });
+    expect(await cache.get({ ...query, modelYear: 2016 })).toMatchObject({ status: "miss" });
+  });
+
   it("deduplicates concurrent cold loads for the same query", async () => {
     let resolveLoad: (value: AnalyticsTimeSeriesResponse) => void = () => {};
     const loader = vi.fn<(query: ListingFiltersQuery) => Promise<AnalyticsTimeSeriesResponse>>(

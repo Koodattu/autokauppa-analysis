@@ -1,0 +1,41 @@
+[
+  {
+    "path": "/analytics/research?availability=all",
+    "responseBytes": 23350,
+    "milliseconds": [
+      118.3,
+      5.5,
+      2.2,
+      3.1,
+      1.6,
+      1.4
+    ],
+    "status": 200
+  },
+  {
+    "path": "/analytics/research?availability=current&from=2026-09-01&to=2026-09-30",
+    "responseBytes": 21225,
+    "milliseconds": [
+      8.2,
+      1.6,
+      1.5,
+      1.3,
+      1.2,
+      1.3
+    ],
+    "status": 200
+  },
+  {
+    "path": "/listings?availability=all&sort=priceReductionDesc",
+    "responseBytes": 13151,
+    "milliseconds": [
+      8.1,
+      5.9,
+      13.5,
+      6.2,
+      5.6,
+      5.3
+    ],
+    "status": 200
+  }
+]

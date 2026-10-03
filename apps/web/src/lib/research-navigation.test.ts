@@ -4,6 +4,23 @@ import { parseCompareIds, parseSavedState } from "./saved-views";
 import { sourceListingId } from "./listing-lookup";
 
 describe("price research navigation", () => {
+  it("pages comparison evidence without replacing the primary group or its evidence page", () => {
+    const href = researchHref({ make: "Toyota", page: "2", comparing: "1", compareAvailability: "all", comparePage: "1" }, { page: 2 }, true);
+    const params = Object.fromEntries(new URL(href, "https://example.test").searchParams);
+    expect(params).toEqual({ make: "Toyota", page: "2", comparing: "1", compareAvailability: "all", comparePage: "2" });
+  });
+
+  it("clones the primary group without retaining the previous comparison's filters or page", () => {
+    const cloned = Object.fromEntries(new URL(cloneComparisonHref({
+      availability: "all", make: "Toyota", comparing: "1", compareMake: "Honda",
+      comparePriceMax: "10000", compareFrom: "2025-01-01", compareTo: "2025-12-31", comparePage: "3",
+    }), "https://example.test").searchParams);
+    expect(researchQuery(cloned, true)).toMatchObject({ ok: true, query: { make: "Toyota", availability: "all", page: 1 } });
+    expect(cloned.comparePriceMax).toBeUndefined();
+    expect(cloned.compareFrom).toBeUndefined();
+    expect(comparisonParams(cloned).availability).toBe("all");
+  });
+
   it("keeps car age and observation periods independent and preserves drilldown dates", () => {
     const params = { make: "Honda", model: "Civic", modelYear: "2019", transmission: "Manual", mileageMin: "90000", mileageMax: "110000", from: "2023-01-01", to: "2023-12-31", comparing: "1", compareFrom: "2025-01-01", compareTo: "2025-12-31" };
     const query = researchQuery(params);

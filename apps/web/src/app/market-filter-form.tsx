@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useId, useRef, useState, useTransition } from "react";
 import { analysisQueryUrlFilter, listingSearchUrlFilter } from "@nettiauto/schemas";
 import type { FilterMetadata } from "@/lib/api";
-import { singleSearchParam as single, type WebSearchParams } from "@/lib/url-filter-navigation";
+import { formatPageFilters, singleSearchParam as single, type WebSearchParams } from "@/lib/url-filter-navigation";
 
 export type PageSearchParams = WebSearchParams;
 
@@ -513,6 +513,7 @@ function selectedFilterLabels(params: PageSearchParams, variant: MarketFilterFor
 }
 
 function availabilityLabel(value: string) {
+  if (value === "all") return "Current + sold";
   if (value === "current") {
     return "Current";
   }
@@ -568,20 +569,11 @@ function cleanFilterHref(event: FormEvent<HTMLFormElement>, action: string) {
   event.preventDefault();
   const variant = action === "/listings" ? "listings" : "analytics";
   const query = formSearchParams(event.currentTarget);
-  if (variant === "listings") {
-    const result = listingSearchUrlFilter.parse(query);
-    if (!result.ok) {
-      return action;
-    }
-    const value = listingSearchUrlFilter.format(result.query).toString();
-    return value ? `${action}?${value}` : action;
-  }
-
-  const result = analysisQueryUrlFilter.parse(query);
+  const result = urlFilterFor(variant).parse(query);
   if (!result.ok) {
     return action;
   }
-  const value = analysisQueryUrlFilter.format(result.query).toString();
+  const value = formatPageFilters(result.query).toString();
   return value ? `${action}?${value}` : action;
 }
 

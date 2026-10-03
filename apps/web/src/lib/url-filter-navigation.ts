@@ -2,9 +2,21 @@ import {
   analysisQueryUrlFilter,
   listingSearchUrlFilter,
   type ListingFiltersQuery,
+  type ListingSearchQuery,
 } from "@nettiauto/schemas";
 
 export type WebSearchParams = Record<string, string | string[] | undefined>;
+
+// Page defaults differ from Product API defaults. Keep the selected values
+// explicit in browser links so navigation cannot silently change the scope.
+export function formatPageFilters(query: ListingFiltersQuery | ListingSearchQuery) {
+  const params = "sort" in query
+    ? listingSearchUrlFilter.format(query)
+    : analysisQueryUrlFilter.format(query);
+  params.set("availability", query.availability);
+  if ("sort" in query) params.set("sort", query.sort);
+  return params;
+}
 
 export interface AnalysisRequestScope {
   readonly queryString: string;
@@ -49,7 +61,7 @@ export function resolveAnalysisNavigation(
 
   const scope = createAnalysisRequestScope(parsed.query);
   const listingQuery = analysisQueryUrlFilter.toListingSearch(parsed.query);
-  const listingQueryString = listingSearchUrlFilter.format(listingQuery).toString();
+  const listingQueryString = formatPageFilters(listingQuery).toString();
   const comparisonScope = createComparisonScope(params, parsed.query);
   return {
     ...scope,
@@ -67,8 +79,9 @@ export function resolveListingNavigation(params: WebSearchParams): ListingNaviga
   }
 
   const queryString = listingSearchUrlFilter.format(parsed.query).toString();
+  const pageQueryString = formatPageFilters(parsed.query).toString();
   const analysis = listingSearchUrlFilter.toAnalysisQuery(parsed.query);
-  const analysisQueryString = analysisQueryUrlFilter.format(analysis).toString();
+  const analysisQueryString = formatPageFilters(analysis).toString();
   return {
     queryString,
     filterMetadataQueryString: analysisQueryUrlFilter
@@ -77,10 +90,10 @@ export function resolveListingNavigation(params: WebSearchParams): ListingNaviga
     analyticsHref: routeWithQuery("/analyze", analysisQueryString),
     pageHref(page) {
       const next = listingSearchUrlFilter.withPage(parsed.query, page);
-      return routeWithQuery("/listings", listingSearchUrlFilter.format(next).toString());
+      return routeWithQuery("/listings", formatPageFilters(next).toString());
     },
     detailHref(listingId) {
-      const returnTo = routeWithQuery("/listings", queryString);
+      const returnTo = routeWithQuery("/listings", pageQueryString);
       return `/listings/${encodeURIComponent(listingId)}?returnTo=${encodeURIComponent(returnTo)}`;
     },
   };

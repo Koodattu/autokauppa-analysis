@@ -524,7 +524,7 @@ async function getListingMarketPriceContext(sql: Sql, listingId: string) {
           filter (where price is not null))::int as "medianPriceEur",
         (percentile_cont(0.75) within group (order by price)
           filter (where price is not null))::int as "priceP75Eur",
-        case when count(price) filter(where price > 0) >= 5 then round(
+        case when max(target_price) > 0 and count(price) filter(where price > 0) >= 5 then round(
           100.0 * count(price) filter (where price <= target_price)
           / nullif(count(price), 0)
         )::int end as "pricePercentile",

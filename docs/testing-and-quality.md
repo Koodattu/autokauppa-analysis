@@ -2,6 +2,12 @@
 
 Status: implemented baseline; the sections below remain the continuing quality bar.
 
+For executable setup and verification commands, see
+[Local development and disposable fixtures](local-development.md). The explicit
+`test:integration` command selects every `*.integration.test.ts` suite and refuses
+to run without the designated disposable localhost database. Full `test` runs
+skip database suites when `TEST_DATABASE_URL` is unset.
+
 ## Quality Bar
 
 The system should be boring to change:
@@ -88,15 +94,15 @@ migrations applied
 
 ## Recommended Tools
 
-Likely tools:
+Current tools:
 
 - Vitest for TypeScript unit/integration tests.
-- Playwright for browser/e2e tests.
-- Docker Compose or testcontainers-style setup for PostgreSQL integration tests.
+- Browser tooling for interactive end-to-end checks (no committed browser-test runner).
+- Docker PostgreSQL for integration tests.
 - TypeScript strict mode.
 - ESLint and formatter.
 
-Exact tooling can be finalized during scaffolding.
+Use the locked dependencies; no additional test runner is required.
 
 ## Static Checks
 

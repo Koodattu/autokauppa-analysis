@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ResearchResponse } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, formatKm, formatNumber } from "@/lib/format";
-import { researchHref } from "@/lib/research-navigation";
+import { comparisonParams, researchHref } from "@/lib/research-navigation";
 import type { WebSearchParams } from "@/lib/url-filter-navigation";
 import { PriceMileagePlot } from "./research-scatter";
 import { SaveCar } from "../saved-workspace";
@@ -41,9 +41,11 @@ export function ResearchExploration({ data, params }: { data: ResearchResponse; 
 export function ResearchEvidence({ data, params, comparison = false }: { data: ResearchResponse; params: WebSearchParams; comparison?: boolean }) {
   return <section className="panel research-evidence" id={comparison ? "comparison-evidence" : "research-evidence"}><h2>{comparison ? "Comparison" : "Primary"} listing evidence</h2><p>{data.mode === "historical" ? "These prices and attributes are from the selected historical observations. Listing links open the latest details separately." : "The latest observed listings behind this view."}</p>
     <div className="chart-table-wrap"><table className="chart-table"><thead><tr><th scope="col">Car</th><th scope="col">Price</th><th scope="col">Mileage</th><th scope="col">Features</th><th scope="col">Observed</th><th scope="col">Compare</th></tr></thead><tbody>{data.evidence.map((car) => <tr key={car.listingId}><td><Link href={`/listings/${car.listingId}`} target={data.mode === "historical" ? "_blank" : undefined}>{car.make} {car.model} {car.yearModel}{data.mode === "historical" ? " · latest details ↗" : ""}</Link></td><td>{formatCurrency(car.askingPriceEur ?? car.observedSoldPriceEur)}<small>{car.askingPriceEur !== null ? "Asking" : "Shown on sold listing"}</small></td><td>{formatKm(car.mileageKm)}</td><td>{[car.fuelType, car.transmission, car.bodyType].filter(Boolean).join(" · ") || "Not recorded"}</td><td>{formatDate(car.lastSeenAt)}</td><td>{data.mode === "current" ? <SaveCar id={car.listingId} title={`${car.make} ${car.model} ${car.yearModel}`} /> : "Historical observation"}</td></tr>)}</tbody></table></div>
-    {!data.evidence.length && <p>No listings recorded for these filters and dates.</p>}
-    <nav className="pagination" aria-label={comparison ? "Comparison evidence pages" : "Evidence pages"}>{data.evidencePage > 1 && <Link href={researchHref(params, { page: data.evidencePage - 1 })}>Previous</Link>}<span>Page {data.evidencePage} of {data.evidencePages}</span>{data.evidencePage < Math.min(data.evidencePages, 1000) && <Link href={researchHref(params, { page: data.evidencePage + 1 })}>Next</Link>}</nav>
+    {!data.evidence.length && (data.evidencePage > data.evidencePages
+      ? <p>This evidence page is no longer available. <Link href={researchHref(params, { page: 1 }, comparison)}>Return to the first evidence page</Link>.</p>
+      : <p>No listings recorded for these filters and dates.</p>)}
+    <nav className="pagination" aria-label={comparison ? "Comparison evidence pages" : "Evidence pages"}>{data.evidencePage > 1 && <Link href={researchHref(params, { page: data.evidencePage - 1 }, comparison)}>Previous</Link>}<span>Page {data.evidencePage} of {data.evidencePages}</span>{data.evidencePage < Math.min(data.evidencePages, 1000) && <Link href={researchHref(params, { page: data.evidencePage + 1 }, comparison)}>Next</Link>}</nav>
     {data.evidencePages > 1000 && <p>Narrow the vehicle filters to inspect results beyond the first 25,000 listings. Summaries include the full matching sample.</p>}
-    {comparison && <Link href={researchHref(params)}>Explore this comparison as the primary group</Link>}
+    {comparison && <Link href={researchHref(comparisonParams(params))}>Explore this comparison as the primary group</Link>}
   </section>;
 }

@@ -20,6 +20,7 @@ import { SiteHeader } from "../../site-header";
 import { ListingGallery } from "./listing-gallery";
 import { LazyListingHistoryChart } from "./lazy-listing-history-chart";
 import { SaveCar } from "../../saved-workspace";
+import { RetryButton } from "../../retry-button";
 
 type PageProps = {
   params: Promise<{ listingId: string }>;
@@ -39,7 +40,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
       return <main className="shell public-shell"><SiteHeader active="listings" />
         <section className="panel page-error"><h1>Listing is temporarily unavailable</h1>
           <p>Please wait a moment and try again.</p>
-          <Link className="button-link" href={`/listings/${encodeURIComponent(listingId)}`}>Try again</Link>
+          <RetryButton />
         </section>
       </main>;
     }
@@ -260,7 +261,8 @@ function MarketContext({ context, returnTo }: { context: PublicListingDetailResp
 }
 
 function PricePosition({ context, price }: { context: PublicListingDetailResponse["marketContext"]; price: number | null }) {
-  if (price === null || context.medianPriceEur === null || context.sampleSize < 5) return <p>Not enough comparable prices for a price position. Inspect the available evidence below.</p>;
+  if (price === null || price <= 0) return <p>No usable price is recorded for this listing. Inspect comparable cars below.</p>;
+  if (context.medianPriceEur === null || context.sampleSize < 5) return <p>Not enough comparable prices for a price position. Inspect the available evidence below.</p>;
   const difference = price - context.medianPriceEur;
   const low = Math.min(price, context.priceP25Eur ?? price) * 0.9;
   const high = Math.max(price, context.priceP75Eur ?? price) * 1.1;

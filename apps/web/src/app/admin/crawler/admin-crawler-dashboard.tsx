@@ -414,9 +414,9 @@ export function AdminCrawlerDashboard({
             <h2>Freshness</h2>
           </div>
           <div className="trend-list">
-            {status.freshnessBySegment.map((segment) => (
+            {status.freshnessBySegment.map((segment, index) => (
               <AdminRow
-                key={segment.crawlKind}
+                key={`${segment.crawlKind}-${index}`}
                 label={labelKind(segment.crawlKind)}
                 value={formatDate(segment.lastSuccessAt)}
                 detail={segment.pausedUntil

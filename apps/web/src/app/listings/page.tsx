@@ -1,7 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
+import { redirect } from "next/navigation";
 import { isAllowedListingImageUrl } from "@/lib/listing-images";
 import { SaveCar, SaveSearch } from "../saved-workspace";
+import { RetryButton } from "../retry-button";
 import {
   ApiError,
   getFilterMetadata,
@@ -42,6 +44,9 @@ export default async function ListingsPage({ searchParams }: PageProps) {
   }
 
   const { filters, listings } = result.data;
+  if (listings.pagination.page > listings.pagination.totalPages) {
+    redirect(navigation.pageHref(listings.pagination.totalPages));
+  }
 
   return (
     <main className="shell public-shell">
@@ -68,7 +73,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
       />
 
       <MarketCoverage coverage={listings.coverage} title="Result coverage" />
-      <SaveSearch href={`/listings?${navigation.queryString}`} title="Car search" />
+      <SaveSearch href={navigation.pageHref(listings.pagination.page)} title="Car search" />
 
       <section className="table-wrap listing-results" aria-label="Listings">
         <div className="section-heading">
@@ -265,8 +270,9 @@ async function loadListingsData(navigation: ListingNavigation): Promise<
 }
 
 function ListingsError({ error }: { error: unknown }) {
+  const invalid = error instanceof ApiError && error.status === 400;
   const message =
-    error instanceof ApiError && error.status === 400
+    invalid
       ? "Check the selected filters and try again."
       : "Listings are temporarily unavailable.";
   return (
@@ -275,10 +281,8 @@ function ListingsError({ error }: { error: unknown }) {
       <section className="panel error-state page-error">
         <h1>Listings unavailable</h1>
         <p>{message}</p>
-        <p className="state-guidance">Reset the scope to rule out an invalid combination, or try again shortly.</p>
-        <Link className="button-link" href="/listings">
-          Reset listing scope
-        </Link>
+        <p className="state-guidance">{invalid ? "Reset the scope to choose a valid combination." : "Your filters and page are kept. Try again shortly."}</p>
+        {invalid ? <Link className="button-link" href="/listings">Reset listing scope</Link> : <RetryButton />}
       </section>
     </main>
   );

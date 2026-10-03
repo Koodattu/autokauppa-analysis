@@ -8,6 +8,7 @@ import { SaveSearch } from "../saved-workspace";
 import { LazyHistoricalPriceChart } from "../lazy-analytics-charts";
 import { ResearchSummary, ResearchExploration, ResearchEvidence } from "./research-results";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { RetryButton } from "../retry-button";
 
 export default async function AnalysisPage({ searchParams }: { searchParams: Promise<PageSearchParams> }) {
   const params: PageSearchParams = { availability: "current", ...await searchParams };
@@ -25,7 +26,7 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
     ]);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
-    return <main className="shell public-shell"><SiteHeader active="analyze" /><section className="panel"><h1>Research is temporarily unavailable</h1><p>Your filters are kept in the address. Try again shortly.</p><Link href={researchHref(params)}>Try again</Link></section></main>;
+    return <main className="shell public-shell"><SiteHeader active="analyze" /><section className="panel"><h1>Research is temporarily unavailable</h1><p>Your filters are kept in the address. Try again shortly.</p><RetryButton /></section></main>;
   }
   const [filters, research, series, compared, compareFilters] = data;
   const title = [primary.query.make, primary.query.model, primary.query.modelYear].filter(Boolean).join(" ") || "Car prices";
@@ -56,7 +57,7 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
     </section>
     <ResearchExploration data={research} params={params} />
     <ResearchEvidence data={research} params={params} />
-    {compared && <ResearchEvidence data={compared} params={comparisonParams(params)} comparison />}
+    {compared && <ResearchEvidence data={compared} params={params} comparison />}
     <SaveSearch href={researchHref(params, { page: primary.query.page })} title={`${title} price research`} />
   </main>;
 }

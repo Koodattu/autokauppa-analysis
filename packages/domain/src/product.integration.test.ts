@@ -185,6 +185,18 @@ describeDatabase("PostgreSQL product integration", () => {
     expect((await getPublicListingDetail(sql, listingId))?.listing.askingPriceEur).toBe(15000);
   });
 
+  it("does not rank a zero-price listing below real comparable prices", async () => {
+    const queryId = await insertSourceQuery("current", "unpriced-comparison");
+    const runId = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const targetId = await insertObservation(runId, queryId, "current", "unpriced-target", "active", "2026-08-03T09:00:00Z", 0);
+    for (let index = 0; index < 6; index++) {
+      await insertObservation(runId, queryId, "current", `priced-peer-${index}`, "active", "2026-08-03T09:00:00Z", 20000);
+    }
+    const detail = await getPublicListingDetail(sql, targetId);
+    expect(detail?.marketContext).toMatchObject({ sampleSize: 6, medianPriceEur: 20000, pricePercentile: null });
+    expect(detail?.marketContext.comparableListings).toHaveLength(6);
+  });
+
   it("preserves normalized JSON text, SQL projections and public details through compression", async () => {
     const queryId = await insertSourceQuery("current", "normalized-storage");
     const run = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");

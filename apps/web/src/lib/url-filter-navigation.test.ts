@@ -6,6 +6,18 @@ import {
 } from "./url-filter-navigation";
 
 describe("URL Filter navigation", () => {
+  it("keeps current + sold and recently observed sorting when following page and detail links", () => {
+    const navigation = resolveListingNavigation({ availability: "all", sort: "lastSeenDesc" })!;
+    const next = new URL(navigation.pageHref(2), "https://example.test");
+    expect(next.searchParams.get("availability")).toBe("all");
+    expect(next.searchParams.get("sort")).toBe("lastSeenDesc");
+    expect(new URL(navigation.analyticsHref, "https://example.test").searchParams.get("availability")).toBe("all");
+    const detail = new URL(navigation.detailHref("example"), "https://example.test");
+    const back = new URL(detail.searchParams.get("returnTo")!, "https://example.test");
+    expect(back.searchParams.get("availability")).toBe("all");
+    expect(back.searchParams.get("sort")).toBe("lastSeenDesc");
+  });
+
   it("projects an Analysis Query into request, metadata, and Listing View navigation", () => {
     const navigation = resolveAnalysisNavigation({
       model: "Civic",
@@ -21,7 +33,7 @@ describe("URL Filter navigation", () => {
     );
     expect(navigation?.snapshotQueryString).toBe("make=Honda&model=Civic");
     expect(navigation?.filterMetadataQueryString).toBe("make=Honda&model=Civic");
-    expect(navigation?.listingsHref).toBe("/listings?make=Honda&model=Civic");
+    expect(navigation?.listingsHref).toBe("/listings?make=Honda&model=Civic&availability=all&sort=lastSeenDesc");
   });
 
   it("keeps comparison URL state separate from the primary Analysis Query", () => {
@@ -55,12 +67,12 @@ describe("URL Filter navigation", () => {
     });
 
     expect(navigation?.queryString).toBe("make=Honda&model=Civic&page=2&sort=priceAsc");
-    expect(navigation?.analyticsHref).toBe("/analyze?make=Honda&model=Civic");
+    expect(navigation?.analyticsHref).toBe("/analyze?make=Honda&model=Civic&availability=all");
     expect(navigation?.pageHref(3)).toBe(
-      "/listings?make=Honda&model=Civic&page=3&sort=priceAsc",
+      "/listings?make=Honda&model=Civic&page=3&sort=priceAsc&availability=all",
     );
     expect(navigation?.detailHref("abc 1")).toBe(
-      "/listings/abc%201?returnTo=%2Flistings%3Fmake%3DHonda%26model%3DCivic%26page%3D2%26sort%3DpriceAsc",
+      "/listings/abc%201?returnTo=%2Flistings%3Fmake%3DHonda%26model%3DCivic%26page%3D2%26sort%3DpriceAsc%26availability%3Dall",
     );
   });
 

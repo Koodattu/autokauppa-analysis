@@ -40,9 +40,10 @@ async function apiGet<T>(path: string, schema: ResponseSchema<T>, init?: Request
       else outboundHeaders.delete(name);
     }
     requestInit.headers = outboundHeaders;
-    const deadline = AbortSignal.timeout(45_000);
-    requestInit.signal = requestInit.signal ? AbortSignal.any([requestInit.signal, deadline]) : deadline;
   }
+  // Shared homepage requests need the same deadline as visitor-specific reads.
+  const deadline = AbortSignal.timeout(45_000);
+  requestInit.signal = requestInit.signal ? AbortSignal.any([requestInit.signal, deadline]) : deadline;
 
   let payload: unknown;
   try {

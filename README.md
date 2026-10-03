@@ -66,8 +66,8 @@ Implemented first slice:
 
 Deferred:
 
-- Image downloads.
-- Saved Views/watchlists.
+- Full-resolution image archiving (bounded hero-image archiving is available).
+- Account-synced watchlists (saved views and car selections are browser-local).
 - General open data API.
 - ClickHouse or TimescaleDB.
 - Redis/BullMQ.
@@ -77,7 +77,7 @@ Deferred:
 - Motorcycles.
 - Broad detail-page crawling by default; enrichment is opt-in and capped per run.
 
-## Scaffold Layout
+## Repository Layout
 
 ```text
 apps/
@@ -86,12 +86,12 @@ apps/
   worker/    Graphile task adapters and source-specific Crawl Execution
 
 packages/
-  config/    shared environment/config package shell
-  db/        Drizzle schema and migration package shell
-  domain/    server-only domain package shell
-  logging/   shared logging package shell
-  schemas/   shared Zod schema package shell
-  ui/        shared React UI package shell
+  config/    shared environment/config validation
+  db/        Drizzle schema, migrations, and SQL clients
+  domain/    server-only ingestion and product queries
+  logging/   structured logging
+  schemas/   shared Zod contracts
+  ui/        shared React UI
 
 docker/
   migrate.Dockerfile
@@ -102,6 +102,11 @@ docker-compose.yml
 ```
 
 ## Local Commands
+
+Start with [Local development and disposable fixtures](docs/local-development.md)
+for an isolated PostgreSQL database, migrations, synthetic data, and the API/web
+environment. Install dependencies from the repository root with the Bun version
+declared in `package.json`.
 
 ```bash
 bun install --frozen-lockfile
@@ -121,11 +126,14 @@ Tests:
 bun run test
 ```
 
-PostgreSQL integration tests require a migrated disposable database whose name
-contains `test`:
+`test` runs unit tests and skips database suites when `TEST_DATABASE_URL` is
+unset. `test:integration` runs all six API, domain, and worker database suites;
+it requires a migrated **disposable localhost** database named exactly
+`nettiauto_storage_fixture_test`. These suites erase fixture data. Keep the
+preview database separate.
 
 ```bash
-TEST_DATABASE_URL=postgres://.../nettiauto_test bun run test:integration
+TEST_DATABASE_URL=postgres://.../nettiauto_storage_fixture_test bun run --no-env-file test:integration
 ```
 
 Service-specific development commands:
@@ -138,7 +146,7 @@ bun run dev:worker
 
 ## Docker Compose
 
-The scaffold includes services for Caddy, web, API, worker, migrate, and
+The Compose configuration includes services for Caddy, web, API, worker, migrate, and
 PostgreSQL. Copy `.env.example` to `.env` before running Compose and replace the
 placeholder secrets before using anything beyond local development.
 

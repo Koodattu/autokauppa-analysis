@@ -1,5 +1,5 @@
 import { listingSearchUrlFilter } from "@nettiauto/schemas";
-import type { WebSearchParams } from "./url-filter-navigation";
+import { formatPageFilters, type WebSearchParams } from "./url-filter-navigation";
 
 export function researchQuery(params: WebSearchParams, comparison = false) {
   const values = new URLSearchParams();
@@ -14,12 +14,13 @@ export function researchQuery(params: WebSearchParams, comparison = false) {
   return listingSearchUrlFilter.parse(values);
 }
 
-export function researchHref(params: WebSearchParams, changes: Record<string, string | number | undefined> = {}) {
+export function researchHref(params: WebSearchParams, changes: Record<string, string | number | undefined> = {}, comparison = false) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (typeof value === "string") query.set(key, value);
-  query.delete("page");
+  query.delete(comparison ? "comparePage" : "page");
   for (const [key, value] of Object.entries(changes)) {
-    if (value === undefined) query.delete(key); else query.set(key, String(value));
+    const target = comparison ? `compare${key[0].toUpperCase()}${key.slice(1)}` : key;
+    if (value === undefined) query.delete(target); else query.set(target, String(value));
   }
   return `/analyze?${query}`;
 }
@@ -28,13 +29,14 @@ export function cloneComparisonHref(params: WebSearchParams) {
   const primary = researchQuery(params);
   if (!primary.ok) return "/analyze";
   const changes: Record<string, string> = { comparing: "1" };
-  for (const [key, value] of listingSearchUrlFilter.format(primary.query)) {
+  for (const [key, value] of formatPageFilters(primary.query)) {
     if (key !== "page") changes[`compare${key[0].toUpperCase()}${key.slice(1)}`] = value;
   }
-  return researchHref(params, changes);
+  const primaryParams = Object.fromEntries(Object.entries(params).filter(([key]) => !key.startsWith("compar")));
+  return researchHref(primaryParams, changes);
 }
 
 export function comparisonParams(params: WebSearchParams): WebSearchParams {
   const parsed = researchQuery(params, true);
-  return parsed.ok ? Object.fromEntries(listingSearchUrlFilter.format(parsed.query)) : {};
+  return parsed.ok ? Object.fromEntries(formatPageFilters(parsed.query)) : {};
 }
