@@ -74,7 +74,7 @@ export function HistoricalPriceTable({ data }: { data: Charts["marketOverTime"] 
   return (
     <details className="chart-data">
       <summary>View exact historical price data</summary>
-      <div className="chart-table-wrap">
+      <div className="chart-table-wrap" role="region" aria-label="Historical price values" tabIndex={0}>
         <table className="chart-table">
           <thead>
             <tr>

@@ -12,7 +12,7 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
     try { return await getPublicListingDetail(id); }
     catch (error) { if (error instanceof ApiError && error.status === 404) return null; throw error; }
   })) : [];
-  return <main className="shell public-shell"><SiteHeader active="compare" /><section className="page-heading"><div><span className="heading-context">Your research workspace</span><h1>{ids?.length ? "Compare cars" : "Saved & compare"}</h1><p>Keep a shortlist, compare the details and return to your research.</p></div><Link className="button-link secondary-button" href="/listings">Find cars</Link></section>
+  return <main className="shell public-shell"><SiteHeader active="compare" /><section className="page-heading"><div><span className="heading-context">Your research workspace</span><h1>{ids?.length ? "Compare cars" : "Saved & compare"}</h1><p>Keep a shortlist, compare the details and return to your research.</p></div>{!cars.some(Boolean) && <Link className="button-link secondary-button" href="/listings">Find cars</Link>}</section>
     {ids === null && <p role="alert">Choose up to four valid listings to compare.</p>}
     {cars.some((car) => !car) && <p>Some selected listings are no longer available here.</p>}
     {cars.length > 0 && <VehicleComparison cars={cars.filter((car) => car !== null)} />}

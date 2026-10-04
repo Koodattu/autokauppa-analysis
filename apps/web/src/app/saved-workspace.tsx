@@ -58,6 +58,19 @@ export function ComparisonTray() {
   </aside>;
 }
 
+export function ContinueComparison({ cars }: { cars: SavedState["cars"] }) {
+  const { saved, save, error } = useSaved();
+  if (cars.length >= 4) return <p className="muted">Four cars compared. Remove a car from this view before choosing another.</p>;
+  const replacesSelection = saved.cars.some((car) => !cars.some((shown) => shown.id === car.id));
+  return <div className="comparison-continue">
+    <Link className="button-link secondary-button" href="/listings#listing-results" onClick={(event) => {
+      if (!save({ ...saved, cars })) event.preventDefault();
+    }}>Choose more cars</Link>
+    <span className="muted">Keep {cars.length === 1 ? "this car" : `these ${cars.length} cars`} selected while browsing.{replacesSelection ? " Replaces your current comparison selection." : ""}</span>
+    {error && <span role="status">{error}</span>}
+  </div>;
+}
+
 export function SaveSearch({ href, title }: { href: string; title: string }) {
   const { saved, save, error } = useSaved();
   const savedView = saved.searches.find((search) => search.href === href);

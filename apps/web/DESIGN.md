@@ -279,6 +279,9 @@ Components are dense, familiar, and precise. Their visual personality comes from
 - **Interaction:** Tooltips reveal precise values without hiding the overall pattern. Legends sit near the data and wrap on narrow screens.
 - **Loading / Empty:** Use skeletons for loading and explanatory empty states that help users adjust scope or understand missing evidence.
 - **Comparison tables:** Keep two cars readable side by side on phones. Wider comparisons scroll inside a named, keyboard-focusable region with sticky detail labels. Reference and differences-only choices travel in the URL and through detail navigation. One-car and identical-field states explain what is shown.
+- **Compared histories:** Show both groups with a shared euro scale, each group's own dates, interval and scope, and exact-value tables. Place charts beside each other above 860px and stack below it. Period drill-down edits only its group. Missing observations remain gaps; independent dates are never silently aligned into equivalent periods.
+- **Equipment:** Disclose an aligned table of recorded source labels, with Recorded/Not recorded cells. Differences-only hides shared equipment rows. Unrecorded never means absent; do not imply label synonyms have been normalized.
+- **Continuing a comparison:** Opening a shared view is read-only. An explicit Choose more cars action carries that view into browser selection; saved cars and research views remain independent. Explain replacement of a different selection and stop navigation if persistence fails.
 - **Refresh:** Keep previously loaded saved-car observations visible while refreshing or after a failure, with explicit state text and their observation dates. A successful response replaces them, including when a car is no longer available.
 
 ## Do's and Don'ts

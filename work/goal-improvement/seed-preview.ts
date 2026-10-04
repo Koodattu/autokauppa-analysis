@@ -40,6 +40,17 @@ try {
           const price = index === 48 || (period === 1 && index === 1) ? 0
             : period === 1 && index === 2 ? null
               : 11000 + (index % 16) * 1600 - period * 1000;
+          const details = index === 0 || index === 3 ? {
+            sourceLocationLabel: "Helsinki · synthetic vehicle research and demonstration centre",
+            engineSourceLabel: index === 0 ? "1.8 Hybrid automatic" : "Electric, single motor",
+            powerKw: index === 0 ? 90 : 208,
+            officeFeeEur: index === 0 ? 199 : null,
+            sellerNotes: "Synthetic preview only. Service history and equipment descriptions are examples for layout testing, not claims about a real car.\n\nIncludes a second set of wheels. Confirm equipment, condition and any additional fees with the source before making a decision.",
+            equipmentGroups: [
+              { label: "Safety and driver assistance", items: ["Adaptive cruise control", "Lane departure warning", "Reversing camera", "Front and rear parking sensors", "Automatic emergency braking with pedestrian detection", "Traffic sign recognition"] },
+              { label: "Comfort and convenience", items: ["Heated front seats", "Dual-zone climate control", "Navigation with offline maps", "Bluetooth hands-free and media", "Keyless entry", ...(index === 3 ? ["Heated steering wheel", "Glass roof"] : ["Heated exterior mirrors"])] },
+            ],
+          } : {};
           const [raw] = await tx`insert into raw_listing_records
             (source,source_listing_id,crawl_run_id,source_fetch_id,record_kind,source_payload,source_payload_sha256,parser_version,parser_status,captured_at)
             values ('nettiauto',${sourceId},${run!.id},${fetch!.id},'search_result_card','{}',sha256(convert_to(${`${sourceId}-${date}`},'UTF8')),'synthetic-preview','parsed',${date}) returning id`;
@@ -51,7 +62,7 @@ try {
             (listing_id,raw_listing_record_id,parser_version,observed_at,availability,asking_price_eur,observed_sold_price_eur,mileage_km,year_model,
              make_source_label,model_source_label,fuel_type_source_label,transmission_source_label,body_type_source_label,seller_source_label,seller_type_source_label,normalized_data,change_hash)
             values (${listingId},${raw!.id},'synthetic-preview',${date},${availability},${kind === "current" ? price : null},${kind === "sold" ? price : null},
-              ${40000 + (index % 12) * 15000},${2015 + index % 10},${make!},${model!},${fuel!},${transmission!},${body!},'Example Motors (synthetic)','Dealer','{}',${`${sourceId}-${date}`}) returning id`;
+              ${40000 + (index % 12) * 15000},${2015 + index % 10},${make!},${model!},${fuel!},${transmission!},${body!},'Example Motors (synthetic)','Dealer',${tx.json(details)},${`${sourceId}-${date}`}) returning id`;
           await tx`update listings set latest_snapshot_id=${snapshot!.id} where id=${listingId}`;
           await tx`insert into listing_sightings
             (listing_id,crawl_run_id,search_query_id,source_fetch_id,raw_listing_record_id,crawl_kind,seen_at,page_number)

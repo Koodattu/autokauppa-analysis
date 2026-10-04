@@ -37,9 +37,15 @@ const MarketActivityVisual = lazy(() =>
 export function LazyHistoricalPriceChart({
   data,
   availability,
+  title = "Price over observed time",
+  context,
+  priceDomain,
 }: {
   data: AnalyticsTimeSeriesResponse["marketOverTime"];
   availability: AnalyticsTimeSeriesResponse["appliedFilters"]["availability"];
+  title?: string;
+  context?: string;
+  priceDomain?: [number, number];
 }) {
   const askingPricePointCount = data.filter((point) => point.medianAskingPriceEur !== null).length;
   const observedSoldPricePointCount = data.filter(
@@ -47,7 +53,7 @@ export function LazyHistoricalPriceChart({
   ).length;
   if (askingPricePointCount < 2 && observedSoldPricePointCount < 2) {
     return (
-      <ChartPanel title="Price over observed time" full>
+      <ChartPanel title={title} meta={context} full>
         <div className="chart-empty">
           At least two complete {availability === "all" ? "observation" : availability} periods with price evidence are needed.
         </div>
@@ -58,14 +64,14 @@ export function LazyHistoricalPriceChart({
 
   return (
     <ChartPanel
-      title="Price over observed time"
-      meta="Median price in each observed period · observed-sold values are listing evidence, not confirmed transactions"
+      title={title}
+      meta={context ?? "Median price in each observed period · observed-sold values are listing evidence, not confirmed transactions"}
       full
       legend
       availability={availability}
     >
       <DeferredChartVisual label="price chart">
-        <HistoricalPriceVisual data={data} />
+        <HistoricalPriceVisual data={data} title={title} priceDomain={priceDomain} />
       </DeferredChartVisual>
       <HistoricalPriceTable data={data} />
     </ChartPanel>

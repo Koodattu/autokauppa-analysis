@@ -36,14 +36,18 @@ const COUNT_COLOR = "var(--public-chart-count)";
 const GRID_COLOR = "var(--public-chart-grid)";
 const AXIS_COLOR = "var(--public-chart-axis)";
 
-export function HistoricalPriceVisual({ data }: { data: Charts["marketOverTime"] }) {
+export function HistoricalPriceVisual({ data, title = "Price over observed time", priceDomain }: {
+  data: Charts["marketOverTime"];
+  title?: string;
+  priceDomain?: [number, number];
+}) {
   const rows = withBucketTime(data);
   return (
     <ChartCanvas>
       <LineChart
           data={rows}
           margin={{ top: 8, right: 12, bottom: 4, left: 6 }}
-          title="Price over observed time"
+          title={title}
           desc="Median asking prices and prices shown on observed-sold listings by observation period"
         >
           <ChartGrid />
@@ -56,7 +60,7 @@ export function HistoricalPriceVisual({ data }: { data: Charts["marketOverTime"]
             minTickGap={32}
             {...axisProps}
           />
-          <YAxis domain={["auto", "auto"]} tickFormatter={formatCurrency} allowDecimals={false} width={88} {...axisProps} />
+          <YAxis domain={priceDomain ?? ["auto", "auto"]} tickFormatter={formatCurrency} allowDecimals={false} width={88} {...axisProps} />
           <Tooltip content={(props) => <PriceTooltip {...props} formatLabel={formatObservedDate} />} />
           <Line
             type="monotone"

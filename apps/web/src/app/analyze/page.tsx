@@ -5,7 +5,7 @@ import { cloneComparisonHref, comparisonParams, researchHref, researchQuery, swa
 import { SiteHeader } from "../site-header";
 import { MarketFilterForm, type PageSearchParams } from "../market-filter-form";
 import { SaveSearch } from "../saved-workspace";
-import { LazyHistoricalPriceChart } from "../lazy-analytics-charts";
+import { ResearchHistory } from "./research-history";
 import { ResearchSummary, ResearchExploration, ResearchEvidence } from "./research-results";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { RetryButton } from "../retry-button";
@@ -23,12 +23,13 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
       getPriceResearch(`?${query}`), getAnalyticsTimeSeries(`?${query}`),
       comparison?.ok ? getPriceResearch(`?${listingSearchUrlFilter.format(comparison.query)}`) : Promise.resolve(null),
       comparison?.ok ? getFilterMetadata(`?${new URLSearchParams({ ...(comparison.query.make ? { make: comparison.query.make } : {}) })}`) : Promise.resolve(null),
+      comparison?.ok ? getAnalyticsTimeSeries(`?${listingSearchUrlFilter.format(comparison.query)}`) : Promise.resolve(null),
     ]);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     return <main className="shell public-shell"><SiteHeader active="analyze" /><section className="panel"><h1>Research is temporarily unavailable</h1><p>Your filters are kept in the address. Try again shortly.</p><RetryButton /></section></main>;
   }
-  const [filters, research, series, compared, compareFilters] = data;
+  const [filters, research, series, compared, compareFilters, comparedSeries] = data;
   const title = [primary.query.make, primary.query.model, primary.query.modelYear].filter(Boolean).join(" ") || "Car";
   const sameVehicleFilters = comparison?.ok && ["make", "model", "modelYear", "modelYearFrom", "modelYearTo", "mileageMin", "mileageMax", "fuelType", "transmission", "bodyType", "sellerType", "availability", "priceMin", "priceMax", "activity"].every((key) => primary.query[key as keyof typeof primary.query] === comparison.query[key as keyof typeof comparison.query]);
   const delta = compared?.summary.median !== null && compared?.summary.median !== undefined && research.summary.median !== null ? compared.summary.median - research.summary.median : null;
@@ -57,16 +58,7 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
     </section>}
     <details className="research-save"><summary>Save or share this research</summary><SaveSearch href={researchHref(params, { page: primary.query.page })} title={`${title} price research`} /></details>
     {(primary.query.priceMin !== undefined || primary.query.priceMax !== undefined) && <p className="research-note">A price filter changes the reference distribution. <Link href={researchHref(params, { priceMin: undefined, priceMax: undefined })}>Study this group without a price limit</Link>.</p>}
-    <section className="analysis-chapter" id="research-trend"><h2>{compared ? "Primary group price history" : "Prices over observed time"}</h2><p>Each point applies the primary vehicle filters to the attributes stored at that time. A changing mix of cars can change the median. Missing periods are left as gaps.</p><LazyHistoricalPriceChart data={series.marketOverTime} availability={primary.query.availability} />
-      <details className="chart-data"><summary>Explore a particular period</summary><div className="period-links">{series.marketOverTime.map((point) => {
-        const start = new Date(`${point.bucket}T00:00:00Z`); const end = new Date(start);
-        if (primary.query.interval === "month") end.setUTCMonth(end.getUTCMonth() + 1); else end.setUTCDate(end.getUTCDate() + (primary.query.interval === "week" ? 7 : 1));
-        end.setUTCDate(end.getUTCDate() - 1);
-        const from = primary.query.from && primary.query.from > point.bucket ? primary.query.from : point.bucket;
-        const to = primary.query.to && primary.query.to < end.toISOString().slice(0, 10) ? primary.query.to : end.toISOString().slice(0, 10);
-        return <Link key={point.bucket} href={researchHref(params, { from, to, activity: undefined })}>{from} · {formatCurrency(primary.query.availability === "sold" ? point.medianObservedSoldPriceEur : point.medianAskingPriceEur)}</Link>;
-      })}</div></details>
-    </section>
+    <ResearchHistory primary={series} comparison={comparedSeries} params={params} />
     <ResearchExploration data={research} params={params} />
     <ResearchEvidence data={research} params={params} />
     {compared && <ResearchEvidence data={compared} params={params} comparison />}

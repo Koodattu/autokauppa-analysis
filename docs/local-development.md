@@ -42,6 +42,8 @@ Three listings have no usable latest price: `9000001` (zero), `9000002`
 (missing), and sold listing `9000048` (zero). Their historical/source evidence
 remains available; they should sort after real prices and stay outside budget
 filters. Lookup `9000001` to check that a missing latest price is not a reduction.
+Listings `9000000` and `9000003` include synthetic long equipment, location and
+seller-note content for checking populated detail and comparison layouts.
 
 ```powershell
 $integrationDatabase = $env:TEST_DATABASE_URL
@@ -81,6 +83,9 @@ Useful manual checks:
 - Change filters, then sort beside the results: filters stay selected and the old page resets. Reset filters retains the chosen sort. Pagination and a listing's return link land at the results below the sticky navigation.
 - Analyze → add comparison → page comparison evidence: the primary page stays
   unchanged. Use September 2026 for historical fixture observations.
+- Compare Toyota and Tesla → Price history: both groups have labeled histories
+  on the same euro scale. Open each exact-value table and drill into a comparison
+  period; the primary filters remain unchanged. Missing periods stay as gaps.
 - Open each group's cars/dates editor, compare September with October 2026,
   swap the groups and reset one side. The other scope remains intact. Follow
   a listing from evidence page 2 and use Back to price research: both scopes,
@@ -89,6 +94,12 @@ Useful manual checks:
   and the listing shows two observations and a €1,000 reduction.
 - Save five cars, choose two for comparison, then clear selection: all five saved cars remain. Reopen Saved & compare to inspect stored price, availability and observation dates; Refresh evidence retrieves the latest stored values.
 - Compare two cars, choose a reference and differences only, copy/reopen the link and follow a car's detail/return link: the choices persist. Remove the reference car from the comparison: the remaining car becomes the reference and shows all details. At 320px two cars fit; with four cars the table scrolls horizontally by keyboard while detail labels stay visible.
+- Open a shared comparison with an empty selection, then Choose more cars and
+  select a third listing: all three appear in the comparison. Opening the link
+  alone must not replace an existing selection or saved cars/views.
+- Compare `9000000` and `9000003`, enable differences only and expand recorded
+  equipment: three equipment rows remain. Shared items return with all details;
+  unrecorded equipment must never be labeled absent.
 - Save a named research view and reopen it. With saved evidence already loaded, stop only the local API and choose Refresh evidence: previous prices/dates remain with an explicit failure and Retry. Restart the API and retry to replace the observations.
 - Download a historical evidence page and an independent comparison page: each CSV contains exactly the displayed rows, its own filters/dates, and the correct price basis.
 - At a narrow viewport, scroll a selected listing to its final source details;

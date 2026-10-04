@@ -98,6 +98,9 @@
 .comparison-car-title, .comparison-remove { display: flex; align-items: center; min-height: 44px; }
 .comparison-remove { font-weight: 500; text-transform: none; }
 .comparison-scroll-hint { font-size: 0.8125rem; }
+.comparison-continue { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 16px; }
+.comparison-continue .muted { font-size: 0.8125rem; }
+.equipment-recorded { color: var(--accent-strong); font-weight: 650; }
 @media (max-width: 500px) {
   .comparison-label-column { width: 92px; }
   .vehicle-comparison td, .vehicle-comparison th { padding: 10px 6px; font-size: 0.75rem; }
@@ -679,6 +682,22 @@
 
 .public-shell .analytics-grid {
   gap: 14px;
+}
+
+.research-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.research-history-grid > section {
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .research-history-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .public-shell .chart-panel {
