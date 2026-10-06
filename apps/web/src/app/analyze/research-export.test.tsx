@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ResearchResponse } from "@nettiauto/schemas";
-import { ResearchEvidence, ResearchSummary } from "./research-results";
+import { ResearchEvidence, ResearchExploration, ResearchSummary } from "./research-results";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 function evidence(): ResearchResponse {
   return {
@@ -25,6 +27,41 @@ function download(data: ResearchResponse, comparison = false) {
 }
 
 describe("research results and evidence download", () => {
+  it("labels price bands with the exact inclusive filter bounds, keeping the final band open", () => {
+    const data = evidence();
+    data.priceBands = [{ from: 8000, to: 12000, count: 4 }, { from: 12000, to: null, count: 34 }];
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<ResearchExploration data={data} params={{ from: "2026-09-01", sort: "priceAsc", page: "2" }} />);
+    const links = [...container.querySelectorAll<HTMLAnchorElement>(".distribution-bars a")];
+    expect(links[0].querySelector("span")?.textContent).toBe("8\u00a0000 €–11\u00a0999 €");
+    const bounded = new URL(links[0].href);
+    expect(bounded.searchParams.get("priceMin")).toBe("8000");
+    expect(bounded.searchParams.get("priceMax")).toBe("11999");
+    expect(bounded.searchParams.get("from")).toBe("2026-09-01");
+    expect(bounded.searchParams.get("sort")).toBe("priceAsc");
+    expect(bounded.searchParams.has("page")).toBe(false);
+    expect(links[1].querySelector("span")?.textContent).toBe("12\u00a0000 €+");
+    expect(new URL(links[1].href).searchParams.has("priceMax")).toBe(false);
+  });
+
+  it.each([false, true])("offers scoped ordering beside the evidence (comparison: %s)", (comparison) => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<ResearchEvidence data={evidence()} params={{
+      make: "Honda", page: "2", sort: "priceAsc", comparing: "1", compareMake: "Toyota",
+      compareFrom: "2026-09-01", comparePage: "3", compareSort: "mileageAsc",
+    }} comparison={comparison} />);
+    const form = container.querySelector<HTMLFormElement>("form");
+    expect(form).not.toBeNull();
+    expect(form!.getAttribute("aria-label")).toBe(comparison ? "Comparison evidence order" : "Primary evidence order");
+    expect(form!.getAttribute("action")).toBe(`/analyze#${comparison ? "comparison" : "research"}-evidence`);
+    const select = form!.querySelector("select")!;
+    expect(select.name).toBe(comparison ? "compareSort" : "sort");
+    expect(select.value).toBe(comparison ? "mileageAsc" : "priceAsc");
+    expect([...select.options].map((option) => option.value)).not.toContain("priceReductionDesc");
+    expect(new FormData(form!).get(comparison ? "comparePage" : "page")).toBeNull();
+    expect(new FormData(form!).get(comparison ? "page" : "comparePage")).toBe(comparison ? "2" : "3");
+  });
+
   it("explains a current scope with no priced matches without inventing observation dates or ranges", () => {
     const data = evidence();
     data.mode = "current";

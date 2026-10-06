@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getDatasetOverview, getPriceResearch, getFilterMetadata, ApiError } from "@/lib/server-api";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
+import { formatCurrency, formatDate, formatNumber, formatPriceBand } from "@/lib/format";
 import { SiteHeader } from "./site-header";
 import { MarketFilterForm, type PageSearchParams } from "./market-filter-form";
 import { SavedWorkspace } from "./saved-workspace";
@@ -40,9 +41,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Pag
     <p className="overview-freshness">Current data last observed {formatDate(overview.updatedAt)}. Activity window: {formatDate(overview.activityFrom)}–{formatDate(overview.updatedAt)}. Newly discovered cars may include older advertisements or archive imports.</p>
     <div className="research-actions"><Link href="/analyze?availability=current&fuelType=Electric">Explore electric cars</Link><Link href="/analyze?availability=current&transmission=Manual">Manual transmission prices</Link><Link href="/listings?availability=current&priceMax=15000">Browse under €15,000</Link></div>
     <details className="panel overview-research-form"><summary>Choose a make, model, mileage or observation period</summary><MarketFilterForm action="/analyze" filters={filters} params={{ availability: "current" }} variant="analytics" /></details>
-    <div className="research-feature-grid"><section className="panel"><h2>Browse by budget</h2><p>Current priced listings. Select a range to see the cars.</p><ul className="feature-groups">{research.priceBands.map((band) => <li key={band.from}><Link href={`/listings?availability=current&priceMin=${band.from}${band.to === null ? "" : `&priceMax=${band.to - 1}`}`}>{formatCurrency(band.from)}{band.to === null ? "+" : `–${formatCurrency(band.to)}`}</Link><strong>{formatNumber(band.count)} cars</strong></li>)}</ul></section>
+    <div className="research-feature-grid"><section className="panel"><h2>Browse by budget</h2><p>Current priced listings. Select a range to see the cars.</p><ul className="feature-groups">{research.priceBands.map((band) => <li key={band.from}><Link href={`/listings?availability=current&priceMin=${band.from}${band.to === null ? "" : `&priceMax=${band.to - 1}`}`}>{formatPriceBand(band.from, band.to)}</Link><strong>{formatNumber(band.count)} cars</strong></li>)}</ul></section>
     <section className="panel"><h2>Most listed models</h2><p>Current priced inventory, not a measure of demand or sales.</p><ul className="feature-groups">{research.models.map((model) => <li key={`${model.make}-${model.model}`}><Link href={`/analyze?${new URLSearchParams({ make: model.make, model: model.model, availability: "current" })}`}>{model.make} {model.model}</Link><strong>{formatCurrency(model.median)}</strong><small>{formatNumber(model.count)} prices · median asking</small></li>)}</ul></section>
     <section className="panel"><h2>Check a listing</h2><p>Open an advertisement already collected here to inspect its price history and comparable cars.</p><ListingLookupForm /><h3>Explore earlier prices</h3><p>Collection history: {formatDate(overview.historyFrom)}–{formatDate(overview.historyTo)}.</p><p>{formatNumber(overview.archived)} observed-sold listings in the archive. These are not confirmed transactions.</p><Link href="/analyze">Choose cars and compare two periods</Link></section></div>
-    <SavedWorkspace />
+    <Suspense fallback={<p role="status">Loading saved cars and research…</p>}><SavedWorkspace /></Suspense>
   </main>;
 }

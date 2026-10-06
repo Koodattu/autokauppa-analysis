@@ -30,6 +30,8 @@ type PageProps = {
 
 export default async function ListingPage({ params, searchParams }: PageProps) {
   const [{ listingId }, query] = await Promise.all([params, searchParams]);
+  const listingsHref = safeListingsReturnHref(query.returnTo);
+  const returnLabel = listingsHref.endsWith("#saved-workspace") ? "Back to saved workspace" : listingsHref.startsWith("/compare") ? "Back to comparison" : listingsHref.startsWith("/analyze") ? "Back to price research" : listingsHref === "/listings" ? "Listings" : "Matching listings";
   let data: PublicListingDetailResponse;
   try {
     data = await getPublicListingDetail(listingId);
@@ -42,6 +44,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
         <section className="panel page-error"><h1>Listing is temporarily unavailable</h1>
           <p>Please wait a moment and try again.</p>
           <RetryButton />
+          <p><Link href={listingsHref}>{returnLabel}</Link></p>
         </section>
       </main>;
     }
@@ -54,7 +57,6 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
   const details = data.vehicleDetails;
   const detailGroups = details ? vehicleDetailGroups(details) : [];
   const sourceUpdatedDate = details?.sourceUpdatedDate ?? data.listing.sourceUpdatedDate;
-  const listingsHref = safeListingsReturnHref(query.returnTo);
   const hasHistoryChart = data.history.length >= 2 && data.history.some(
     (row) => (row.askingPriceEur ?? 0) > 0 || (row.observedSoldPriceEur ?? 0) > 0 || row.mileageKm !== null,
   );
@@ -64,7 +66,7 @@ export default async function ListingPage({ params, searchParams }: PageProps) {
       <SiteHeader active="listings" />
 
       <nav className="breadcrumb" aria-label="Breadcrumb">
-        <Link href={listingsHref}>{listingsHref.startsWith("/compare") ? "Back to comparison" : listingsHref.startsWith("/analyze") ? "Back to price research" : listingsHref === "/listings" ? "Listings" : "Matching listings"}</Link>
+        <Link href={listingsHref}>{returnLabel}</Link>
         <span aria-hidden="true">/</span>
         <span>{data.listing.sourceListingId}</span>
       </nav>

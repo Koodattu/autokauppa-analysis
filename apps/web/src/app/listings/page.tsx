@@ -24,7 +24,7 @@ import { MarketFilterForm, type PageSearchParams } from "../market-filter-form";
 import { MarketCoverage } from "../market-coverage";
 import { SiteHeader } from "../site-header";
 import { selectedFilterLabels } from "@/lib/market-scope";
-import { ListingSort } from "./listing-sort";
+import { ResultSort } from "../result-sort";
 import {
   resolveListingNavigation,
   singleSearchParam,
@@ -87,7 +87,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
             <h2>Listings</h2>
             <p>Observed asking prices and availability—not completed transactions.</p>
           </div>
-          <ListingSort key={navigation.queryString} href={navigation.pageHref(listings.pagination.page)} />
+          <ResultSort key={navigation.queryString} href={navigation.pageHref(listings.pagination.page)} />
         </div>
         <p className="listing-page-count">{formatNumber(listings.pagination.totalItems)} total · page {listings.pagination.page} of {listings.pagination.totalPages}</p>
         {listings.items.length === 0 ? (

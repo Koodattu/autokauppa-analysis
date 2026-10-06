@@ -7,10 +7,14 @@ import { ComparisonTray, SaveCar, SaveSearch, SavedWorkspace } from "./saved-wor
 
 const key = "nettiauto-saved-v2";
 const href = "/listings?availability=current&priceMax=20000";
+const location = vi.hoisted(() => ({ pathname: "/compare", search: "" }));
+vi.mock("next/navigation", () => ({ usePathname: () => location.pathname, useSearchParams: () => new URLSearchParams(location.search) }));
 let container: HTMLDivElement;
 let root: Root | undefined;
 
 beforeEach(() => {
+  location.pathname = "/compare";
+  location.search = "";
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
   vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
@@ -90,6 +94,22 @@ describe("saved research views", () => {
 });
 
 describe("saved cars and comparison", () => {
+  it.each(["/", "/compare"])("returns from saved and selected cars to the workspace on %s", async (pathname) => {
+    const car = { id: "00000000-0000-4000-8000-000000000001", title: "Saved candidate" };
+    location.pathname = pathname;
+    localStorage.setItem(key, JSON.stringify({ cars: [car], shortlist: [car], searches: [] }));
+    root = createRoot(container);
+    await act(async () => root!.render(<SavedWorkspace />));
+    const returnLinks = () => [...container.querySelectorAll<HTMLAnchorElement>('a[href^="/listings/"]')].map((link) => new URL(link.href).searchParams.get("returnTo"));
+    expect(returnLinks()).toEqual([`${pathname}#saved-workspace`, `${pathname}#saved-workspace`]);
+    expect(container.querySelector("#saved-workspace")?.getAttribute("tabindex")).toBe("-1");
+    if (pathname === "/compare") {
+      location.search = `ids=${car.id}&reference=${car.id}&differences=1`;
+      await act(async () => root!.render(<SavedWorkspace />));
+      expect(returnLinks()).toEqual(Array(2).fill(`/compare?${location.search}#saved-workspace`));
+    }
+  });
+
   it("retains observed evidence while refreshing and after failure, then replaces it on a successful retry", async () => {
     const id = "00000000-0000-4000-8000-000000000001";
     const listing = { listingId: id, make: "Toyota", model: "Corolla", yearModel: 2020, availability: "active", askingPriceEur: 17000,
@@ -191,7 +211,7 @@ describe("saved cars and comparison", () => {
     root = createRoot(container);
     await act(async () => { root!.render(<SavedWorkspace />); });
     expect(container.textContent).toContain("Latest evidence could not be loaded");
-    expect(container.querySelector(`a[href="/listings/${id}"]`)).not.toBeNull();
+    expect(container.querySelector(`a[href^="/listings/${id}?"]`)).not.toBeNull();
     const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
     await act(async () => retry.click());
     expect(container.textContent).toContain("17\u00a0000 €");

@@ -1,13 +1,14 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { ResearchResponse } from "@/lib/api";
-import { formatCurrency, formatListingPrice, formatDate, formatDateTime, formatKm, formatNumber } from "@/lib/format";
+import { formatCurrency, formatListingPrice, formatPriceBand, formatDate, formatDateTime, formatKm, formatNumber } from "@/lib/format";
 import { comparisonParams, researchHref, researchListingHref } from "@/lib/research-navigation";
 import { selectedFilterLabels } from "@/lib/market-scope";
 import type { WebSearchParams } from "@/lib/url-filter-navigation";
 import { PriceMileagePlot } from "./research-scatter";
 import { SaveCar } from "../saved-workspace";
 import { researchEvidenceCsv } from "@/lib/research-export";
+import { ResultSort } from "../result-sort";
 
 export function ResearchSummary({ data, title, params, children, id }: { data: ResearchResponse; title: string; params: WebSearchParams; children?: ReactNode; id: string }) {
   const observationLabel = data.mode === "historical" ? "Historical evidence" : "Latest stored listings";
@@ -39,7 +40,7 @@ export function ResearchExploration({ data, params }: { data: ResearchResponse; 
   const groups = [["Fuel", "fuelType", data.fuels], ["Transmission", "transmission", data.transmissions], ["Body style", "bodyType", data.bodies]] as const;
   return <section className="analysis-chapter" id="research-exploration"><h2>What shapes the price?</h2><p>Select a price band or vehicle group to inspect its distribution and recorded listings. Counts and ranges describe this selected period.</p>
     <div className="analytics-grid"><section className="chart-panel"><h3>Price distribution</h3><div className="distribution-bars">{data.priceBands.map((band) => <Link key={band.from} href={researchHref(params, { priceMin: band.from, priceMax: band.to === null ? undefined : band.to - 1 })}>
-      <span>{formatCurrency(band.from)}{band.to === null ? "+" : `–${formatCurrency(band.to)}`}</span><span className="distribution-track"><span style={{ width: `${band.count / maxBand * 100}%` }} /></span><strong>{formatNumber(band.count)}</strong>
+      <span>{formatPriceBand(band.from, band.to)}</span><span className="distribution-track"><span style={{ width: `${band.count / maxBand * 100}%` }} /></span><strong>{formatNumber(band.count)}</strong>
     </Link>)}{!data.priceBands.length && <p>No priced listings in this scope.</p>}</div></section>
     <section className="chart-panel"><h3>Price versus mileage</h3><PriceMileagePlot data={data} params={params} /></section></div>
     <div className="research-feature-grid">{groups.map(([title, key, rows]) => <section className="panel" key={key}><h3>{title}</h3><p>Median and middle 50% of priced listings. Other vehicle differences may explain the gap.</p><ul className="feature-groups">{rows.map((row) => <li key={row.label}><Link href={researchHref(params, { [key]: row.label })}>{row.label}</Link><strong>{formatCurrency(row.median)}</strong><small>{formatCurrency(row.p25)}–{formatCurrency(row.p75)} · {row.count} prices{row.count < 5 ? " · small sample" : ""}<br />Median model year {row.medianYear ?? "unknown"} · {formatKm(row.medianMileage)}</small></li>)}</ul>{!rows.length && <p>No known {title.toLowerCase()} with prices in this scope.</p>}</section>)}</div>
@@ -49,12 +50,15 @@ export function ResearchExploration({ data, params }: { data: ResearchResponse; 
 
 export function ResearchEvidence({ data, params, comparison = false }: { data: ResearchResponse; params: WebSearchParams; comparison?: boolean }) {
   const evidenceId = comparison ? "comparison-evidence" : "research-evidence";
+  const href = researchHref(params, { page: data.evidencePage }, comparison);
   return <section className="panel research-evidence" id={evidenceId} tabIndex={-1}><h2>{comparison ? "Comparison" : "Primary"} listing evidence</h2><p>{data.mode === "historical" ? "These prices and attributes are from the selected historical observations. Listing links open the latest details separately." : "The latest observed listings behind this view."}</p>
-    {data.evidence.length > 0 && <div className="evidence-download">
-      <a className="button-link secondary-button" download={`nettiauto-${comparison ? "comparison" : "primary"}-${data.mode}-page-${data.evidencePage}.csv`} href={`data:text/csv;charset=utf-8,${encodeURIComponent(researchEvidenceCsv(data, params, comparison))}`}>Download this page (CSV)</a>
-      <span className="muted">This page only: {formatNumber(data.evidence.length)} of {formatNumber(data.coverage.sampleSize)} matching listings. Includes filters, observation dates and price basis.</span>
+    {data.coverage.sampleSize > 0 && <div className="evidence-toolbar">
+      <ResultSort key={href} href={href} scope={comparison ? "comparison" : "primary"} />
+      {data.evidence.length > 0 && <a className="button-link secondary-button" download={`nettiauto-${comparison ? "comparison" : "primary"}-${data.mode}-page-${data.evidencePage}.csv`} href={`data:text/csv;charset=utf-8,${encodeURIComponent(researchEvidenceCsv(data, params, comparison))}`}>Download this page (CSV)</a>}
     </div>}
-    <div className="chart-table-wrap"><table className="chart-table"><thead><tr><th scope="col">Car</th><th scope="col">Price</th><th scope="col">Mileage</th><th scope="col">Features</th><th scope="col">Observed</th><th scope="col">Save / compare</th></tr></thead><tbody>{data.evidence.map((car) => <tr key={car.listingId}><td><Link href={researchListingHref(car.listingId, params, comparison)} target={data.mode === "historical" ? "_blank" : undefined}>{car.make} {car.model} {car.yearModel}{data.mode === "historical" ? " · latest details ↗" : ""}</Link></td><td>{formatListingPrice(car.askingPriceEur ?? car.observedSoldPriceEur)}<small>{car.availability === "sold" ? "Shown on sold listing" : "Asking"}</small></td><td>{formatKm(car.mileageKm)}</td><td>{[car.fuelType, car.transmission, car.bodyType].filter(Boolean).join(" · ") || "Not recorded"}</td><td>{formatDate(car.lastSeenAt)}</td><td>{data.mode === "current" ? <SaveCar id={car.listingId} title={`${car.make} ${car.model} ${car.yearModel}`} /> : "Historical observation"}</td></tr>)}</tbody></table></div>
+    {data.evidence.length > 0 && <p className="muted evidence-scope">This page only: {formatNumber(data.evidence.length)} of {formatNumber(data.coverage.sampleSize)} matching listings. Includes filters, observation dates and price basis.</p>}
+    {data.evidence.length > 0 && <p className="muted evidence-scope evidence-scroll-hint">Scroll sideways to see all columns.</p>}
+    <div className="chart-table-wrap" role="region" aria-label={`${comparison ? "Comparison" : "Primary"} listing evidence table`} tabIndex={0}><table className="chart-table"><thead><tr><th scope="col">Car</th><th scope="col">Price</th><th scope="col">Mileage</th><th scope="col">Features</th><th scope="col">Observed</th><th scope="col">Save / compare</th></tr></thead><tbody>{data.evidence.map((car) => <tr key={car.listingId}><td><Link href={researchListingHref(car.listingId, params, comparison)} target={data.mode === "historical" ? "_blank" : undefined}>{car.make} {car.model} {car.yearModel}{data.mode === "historical" ? " · latest details ↗" : ""}</Link></td><td>{formatListingPrice(car.askingPriceEur ?? car.observedSoldPriceEur)}<small>{car.availability === "sold" ? "Shown on sold listing" : "Asking"}</small></td><td>{formatKm(car.mileageKm)}</td><td>{[car.fuelType, car.transmission, car.bodyType].filter(Boolean).join(" · ") || "Not recorded"}</td><td>{formatDate(car.lastSeenAt)}</td><td>{data.mode === "current" ? <SaveCar id={car.listingId} title={`${car.make} ${car.model} ${car.yearModel}`} /> : "Historical observation"}</td></tr>)}</tbody></table></div>
     {!data.evidence.length && (data.evidencePage > data.evidencePages
       ? <p>This evidence page is no longer available. <Link href={`${researchHref(params, { page: 1 }, comparison)}#${evidenceId}`}>Return to the first evidence page</Link>.</p>
       : <p>No listings recorded for these filters and dates.</p>)}

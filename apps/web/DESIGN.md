@@ -283,6 +283,8 @@ Components are dense, familiar, and precise. Their visual personality comes from
 - **Equipment:** Disclose an aligned table of recorded source labels, with Recorded/Not recorded cells. Differences-only hides shared equipment rows. Unrecorded never means absent; do not imply label synonyms have been normalized.
 - **Continuing a comparison:** Opening a shared view is read-only. An explicit Choose more cars action carries that view into browser selection; saved cars and research views remain independent. Explain replacement of a different selection and stop navigation if persistence fails.
 - **Refresh:** Keep previously loaded saved-car observations visible while refreshing or after a failure, with explicit state text and their observation dates. A successful response replaces them, including when a car is no longer available.
+- **Evidence ordering:** Reuse the native listing-order form above each research evidence table. Each group keeps its own order and page; sorting resets only that group's page. Keep bounded CSV downloads and their scope beside the table. Wide evidence tables have a named keyboard-focusable scroll region and a phone scrolling hint.
+- **Budget ranges and returns:** Price-band labels show the inclusive whole-euro limits used by their drilldown links; the final band stays open. Saved and selected cars return to their originating workspace section, including comparison choices and recoverable error states.
 
 ## Do's and Don'ts
 

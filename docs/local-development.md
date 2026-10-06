@@ -83,6 +83,12 @@ Useful manual checks:
 - Change filters, then sort beside the results: filters stay selected and the old page resets. Reset filters retains the chosen sort. Pagination and a listing's return link land at the results below the sticky navigation.
 - Analyze → add comparison → page comparison evidence: the primary page stays
   unchanged. Use September 2026 for historical fixture observations.
+- Sort each research evidence group independently: only that group's page resets.
+  Lowest/highest prices use the selected period's values. Save/reopen the view and
+  inspect its page CSV; dates, order and the other group remain intact. At phone
+  widths, focus the evidence table and use arrow keys to reach the later columns.
+- Select an overview budget range: its visible endpoints and count match the
+  listing filters/results. The same range convention applies to price distributions.
 - Compare Toyota and Tesla → Price history: both groups have labeled histories
   on the same euro scale. Open each exact-value table and drill into a comparison
   period; the primary filters remain unchanged. Missing periods stay as gaps.
@@ -93,6 +99,10 @@ Useful manual checks:
 - Lookup `not-a-listing`, then correct to `9000000`: input survives validation
   and the listing shows two observations and a €1,000 reduction.
 - Save five cars, choose two for comparison, then clear selection: all five saved cars remain. Reopen Saved & compare to inspect stored price, availability and observation dates; Refresh evidence retrieves the latest stored values.
+- Open a saved or selected car from the overview or comparison workspace: Back to
+  saved workspace returns below the sticky header and preserves comparison settings.
+  Stop only the preview API to check that a detail failure retains this return link;
+  restart it and use Try again to recover.
 - Compare two cars, choose a reference and differences only, copy/reopen the link and follow a car's detail/return link: the choices persist. Remove the reference car from the comparison: the remaining car becomes the reference and shows all details. At 320px two cars fit; with four cars the table scrolls horizontally by keyboard while detail labels stay visible.
 - Open a shared comparison with an empty selection, then Choose more cars and
   select a third listing: all three appear in the comparison. Opening the link

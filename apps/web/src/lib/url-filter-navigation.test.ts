@@ -82,7 +82,7 @@ describe("URL Filter navigation", () => {
     expect(resolveListingNavigation({ page: ["1", "2"] })).toBeNull();
   });
 
-  it("accepts only the Listing View as a return destination", () => {
+  it("retains listing filters and the known results anchor in a return destination", () => {
     expect(safeListingsReturnHref("/listings?make=Honda&model=Civic&page=2")).toBe(
       "/listings?make=Honda&model=Civic&page=2",
     );
@@ -112,6 +112,15 @@ describe("URL Filter navigation", () => {
     expect(safeListingsReturnHref(href)).toBe(href);
     for (const rejected of ["https://example.test/compare", "//example.test/compare", "/compare/../admin", "/compare#unknown", "/compare/elsewhere"]) {
       expect(safeListingsReturnHref(rejected)).toBe("/listings");
+    }
+  });
+
+  it("allows workspace returns on the overview and comparison without widening them to arbitrary pages", () => {
+    for (const href of ["/#saved-workspace", "/compare#saved-workspace", "/compare?ids=a,b&reference=b&differences=1#saved-workspace"]) {
+      expect(safeListingsReturnHref(href)).toBe(href);
+    }
+    for (const href of ["/#unknown", "/?make=Toyota#saved-workspace", "https://example.test/#saved-workspace", "//example.test/#saved-workspace", "/admin#saved-workspace"]) {
+      expect(safeListingsReturnHref(href)).toBe("/listings");
     }
   });
 });

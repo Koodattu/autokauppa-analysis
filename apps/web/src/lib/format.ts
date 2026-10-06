@@ -42,6 +42,10 @@ export function formatListingPrice(value: number | null) {
   return value !== null && value > 0 ? formatCurrency(value) : "Not recorded";
 }
 
+export function formatPriceBand(from: number, toExclusive: number | null) {
+  return `${formatCurrency(from)}${toExclusive === null ? "+" : `–${formatCurrency(toExclusive - 1)}`}`;
+}
+
 export function formatKm(value: number | null) {
   return value === null ? "–" : `${formatNumber(value)} km`;
 }

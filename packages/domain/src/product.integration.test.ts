@@ -246,6 +246,36 @@ describeDatabase("PostgreSQL product integration", () => {
     expect(descending.items.map((item) => item.listingId)).toEqual([dearer, cheaper, unpriced]);
   });
 
+  it("orders all research evidence before paging using the selected period's prices and attributes", async () => {
+    const queryId = await insertSourceQuery("current", "research-order");
+    const earlyRun = await insertRun(queryId, "current", "2026-08-03T10:00:00Z");
+    const laterRun = await insertRun(queryId, "current", "2026-09-03T10:00:00Z");
+    const cars: Array<{ id: string; early: number; latest: number }> = [];
+    for (let index = 0; index < 28; index++) {
+      const early = index === 0 ? 0 : 10000 + index * 100;
+      const latest = index === 0 ? 0 : 40000 - index * 100;
+      const sourceId = `ordered-${index}`;
+      const id = await insertObservation(earlyRun, queryId, "current", sourceId, "active", "2026-08-03T09:00:00Z", early);
+      await insertObservation(laterRun, queryId, "current", sourceId, "active", "2026-09-03T09:00:00Z", latest);
+      cars.push({ id, early, latest });
+    }
+    for (const historical of [false, true]) {
+      const query = listingSearchQuerySchema.parse({ availability: "current", ...(historical ? { from: "2026-08-01", to: "2026-08-31" } : {}) });
+      const priceKey = historical ? "early" : "latest";
+      for (const sort of ["priceAsc", "priceDesc"] as const) {
+        const expected = cars.filter((car) => car[priceKey] > 0).sort((a, b) => (a[priceKey] - b[priceKey]) * (sort === "priceAsc" ? 1 : -1));
+        const first = await getPriceResearch(sql, { ...query, sort, page: 1 });
+        const second = await getPriceResearch(sql, { ...query, sort, page: 2 });
+        expect(first.evidence.map((car) => car.listingId)).toEqual(expected.slice(0, 25).map((car) => car.id));
+        expect(second.evidence.map((car) => car.listingId)).toEqual([...expected.slice(25).map((car) => car.id), cars[0]!.id]);
+        expect(second.evidence.at(-1)?.askingPriceEur).toBeNull();
+        expect(first.summary).toMatchObject({ count: 27, median: historical ? 11400 : 38600 });
+        expect(first.coverage.sampleSize).toBe(28);
+        expect(first.evidencePages).toBe(2);
+      }
+    }
+  });
+
   it.each(["current", "sold"] as const)("keeps unpriced %s listings out of budget-filtered evidence and counts", async (kind) => {
     const queryId = await insertSourceQuery(kind, "budget-filter");
     const runId = await insertRun(queryId, kind, "2026-08-03T10:00:00Z");

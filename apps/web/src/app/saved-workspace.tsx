@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { compareHref, EMPTY_SAVED, parseSavedState, type SavedState } from "@/lib/saved-views";
 import { listingSummariesResponseSchema, MAX_SAVED_CARS, type ListingSummary } from "@nettiauto/schemas";
@@ -108,18 +109,21 @@ export function ShareLink({ href }: { href: string }) {
 
 export function SavedWorkspace() {
   const { saved, save, error } = useSaved();
-  return <section className="panel saved-workspace"><h2>Your saved cars and research</h2>
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const returnTo = `${pathname}${params.size ? `?${params}` : ""}#saved-workspace`;
+  return <section className="panel saved-workspace" id="saved-workspace" tabIndex={-1}><h2>Your saved cars and research</h2>
     <p className="muted">Keep up to 20 cars and 12 views in this browser. Compare up to four cars at a time. Clearing a comparison keeps your saved cars.</p>
     {saved.cars.length > 0 && <div className="saved-selection">
       <div><h3>Comparison selection · {saved.cars.length} / 4</h3>
         <ul className="saved-comparison-list">{saved.cars.map((car) => <li key={car.id}>
-          <Link href={`/listings/${car.id}`}>{car.title}</Link>
+          <Link href={`/listings/${car.id}?returnTo=${encodeURIComponent(returnTo)}`}>{car.title}</Link>
           <button className="secondary-button" aria-label={`Remove ${car.title} from comparison`} onClick={() => save({ ...saved, cars: saved.cars.filter((item) => item.id !== car.id) })}>Remove</button>
         </li>)}</ul>
       </div>
       <Link className="button-link" href={compareHref(saved.cars.map((car) => car.id))}>Open comparison</Link>
     </div>}
-    <SavedCars cars={saved.shortlist} />
+    <SavedCars cars={saved.shortlist} returnTo={returnTo} />
     <div className="saved-views"><h3>Saved views · {saved.searches.length} / 12</h3>
       {saved.searches.length ? <ul>{saved.searches.map((search) => <li key={search.href}><Link href={search.href}>{search.title}</Link> <button className="secondary-button" aria-label={`Remove saved view ${search.title}`} onClick={() => save({ ...saved, searches: saved.searches.filter((item) => item.href !== search.href) })}>Remove</button></li>)}</ul> : <p>Save an <Link href="/analyze">analysis</Link> or <Link href="/listings">search</Link> to return to its filters and observation dates.</p>}
     </div>
@@ -128,7 +132,7 @@ export function SavedWorkspace() {
   </section>;
 }
 
-function SavedCars({ cars }: { cars: SavedState["shortlist"] }) {
+function SavedCars({ cars, returnTo }: { cars: SavedState["shortlist"]; returnTo: string }) {
   const ids = cars.map((car) => car.id).join(",");
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ ids: string; attempt: number; items: ListingSummary[]; error: boolean } | null>(null);
@@ -166,7 +170,7 @@ function SavedCars({ cars }: { cars: SavedState["shortlist"] }) {
         const listing = current?.items.find((item) => item.listingId === car.id);
         const price = listing?.availability === "sold" ? listing.observedSoldPriceEur : listing?.askingPriceEur;
         return <li key={car.id}>
-          <div className="saved-car-info"><Link className="saved-car-title" href={`/listings/${car.id}`}>{car.title}</Link>
+          <div className="saved-car-info"><Link className="saved-car-title" href={`/listings/${car.id}?returnTo=${encodeURIComponent(returnTo)}`}>{car.title}</Link>
             {listing ? <><div className="saved-car-facts"><strong>{formatListingPrice(price ?? null)}</strong><span>{labelAvailability(listing.availability)}</span><span>{formatKm(listing.mileageKm)}</span></div>
               <p className="muted">{listing.availability === "sold" ? "Shown on sold listing" : "Last asking price"} · Observed {formatDate(listing.lastSeenAt)}</p></>
               : current && !current.error ? <p className="muted">No longer available in this dataset. You can remove it from your saved cars.</p> : null}
