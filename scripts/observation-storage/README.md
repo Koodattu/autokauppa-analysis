@@ -1,5 +1,15 @@
 # Observation storage experiment — 5 October 2026
 
+The follow-up [10 October structure and temporal-packing study](../../docs/observation-storage-structure-study.md)
+adds current aggregate evidence, a larger synthetic fixture, compact-key and
+fused-observation layouts, lossless metadata blocks, temporal-packing sensitivity,
+and retry/concurrency checks. Run it with `python scripts/observation-storage/run.py structure`.
+Its aggregate-only production similarity follow-up found 4.70% lower compressed
+bytes at the existing 250-record limit in a 71-record survivor panel; this did not
+justify implementing temporal repacking. See the follow-up report for the paired
+comparisons, sampling limits and read-only safeguards.
+The original experiments and commands below are preserved.
+
 Opt-in investigation only. These scripts do not change application behavior,
 production schemas, retention, crawling cadence, or the deployment. They do not
 create or restore a full database copy.
