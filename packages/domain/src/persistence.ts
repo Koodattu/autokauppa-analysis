@@ -408,7 +408,7 @@ export async function reserveCrawlRunDetailJobs(
   requestedCount: number,
   limit: number,
 ) {
-  if (requestedCount <= 0 || limit <= 0) {
+  if (requestedCount <= 0 || limit < 0) {
     return 0;
   }
 
@@ -416,7 +416,9 @@ export async function reserveCrawlRunDetailJobs(
     with allowance as (
       select
         id,
-        least(${requestedCount}, greatest(${limit} - detail_jobs_scheduled, 0))::int as reserved_count
+        case when ${limit} = 0 then ${requestedCount}
+          else least(${requestedCount}, greatest(${limit} - detail_jobs_scheduled, 0))
+        end::int as reserved_count
       from crawl_runs
       where id = ${crawlRunId}
         and status = 'running'

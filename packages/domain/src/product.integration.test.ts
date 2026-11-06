@@ -348,6 +348,28 @@ describeDatabase("PostgreSQL product integration", () => {
     await expect(sql`insert into listing_gallery_sources(listing_id,raw_listing_record_id) values(${listingId},gen_random_uuid())`).rejects.toThrow();
   });
 
+  it("reserves every detail candidate when the per-run limit is zero", async () => {
+    const queryId = await insertSourceQuery("current", "unlimited-detail-test");
+    const [run] = await sql<{ id: string }[]>`
+      insert into crawl_runs (
+        source, search_query_id, crawl_kind, vehicle_category, status, started_at
+      ) values ('nettiauto', ${queryId}, 'current', 'passenger_car', 'running', now())
+      returning id
+    `;
+    if (!run) throw new Error("Failed to create test Crawl Run.");
+
+    expect(await reserveCrawlRunDetailJobs(sql, run.id, 30, 0)).toBe(30);
+    expect(await reserveCrawlRunDetailJobs(sql, run.id, 30, 0)).toBe(30);
+    expect(await reserveCrawlRunDetailJobs(sql, run.id, 0, 0)).toBe(0);
+    const [reserved] = await sql<{ count: number }[]>`
+      select detail_jobs_scheduled as count from crawl_runs where id = ${run.id}
+    `;
+    expect(reserved?.count).toBe(60);
+
+    await sql`update crawl_runs set status = 'completed' where id = ${run.id}`;
+    expect(await reserveCrawlRunDetailJobs(sql, run.id, 30, 0)).toBe(0);
+  });
+
   it("enforces detail budgets and excludes administratively paused queries", async () => {
     const queryId = await insertSourceQuery("current", "budget-test");
     const [run] = await sql<{ id: string }[]>`

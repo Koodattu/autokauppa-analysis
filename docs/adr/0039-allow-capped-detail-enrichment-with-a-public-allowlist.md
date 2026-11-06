@@ -6,9 +6,10 @@ and explicitly modeled technical specifications. Removing that established capab
 the product materially less useful, but retaining arbitrary normalized detail fields would allow
 private or unexpected source data to cross into analytical and public storage without review.
 
-Detail enrichment is therefore allowed as a separately opt-in, per-run-capped crawl tier.
-`CRAWLER_DETAIL_ENABLED` remains false by default and `CRAWLER_DETAIL_MAX_PER_RUN` remains the hard
-limit for scheduled detail jobs. Search-result collection remains the authoritative Crawl Run; a
+Detail enrichment is therefore allowed as a separately opt-in crawl tier with a configurable per-run cap.
+`CRAWLER_DETAIL_ENABLED` remains false by default. Positive `CRAWLER_DETAIL_MAX_PER_RUN` values cap
+scheduled detail jobs; `0` schedules all candidates while retaining request pacing. Use
+`CRAWLER_DETAIL_ENABLED=false` to disable enrichment. Search-result collection remains the authoritative Crawl Run; a
 detail-page failure must not change its completion status.
 
 Raw Listing Data may retain the fetched detail HTML and source payload for provenance and controlled
