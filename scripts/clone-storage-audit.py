@@ -20,7 +20,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "nettiauto-analytics-postgres-1"
-IMAGE = "postgres:18.4-alpine"
+IMAGE = "postgres:18.7-alpine@sha256:b6972e1115a4ff8eba5d7f7d19184926d1e16d7d1136ae1e1a7ebf286da0f015"
 DATABASE = "nettiauto_audit_test"
 ROLE = "nettiauto"
 LABEL = "dev.koodattu.nettiauto-storage-audit"

@@ -10,9 +10,9 @@
   },
   "dependencies": {
     "@nettiauto/schemas": "workspace:*",
-    "cheerio": "^1.1.2"
+    "cheerio": "^1.2.0"
   },
   "devDependencies": {
-    "postgres": "^3.4.9"
+    "postgres": "^4.1.1"
   }
 }

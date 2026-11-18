@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22.23.4-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS node-runtime
+FROM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS node-runtime
 
-FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 AS manifests
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS manifests
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -31,25 +31,24 @@ COPY packages/schemas/src packages/schemas/src
 RUN bun --cwd apps/worker build
 
 FROM manifests AS runner
-# Alpine 3.22 still ships Node 22.23.2; use the patched Node 22 binary.
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 RUN apk add --no-cache ca-certificates libatomic \
-    && node --version | grep -qx 'v22.23.4'
+    && node --version | grep -qx 'v26.13.1'
 RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache,sharing=locked \
-    bun install --frozen-lockfile --production --filter '@nettiauto/worker'
+    bun install --frozen-lockfile --production --filter '@nettiauto/worker' \
+    && chmod -R a+rX /app
 
 ENV NODE_ENV=production
 
-COPY --from=build /app/apps/worker/dist apps/worker/dist
-COPY apps/worker/graphile.config.mjs apps/worker/crontab apps/worker/
-COPY packages/config/src packages/config/src
-COPY packages/db/src packages/db/src
-COPY packages/domain/src packages/domain/src
-COPY packages/logging/src packages/logging/src
-COPY packages/schemas/src packages/schemas/src
+COPY --chmod=a+rX --from=build /app/apps/worker/dist apps/worker/dist
+COPY --chmod=a+rX apps/worker/graphile.config.mjs apps/worker/crontab apps/worker/
+COPY --chmod=a+rX packages/config/src packages/config/src
+COPY --chmod=a+rX packages/db/src packages/db/src
+COPY --chmod=a+rX packages/domain/src packages/domain/src
+COPY --chmod=a+rX packages/logging/src packages/logging/src
+COPY --chmod=a+rX packages/schemas/src packages/schemas/src
 
-RUN chmod -R a+rX /app \
-    && mkdir -p /data/hero-images \
+RUN mkdir -p /data/hero-images \
     && chown -R bun:bun /data/hero-images
 
 WORKDIR /app/apps/worker

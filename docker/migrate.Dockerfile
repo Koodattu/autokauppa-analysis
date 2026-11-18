@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -14,13 +14,12 @@ COPY packages/logging/package.json packages/logging/package.json
 COPY packages/schemas/package.json packages/schemas/package.json
 COPY packages/ui/package.json packages/ui/package.json
 RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache,sharing=locked \
-    bun install --frozen-lockfile --filter './packages/db'
+    bun install --frozen-lockfile --filter './packages/db' \
+    && chmod -R a+rX /app
 
-COPY packages/db/drizzle.config.ts packages/db/
-COPY packages/db/drizzle packages/db/drizzle
-COPY packages/db/src packages/db/src
-
-RUN chmod -R a+rX /app
+COPY --chmod=a+rX packages/db/drizzle.config.ts packages/db/
+COPY --chmod=a+rX packages/db/drizzle packages/db/drizzle
+COPY --chmod=a+rX packages/db/src packages/db/src
 
 WORKDIR /app/packages/db
 USER bun

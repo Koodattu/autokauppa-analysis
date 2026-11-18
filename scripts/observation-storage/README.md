@@ -19,11 +19,11 @@ create or restore a full database copy.
 From the repository root, with Docker, Python, Bun and the existing dependencies:
 
 ```powershell
-docker pull postgres:18.4-alpine
+docker pull postgres:18.7-alpine@sha256:b6972e1115a4ff8eba5d7f7d19184926d1e16d7d1136ae1e1a7ebf286da0f015
 python scripts/observation-storage/run.py benchmark
 ```
 
-The runner creates a uniquely named, localhost-only PostgreSQL 18.4 container,
+The runner creates a uniquely named, localhost-only PostgreSQL 18.7 container,
 limited to two CPUs and 1.5 GiB RAM. PostgreSQL data is in temporary memory-backed
 storage. Only that container is stopped and removed in `finally`. Existing
 containers, databases and volumes are never reused or modified. The database

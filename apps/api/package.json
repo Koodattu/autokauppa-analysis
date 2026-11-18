@@ -14,10 +14,10 @@
     "@nettiauto/domain": "workspace:*",
     "@nettiauto/logging": "workspace:*",
     "@nettiauto/schemas": "workspace:*",
-    "hono": "^4.13.11"
+    "hono": "^4.13.19"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "graphile-worker": "^0.17.2"
+    "@types/bun": "^1.4.4",
+    "graphile-worker": "^0.18.0"
   }
 }

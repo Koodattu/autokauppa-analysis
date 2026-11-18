@@ -20,7 +20,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PRIVATE = ROOT / "backups" / "observation-prototype"
-IMAGE = "postgres:18.4-alpine"
+IMAGE = "postgres:18.7-alpine@sha256:b6972e1115a4ff8eba5d7f7d19184926d1e16d7d1136ae1e1a7ebf286da0f015"
 
 
 def validate_similarity(value):
