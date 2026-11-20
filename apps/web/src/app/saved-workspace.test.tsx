@@ -94,6 +94,20 @@ describe("saved research views", () => {
 });
 
 describe("saved cars and comparison", () => {
+  it("keeps the current view for matching IDs and offers a new comparison for a different selection", async () => {
+    const cars = ["1", "2"].map((suffix) => ({ id: `00000000-0000-4000-8000-00000000000${suffix}`, title: `Car ${suffix}` }));
+    localStorage.setItem(key, JSON.stringify({ cars, shortlist: [], searches: [] }));
+    location.search = `ids=${cars[1].id},${cars[0].id}&reference=${cars[1].id}&differences=1`;
+    root = createRoot(container);
+    const render = () => root!.render(<><ComparisonTray /><SavedWorkspace /></>);
+    await act(render);
+    expect(container.querySelector(".comparison-tray a")).toBeNull();
+    expect(container.querySelector(".saved-selection > a")?.getAttribute("href")).toBe("#car-comparison");
+    location.search = `ids=${cars[0].id}`;
+    await act(render);
+    const target = new URL(container.querySelector<HTMLAnchorElement>(".comparison-tray a")!.href);
+    expect(target.searchParams.get("ids")).toBe(cars.map((car) => car.id).join(","));
+  });
   it.each(["/", "/compare"])("returns from saved and selected cars to the workspace on %s", async (pathname) => {
     const car = { id: "00000000-0000-4000-8000-000000000001", title: "Saved candidate" };
     location.pathname = pathname;

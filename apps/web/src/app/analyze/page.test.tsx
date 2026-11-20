@@ -49,6 +49,10 @@ describe("research history journey", () => {
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(await AnalysisPage({ searchParams: Promise.resolve(params) }));
     const histories = container.querySelectorAll("#research-trend .chart-panel");
+    const factors = container.querySelector("#research-exploration")!;
+    expect(factors.querySelector("h2")?.textContent).toContain("primary group");
+    expect(factors.querySelector(".research-scope")?.textContent).toContain("Make: Toyota");
+    expect(factors.querySelector(".research-scope")?.textContent).toContain("Observed to: 2026-09-30");
     expect(histories).toHaveLength(2);
     expect(histories[0].textContent).toContain("20\u00a0000 €");
     expect(histories[1].textContent).toContain("30\u00a0000 €");
@@ -95,6 +99,6 @@ describe("research history journey", () => {
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(await AnalysisPage({ searchParams: Promise.resolve({ make: "Toyota", comparing: "1", compareMake: "Tesla" }) }));
     expect(container.textContent).toContain("Your filters are kept in the address");
-    expect(container.querySelector("button")?.textContent).toBe("Try again");
+    expect(container.querySelector(".panel button")?.textContent).toBe("Try again");
   });
 });

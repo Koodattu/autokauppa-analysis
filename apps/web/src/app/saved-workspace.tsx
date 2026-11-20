@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { compareHref, EMPTY_SAVED, parseSavedState, type SavedState } from "@/lib/saved-views";
+import { compareHref, EMPTY_SAVED, parseCompareIds, parseSavedState, type SavedState } from "@/lib/saved-views";
 import { listingSummariesResponseSchema, MAX_SAVED_CARS, type ListingSummary } from "@nettiauto/schemas";
 import { formatDate, formatKm, formatListingPrice, labelAvailability } from "@/lib/format";
 
@@ -48,12 +48,21 @@ export function SaveCar({ id, title }: { id: string; title: string }) {
   </button>{error && <span role="status">{error}</span>}</span>;
 }
 
+function isOpenSelection(pathname: string, ids: string | null, cars: SavedState["cars"]) {
+  if (pathname !== "/compare") return false;
+  const shown = parseCompareIds(ids ?? undefined);
+  return shown?.length === cars.length && cars.every((car) => shown.includes(car.id));
+}
+
 export function ComparisonTray() {
   const { saved, save, error } = useSaved();
+  const pathname = usePathname();
+  const params = useSearchParams();
   if (!saved.cars.length) return null;
+  const alreadyComparing = isOpenSelection(pathname, params.get("ids"), saved.cars);
   return <aside className="comparison-tray" aria-label="Selected cars">
     <span>{saved.cars.length} / 4 cars selected</span>
-    <Link className="button-link" href={compareHref(saved.cars.map((car) => car.id))}>Compare selected cars</Link>
+    {!alreadyComparing && <Link className="button-link" href={compareHref(saved.cars.map((car) => car.id))}>Compare selected cars</Link>}
     <button className="secondary-button" onClick={() => save({ ...saved, cars: [] })}>Clear selection</button>
     {error && <span role="status">{error}</span>}
   </aside>;
@@ -121,7 +130,9 @@ export function SavedWorkspace() {
           <button className="secondary-button" aria-label={`Remove ${car.title} from comparison`} onClick={() => save({ ...saved, cars: saved.cars.filter((item) => item.id !== car.id) })}>Remove</button>
         </li>)}</ul>
       </div>
-      <Link className="button-link" href={compareHref(saved.cars.map((car) => car.id))}>Open comparison</Link>
+      {isOpenSelection(pathname, params.get("ids"), saved.cars)
+        ? <a className="button-link" href="#car-comparison">Open comparison</a>
+        : <Link className="button-link" href={compareHref(saved.cars.map((car) => car.id))}>Open comparison</Link>}
     </div>}
     <SavedCars cars={saved.shortlist} returnTo={returnTo} />
     <div className="saved-views"><h3>Saved views · {saved.searches.length} / 12</h3>

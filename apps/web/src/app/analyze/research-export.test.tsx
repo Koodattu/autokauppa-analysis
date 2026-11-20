@@ -44,6 +44,22 @@ describe("research results and evidence download", () => {
     expect(new URL(links[1].href).searchParams.has("priceMax")).toBe(false);
   });
 
+  it("intersects partial and open-ended bands with the selected budget in both labels and links", () => {
+    const data = evidence();
+    data.priceBands = [{ from: 16000, to: 20000, count: 6 }, { from: 20000, to: null, count: 8 }];
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<ResearchExploration data={data}
+      params={{ priceMin: "17500", priceMax: "23000", comparing: "1", comparePriceMin: "5000" }} />);
+    const links = [...container.querySelectorAll<HTMLAnchorElement>(".distribution-bars a")];
+    expect(links.map((link) => link.firstElementChild?.textContent)).toEqual([
+      "17\u00a0500 €–19\u00a0999 €", "20\u00a0000 €–23\u00a0000 €",
+    ]);
+    expect(links.map((link) => Object.fromEntries(new URL(link.href).searchParams))).toEqual([
+      { priceMin: "17500", priceMax: "19999", comparing: "1", comparePriceMin: "5000" },
+      { priceMin: "20000", priceMax: "23000", comparing: "1", comparePriceMin: "5000" },
+    ]);
+  });
+
   it.each([false, true])("offers scoped ordering beside the evidence (comparison: %s)", (comparison) => {
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(<ResearchEvidence data={evidence()} params={{

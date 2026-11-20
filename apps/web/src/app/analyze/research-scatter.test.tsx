@@ -15,6 +15,34 @@ describe("research point labels", () => {
     ]);
   });
 
+  it("supports a single Tab stop, arrow selection and tapping near a point", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<PriceMileagePlot data={researchData()} />));
+      const chart = container.querySelector("svg")!;
+      const points = chart.querySelectorAll<SVGCircleElement>('[role="radio"]');
+      expect([...points].map((point) => point.tabIndex)).toEqual([0, -1]);
+      points[0].focus();
+      await act(async () => { points[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); });
+      expect(document.activeElement).toBe(points[1]);
+      expect(points[1].getAttribute("aria-checked")).toBe("true");
+      expect([...points].map((point) => point.tabIndex)).toEqual([-1, 0]);
+
+      vi.spyOn(chart, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 20, 200, 100));
+      // First point is centered at (110, 70). A tap 18 CSS pixels away should select it.
+      await act(async () => { chart.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 128, clientY: 70 })); });
+      expect(points[0].getAttribute("aria-checked")).toBe("true");
+      expect(container.querySelector(".research-note")?.textContent).toContain("50\u00a0000 km");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("uses the selected period's values and hides a selection outside the new filtered sample", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");

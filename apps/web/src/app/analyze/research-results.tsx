@@ -4,7 +4,7 @@ import type { ResearchResponse } from "@/lib/api";
 import { formatCurrency, formatListingPrice, formatPriceBand, formatDate, formatDateTime, formatKm, formatNumber } from "@/lib/format";
 import { comparisonParams, researchHref, researchListingHref } from "@/lib/research-navigation";
 import { selectedFilterLabels } from "@/lib/market-scope";
-import type { WebSearchParams } from "@/lib/url-filter-navigation";
+import { singleSearchParam, type WebSearchParams } from "@/lib/url-filter-navigation";
 import { PriceMileagePlot } from "./research-scatter";
 import { SaveCar } from "../saved-workspace";
 import { researchEvidenceCsv } from "@/lib/research-export";
@@ -35,13 +35,24 @@ export function ResearchSummary({ data, title, params, children, id }: { data: R
   </section>;
 }
 
-export function ResearchExploration({ data, params }: { data: ResearchResponse; params: WebSearchParams }) {
+export function ResearchExploration({ data, params, comparing = false }: { data: ResearchResponse; params: WebSearchParams; comparing?: boolean }) {
   const maxBand = Math.max(1, ...data.priceBands.map((band) => band.count));
+  const priceFloor = Number(singleSearchParam(params.priceMin));
+  const priceCeiling = Number(singleSearchParam(params.priceMax) || Infinity);
   const groups = [["Fuel", "fuelType", data.fuels], ["Transmission", "transmission", data.transmissions], ["Body style", "bodyType", data.bodies]] as const;
-  return <section className="analysis-chapter" id="research-exploration"><h2>What shapes the price?</h2><p>Select a price band or vehicle group to inspect its distribution and recorded listings. Counts and ranges describe this selected period.</p>
-    <div className="analytics-grid"><section className="chart-panel"><h3>Price distribution</h3><div className="distribution-bars">{data.priceBands.map((band) => <Link key={band.from} href={researchHref(params, { priceMin: band.from, priceMax: band.to === null ? undefined : band.to - 1 })}>
-      <span>{formatPriceBand(band.from, band.to)}</span><span className="distribution-track"><span style={{ width: `${band.count / maxBand * 100}%` }} /></span><strong>{formatNumber(band.count)}</strong>
-    </Link>)}{!data.priceBands.length && <p>No priced listings in this scope.</p>}</div></section>
+  return <section className="analysis-chapter" id="research-exploration"><h2>{comparing ? "Price factors for the primary group" : "What shapes the price?"}</h2>
+    {comparing && <p className="research-scope">{selectedFilterLabels(params, "analytics").join(" · ")}{data.mode === "current" && (data.observedTo ? ` · Last observed ${formatDate(data.observedTo)}` : " · Latest stored listings")}</p>}
+    <p>Select a price band or vehicle group to inspect its distribution and recorded listings.</p>
+    <div className="analytics-grid"><section className="chart-panel"><h3>Price distribution</h3><div className="distribution-bars">{data.priceBands.map((band) => {
+      const from = Math.max(band.from, priceFloor);
+      const to = Math.min(band.to ?? Infinity, priceCeiling + 1);
+      const priceMax = Number.isFinite(to) ? to - 1 : undefined;
+      return <Link key={band.from} href={researchHref(params, { priceMin: from, priceMax })}>
+        <span>{formatPriceBand(from, Number.isFinite(to) ? to : null)}</span>
+        <span className="distribution-track"><span style={{ width: `${band.count / maxBand * 100}%` }} /></span>
+        <strong>{formatNumber(band.count)}</strong>
+      </Link>;
+    })}{!data.priceBands.length && <p>No priced listings in this scope.</p>}</div></section>
     <section className="chart-panel"><h3>Price versus mileage</h3><PriceMileagePlot data={data} params={params} /></section></div>
     <div className="research-feature-grid">{groups.map(([title, key, rows]) => <section className="panel" key={key}><h3>{title}</h3><p>Median and middle 50% of priced listings. Other vehicle differences may explain the gap.</p><ul className="feature-groups">{rows.map((row) => <li key={row.label}><Link href={researchHref(params, { [key]: row.label })}>{row.label}</Link><strong>{formatCurrency(row.median)}</strong><small>{formatCurrency(row.p25)}–{formatCurrency(row.p75)} · {row.count} prices{row.count < 5 ? " · small sample" : ""}<br />Median model year {row.medianYear ?? "unknown"} · {formatKm(row.medianMileage)}</small></li>)}</ul>{!rows.length && <p>No known {title.toLowerCase()} with prices in this scope.</p>}</section>)}</div>
     <section className="panel"><h3>Model year and mileage together</h3><p>Each cell groups one model year and 25,000 km. Select a group to inspect the cars behind it. This compares different cars, not depreciation of the same car.</p><details className="chart-data"><summary>Explore {data.yearMileage.length} year and mileage groups</summary><div className="chart-table-wrap"><table className="chart-table"><thead><tr><th scope="col">Model year</th><th scope="col">Mileage</th><th scope="col">Median price</th><th scope="col">Middle 50%</th><th scope="col">Prices</th></tr></thead><tbody>{data.yearMileage.map((row) => <tr key={`${row.year}-${row.mileageFrom}`}><td>{row.year}</td><td><Link href={researchHref(params, { modelYear: row.year, modelYearFrom: undefined, modelYearTo: undefined, mileageMin: row.mileageFrom, mileageMax: Math.min(2000000, row.mileageFrom + 24999) })}>{formatKm(row.mileageFrom)}–{formatKm(row.mileageFrom + 24999)}</Link></td><td>{formatCurrency(row.median)}</td><td>{formatCurrency(row.p25)}–{formatCurrency(row.p75)}</td><td>{row.count}{row.count < 5 ? " · small sample" : ""}</td></tr>)}</tbody></table></div></details></section>

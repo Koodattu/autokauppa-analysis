@@ -59,7 +59,7 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
     <details className="research-save"><summary>Save or share this research</summary><SaveSearch href={researchHref(params, { page: primary.query.page })} title={`${title} price research`} /></details>
     {(primary.query.priceMin !== undefined || primary.query.priceMax !== undefined) && <p className="research-note">A price filter changes the reference distribution. <Link href={researchHref(params, { priceMin: undefined, priceMax: undefined })}>Study this group without a price limit</Link>.</p>}
     <ResearchHistory primary={series} comparison={comparedSeries} params={params} />
-    <ResearchExploration data={research} params={params} />
+    <ResearchExploration data={research} params={params} comparing={Boolean(compared)} />
     <ResearchEvidence data={research} params={params} />
     {compared && <ResearchEvidence data={compared} params={params} comparison />}
   </main>;

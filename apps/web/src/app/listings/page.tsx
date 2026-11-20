@@ -55,11 +55,11 @@ export default async function ListingsPage({ searchParams }: PageProps) {
   return (
     <main className="shell public-shell">
       <SiteHeader active="listings" />
-      <section className="page-heading compact-heading">
+      <section className="page-heading compact-heading listing-results-heading">
         <div className="heading-copy">
           <h1>Matching listings</h1>
           <p className="heading-meta">
-            {formatNumber(listings.pagination.totalItems)} results in this market scope · observed through {formatDateTime(listings.coverage.lastRelevantCrawlAt)}
+            {formatNumber(listings.pagination.totalItems)} results · observed through {formatDateTime(listings.coverage.lastRelevantCrawlAt)}
           </p>
         </div>
         <Link className="button-link secondary-button" href={navigation.analyticsHref}>
@@ -74,7 +74,7 @@ export default async function ListingsPage({ searchParams }: PageProps) {
           <MarketFilterForm action="/listings" filters={filters} params={params} variant="listings" resultAnchor="listing-results" />
         </details>
         <details className="listing-save">
-          <summary>Save or share this search</summary>
+          <summary>Save or share</summary>
           <SaveSearch href={navigation.pageHref(listings.pagination.page)} title="Car search" />
         </details>
       </section>
@@ -83,13 +83,12 @@ export default async function ListingsPage({ searchParams }: PageProps) {
 
       <section id="listing-results" className="table-wrap listing-results" aria-label="Listings">
         <div className="section-heading">
-          <div>
-            <h2>Listings</h2>
-            <p>Observed asking prices and availability—not completed transactions.</p>
+          <div className="listing-results-context">
+            <h2>Page {listings.pagination.page} of {listings.pagination.totalPages}</h2>
+            <p>Prices shown on observed listings.</p>
           </div>
           <ResultSort key={navigation.queryString} href={navigation.pageHref(listings.pagination.page)} />
         </div>
-        <p className="listing-page-count">{formatNumber(listings.pagination.totalItems)} total · page {listings.pagination.page} of {listings.pagination.totalPages}</p>
         {listings.items.length === 0 ? (
           <div className="empty-state">
             <h2>No matching listings</h2>

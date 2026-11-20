@@ -36,7 +36,7 @@ export function ResultSort({ href, scope = "listings" }: { href: string; scope?:
       <option value="mileageDesc">Highest mileage</option>
       <option value="yearDesc">Newest model year</option>
     </select></label>
-    <button className="secondary-button" disabled={pending}>{pending ? "Sorting…" : listings ? "Sort listings" : "Sort evidence"}</button>
+    <button className="secondary-button" aria-label={listings && !pending ? "Sort listings" : undefined} disabled={pending}>{pending ? "Sorting…" : listings ? "Sort" : "Sort evidence"}</button>
     <span className="sr-only" role="status">{pending ? (listings ? "Updating listing order" : `Updating ${scope} evidence order`) : ""}</span>
   </form>;
 }

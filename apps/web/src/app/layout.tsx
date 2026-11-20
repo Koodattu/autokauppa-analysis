@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { APP_LOCALE } from "@/lib/format";
 import "./globals.css";
 import "./public.css";
@@ -23,7 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang={APP_LOCALE}>
-      <body>{children}<ComparisonTray /></body>
+      <body>{children}<Suspense fallback={null}><ComparisonTray /></Suspense></body>
     </html>
   );
 }

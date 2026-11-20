@@ -20,5 +20,5 @@ it("keeps the originating saved workspace reachable during a recoverable detail 
   expect(container.textContent).toContain("Listing is temporarily unavailable");
   const link = [...container.querySelectorAll("a")].find((item) => item.textContent === "Back to saved workspace");
   expect(link?.getAttribute("href")).toBe(returnTo);
-  expect(container.querySelector("button")?.textContent).toBe("Try again");
+  expect(container.querySelector(".panel button")?.textContent).toBe("Try again");
 });
